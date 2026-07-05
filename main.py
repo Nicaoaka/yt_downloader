@@ -5,169 +5,241 @@ import time
 import random
 import pprint
 
-from yt_dlp import YoutubeDL
-
 from config import *
+import config
 from yt_types import *
-from yt_types import empty_Metadata
+import yt_types
 import utils
 import display
 import yt_wrapper
 import post_processing
 
-def _validate_cookies():
-    if COOKIE_FILE is not None:
-        if not os.path.exists(COOKIE_FILE):
-            raise ValueError("COOKIE_FILE does not exist")
-        with open(COOKIE_FILE, 'r') as f:
-            if len(f.read()) == 0:
-                raise ValueError("COOKIE_FILE is empty")
+
+
+def dif_sets(a: set, b: set) -> tuple[set, set]:
+    return a - b, b - a
+
+def eval_with_dif_epoch(pl_info: PL_InfoDict, new_epoch: int, tmpl: str):
+    """ Temporarily swaps 'epoch' for outtmpl eval """
+    __temp_pl_info_epoch = pl_info.get('epoch')
+    pl_info['epoch'] = new_epoch
+    path = yt_wrapper.ytdlp_eval_tmpl(tmpl, pl_info)
+    if __temp_pl_info_epoch:
+        pl_info['epoch'] = __temp_pl_info_epoch
+    else:
+        pl_info.pop('epoch')
+    return path
+
+def get_latest_epoch(pl_info: PL_InfoDict) -> int:
+    latest = max(entry.get('epoch', 0) for entry in pl_info['entries'])
+    latest = max(latest, pl_info.get('epoch', 0))
+    if latest <= 0:
+        utils.WARNING(f"Latest got malformed or missing epoch: {latest}")
+    return latest
+
+
+# TODO: Convert to class
+# WHY:
+# Data is being changed all over,
+# This causes functional programming to get messy
+# Not pure functions anyway
+
+
+def _validate_path(p: str|None, name: str):
+    if p is not None:
+        if not os.path.exists(p):
+            raise FileNotFoundError(f"{name} does not exist")
+        if os.stat(p).st_size == 0:
+            raise RuntimeError(f"{name} is empty. Expected content.")
+
+def _validate_metadata(old_metadata: Metadata, curr: Metadata):
+
+    # keys
+    if set(old_metadata.keys()) != set(Metadata.__required_keys__):
+        extra, msissing = dif_sets(set(old_metadata.keys()), set(Metadata.__required_keys__))
+        raise ValueError(
+            f"Malformed metadata!\n"
+            f"Extra keys: {extra}\n"
+            f"Missing keys: {msissing}\n")
+    
+    # files
+    for k in yt_types._MetadataFiles.__required_keys__:
+        _validate_path(old_metadata['path_tmpls'][k], k)
+
+    # path_tmpls
+    if old_metadata['path_tmpls'] is not {} and old_metadata['path_tmpls'] != curr['path_tmpls']:
+        raise ValueError("Malformed 'path_tmpls' in old metadata")
+
+def _validate_dl_archive_sync(yt_dlp_archive, metadata):
+    ytdlp_dl = set(utils.ids_from_ytdlp(yt_dlp_archive))
+    hist_dl = set(utils.ids_from_history(metadata['history'])['download'])
+    if ytdlp_dl != hist_dl:
+        raise ValueError(f"Detected download state mismatch:\nytdlp-only: {ytdlp_dl - hist_dl}\nhist-only: {hist_dl - ytdlp_dl}")
+
+
 
 def __pl_input_is_path():
-    return os.path.exists(PL_ID_OR_PATH)
+    return os.path.exists(PLAYLIST_IDENTIFIER)
 
-def _get_flat_info():
+def _get_flat_info() -> tuple[PL_InfoDict, bool]:
+    """ Get flat playlist info from existing file or extraction.
+    If given a file and pl_info epoch is older than `REFRESH_AFTER`, extract again.
+    Does not update `config.py` file to the new path!
+
+    Raises:
+        ValueError: If unrecognizedPlaylist input
+
+    Returns:
+        tuple[PL_InfoDict, bool]: Info and if it is new info (newly extracted)
+    """
     # get flat playlist info - new or existing
     if __pl_input_is_path():
-        pl_info: PL_InfoDict = utils.json_load(PL_ID_OR_PATH)
-        if (utils.now_as_epoch() - (pl_info.get('epoch') or 0)) > REFRESH_AFTER:
-            pl_info = yt_wrapper.extract_flat_info(PL_ID_OR_PATH, opts={'cookiefile': COOKIE_FILE})
-    elif utils.is_id_like(PL_ID_OR_PATH, False) or 'list=' in PL_ID_OR_PATH:
-        pl_info = yt_wrapper.extract_flat_info(PL_ID_OR_PATH, opts={'cookiefile': COOKIE_FILE})
+        pl_info: PL_InfoDict = utils.json_load(PLAYLIST_IDENTIFIER)
+        is_new = False
+        if (utils.epoch_now() - (pl_info.get('epoch') or 0)) > REFRESH_AFTER:
+            pl_info = yt_wrapper.extract_flat_info(pl_info['id'], opts={'cookiefile': COOKIE_FILE})
+            is_new = True
+    elif utils.is_id_like(PLAYLIST_IDENTIFIER, False) or 'list=' in PLAYLIST_IDENTIFIER:
+        pl_info = yt_wrapper.extract_flat_info(PLAYLIST_IDENTIFIER, opts={'cookiefile': COOKIE_FILE})
+        is_new = True
     else:
-        raise ValueError(f'{PL_ID_OR_PATH} does not resemble a valid id or path!')
+        raise ValueError(f'{PLAYLIST_IDENTIFIER} does not resemble a valid id or path!')
     
-    return pl_info
-
-def make_pl_info_path(tmpl, info, pre_suffix=''):
-    p = Path(HOME) / YoutubeDL().evaluate_outtmpl(tmpl, info, True)
-    if not pre_suffix:
-        return str(p)
-    return str(p.with_suffix(f'.{pre_suffix}.json'))
+    return pl_info, is_new
 
 
-# TODO Refactor to lower complexity
-def download_pl():
 
-    _validate_cookies()
+def add_metadata_history(pl_info: PL_InfoDict, metadata: Metadata, download_info: PL_DownloadInfo):
+    __now = utils.epoch_now()
+    if pl_info.get('epoch') is None:
+        pl_info['epoch'] = __now
+        utils.WARNING(f"pl_info epoch not found or is None, setting to current time: {__now}")
+    
+    if str(pl_info.get('epoch')) in metadata['history']:
+        metadata['history'][str(__now)] = download_info
+        utils.WARNING(f"pl_info epoch already exists in history, setting to current time: {__now}")
+    else:
+        metadata['history'][str(pl_info.get('epoch'))] = download_info
 
-    pl_info = _get_flat_info()
+
+
+def _write_pl_info(pl_info: PL_InfoDict, tmpl: str) -> str:
+    """ Writes the raw pl_info, changes the file epoch to the latest epoch """
+    
+    # set epoch to most recent v_info epoch
+    latest_epoch = get_latest_epoch(pl_info)
+    path = eval_with_dif_epoch(pl_info, latest_epoch, tmpl)
+    utils.json_dump(pl_info, path)
+    return path
+
+def _write_merge_info(pl_info: PL_InfoDict, old___________: str|None, tmpl: str) -> tuple[PL_InfoDict, str]:
+    """ Writes merge_info, sets time to latest epoch """
+
+    def _get_merge_info(curr: PL_InfoDict, p: str|None):
+        # support using the flat playlist over and over, building the merge
+        if p is None or not os.path.exists(p):
+            return None
+        old_pl_info: PL_InfoDict = utils.json_load(p, default=None)
+        if not isinstance(old_pl_info, dict):
+            return None
+        return post_processing.merge_pl_infos([curr, old_pl_info])
+    
+    merge_info = _get_merge_info(pl_info, old___________)
+    latest_epoch = get_latest_epoch(merge_info or pl_info)
+    path = eval_with_dif_epoch(pl_info, latest_epoch, tmpl)
+    utils.json_dump(merge_info, path)
+    return merge_info or pl_info, path
+
+
+
+
+# TODO: Allow metadata path as the Playlist Identifier
+def download_playlist():
+
+    # Validation
+    _validate_path(COOKIE_FILE, 'Cookie File')
+
+    pl_info, is_new_pl_info = _get_flat_info()
+
+    metadata: Metadata = yt_types.empty_Metadata()
+    # Delete cookies ASAP
     if DELETE_COOKIES and COOKIE_FILE:
-        with open(COOKIE_FILE, 'w') as f: ...
+        with open(COOKIE_FILE, 'w'):
+            ... # clear contents of file
 
-    # Get outtmpl paths
-    paths, pl_path, v_path = yt_wrapper.make_paths(
-        Home               = HOME,
-        # \/\/\/ for more flexibility the pl dirname is here instead of in config \/\/\/
-        Playlist           = f'{pl_info['title'] or '[no title]'} [{utils.truncate(pl_info['id'], 11, end_in_max=False, trunc_start=True)}]',
-        indiv_video_folders = INDIVIDUAL_VIDEO_FOLDERS,
-        pl_archive          = ARCHIVE_FN)
+    # Get paths
+    opt_paths, req_paths = yt_wrapper.make_paths(pl_info)
+    metadata['path_tmpls'] = PATH_TMPLS
+    metadata['path_tmpls']['Playlist'] = os.path.relpath(req_paths['Playlist'], req_paths['Home']) # must be resolved/stable
+
+    # Write flat ASAP
+    if WRITE_FLAT and is_new_pl_info:
+        metadata['latest_flat_info'] = yt_wrapper.ytdlp_eval_tmpl(req_paths['flat_infojson'], pl_info) # type: ignore
+        utils.json_dump(pl_info, metadata['latest_flat_info'])
     
-    best_info_path = None
-    if not __pl_input_is_path() and WRITE_FLAT and not os.path.exists(PL_ID_OR_PATH):
-        best_info_path = make_pl_info_path(paths['outtmpl']['pl_infojson'], pl_info, 'flat') # type: ignore
-        utils.json_dump( pl_info, best_info_path )
+    # Load metadata
+    metadata_path = os.path.join(req_paths['metadata'])
+    old_metadata: Metadata = utils.json_load(metadata_path, yt_types.empty_Metadata())
+    _validate_metadata(old_metadata, metadata)
 
-    # Load archives
-    metadata_path = os.path.join(pl_path, METADATA_FN)
-    metadata: Metadata = utils.json_load(metadata_path, empty_Metadata())
 
-    # Validate state
-    if metadata['paths'] and metadata['paths'] != paths:
-        raise ValueError("Detected changed path settings!")
-    metadata['paths'] = copy.deepcopy(paths)
     
     # Load yt_dlp archive for match filter
-    yt_dlp_archive = yt_wrapper.load_yt_archive(paths.get('download_archive'))
-    __dl_ytdlp = set(utils.ids_from_ytdlp(yt_dlp_archive))
-    __dl_hist = set(utils.merge_history(metadata['history'])['download'])
-    if __dl_ytdlp != __dl_hist:
-        raise ValueError(f"Detected download state mismatch:\nytdlp-only: {__dl_ytdlp - __dl_hist}\nhist-only: {__dl_hist - __dl_ytdlp}")
-    del __dl_ytdlp, __dl_hist
+    yt_dlp_archive = yt_wrapper.load_yt_archive(req_paths['ytdlp_archive'])
+    _validate_dl_archive_sync(yt_dlp_archive, metadata)
     
-    opts: YT_DLP_Params = {
-        **OPTS,
-        **paths,
-        'match_filter': yt_dlp_match_filter, # type: ignore
-    }
+    # Build and finalize yt_dlp options
+    opts: YT_DLP_Params = {**OPTS, **opt_paths}
+    config.edit_final_opts_in_place(opts)
+    opts = config.edit_final_opts(opts)
 
-    edit_final_opts_in_place(opts)
-    opts = edit_final_opts(opts)
-
-    # download playlist videos and data based on opts
-    download_info = yt_wrapper.download_pl_videos(
+    # Download playlist videos and data based on opts
+    pl_dl_info = yt_wrapper.download_pl_videos(
         pl_info              = pl_info,
         wrapper_match_filter = lambda v_info, curr: wrapper_match_filter(v_info, curr, metadata['history'], yt_dlp_archive),
         opts                 = opts)
+    metadata['epoch'] = utils.epoch_now()
     
-    if not download_info['extract'] and not download_info['download']:
-        print("No new info")
-        input("Continue anyway?")
-        # TODO
-    
-    if pl_info.get('epoch') is None:
-        pl_info['epoch'] = -utils.now_as_epoch()
-        print(utils.rgb(" WARNING ", bg_rgb=(200,200,0)), f"pl_info epoch not found or is None, setting to negative of current time: {pl_info['epoch']}")
-    if str(pl_info['epoch']) not in metadata['history']: # type: ignore - epoch is an int
-        metadata['history'][pl_info['epoch']] = download_info # type: ignore - epoch is an int
-    else:
-        # set as current time
-        metadata['history'][utils.now_as_epoch()] = download_info
+    # Add download info to metadata history
+    add_metadata_history(pl_info, metadata, pl_dl_info)
 
-    # write raw extract info, act as fallback if no or bad 'best_info_path'
+    # Write raw pl_info (may be the same as flat info)
+    id_dl_info = utils.ids_from_download_info(pl_dl_info)
+    has_new_v_info = id_dl_info['extract'] or id_dl_info['download']
     if WRITE_PL_INFO:
-        best_info_path = make_pl_info_path(paths['outtmpl']['pl_infojson'], pl_info) # type: ignore
-        utils.json_dump(pl_info, best_info_path)
+        if not has_new_v_info:
+            utils.WARNING("pl_info will be the same as flat_info")
+        metadata['latest_pl_info'] = _write_pl_info(pl_info, req_paths['pl_infojson'])
 
-    # write info combined with the previous best info
-    def get_merge_info():
-        # TODO: Make merge epoch `now`
-        # support using the flat playlist over and over, building the merge
+    # Write merge info with the previous best info
+    if WRITE_MERGE:
+        _merge_info, metadata['latest_merge_info'] = _write_merge_info(pl_info, old_metadata['latest_merge_info'] or old_metadata['latest_pl_info'] or old_metadata['latest_flat_info'], req_paths['merge_infojson'])
+        if _merge_info:
+            pl_info = _merge_info    
 
-        old_best_info_path = metadata['best_info_path']
-        if old_best_info_path is None or not os.path.exists(old_best_info_path):
-            return None
-        
-        old_pl_info: PL_InfoDict = utils.json_load(old_best_info_path, default=None)
-        if not isinstance(old_pl_info, dict):
-            print(f"{metadata['best_info_path']} is a malformed json")
-            return None
-        
-        print("Found old_best_info")
-        return post_processing.merge_pl_infos([pl_info, old_pl_info])
-
-    merge_info = None
-    metadata['epoch'] = utils.now_as_epoch()
-    if WRITE_BEST:
-        merge_info = get_merge_info()
-        if merge_info:
-            print("Wrote merge info")
-            __pl_info_epoch = merge_info['epoch'] # type: ignore
-            merge_info['epoch'] = metadata['epoch']
-            best_info_path = make_pl_info_path(paths['outtmpl']['pl_infojson'], merge_info, 'merge') # type: ignore
-            merge_info['epoch'] = __pl_info_epoch
-            utils.json_dump(merge_info, best_info_path)
-        elif not WRITE_PL_INFO:
-            print("Failed to find old best info, writing pl_info instead")
-            best_info_path = make_pl_info_path(paths['outtmpl']['pl_infojson'], pl_info) # type: ignore
-            utils.json_dump(pl_info, best_info_path)
-        else:
-            print('No')
-            # write nothing if no merge_info and WRITE_PL_INFO already wrote pl_info
-
-    metadata['best_info_path'] = best_info_path # type: ignore
+    # Write metadata
     utils.json_dump(metadata, metadata_path, 'rm old')
-    display.download_results(download_info)
 
-def rebuild_merge():
-    pl_infos = []
-    for p in os.listdir('test/The Verge of Impossibility [...3Cfmpjqm-Pa]/Infojson'):
-        for 
-    post_processing.merge_pl_infos()
+    # Display overall results
+    display.pl_download_info(pl_dl_info, errors=True)
+
+# def rebuild_merge(pl_dir, info_dir, out):
+#     pl_infos = []
+#     for p in os.listdir(pl_dir):
+#         for 
+#     post_processing.merge_pl_infos()
+
+
+
+class DownloadPlaylist:
+    def __init__(self) -> None:
+        pass
+
 
 
 def main():
-    # download_pl()
+    download_playlist()
+    pass
 
 if __name__ == "__main__":
     main()

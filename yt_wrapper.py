@@ -1,23 +1,28 @@
 __all__ = [
-    'extract_flat_info', 'download_pl_videos'
+    'ytdlp_eval_tmpl',
+    'download_video',
+    'extract_flat_info', 'download_pl_videos',
+    'make_paths'
 ]
 
-import copy
-from collections import defaultdict
 import os
 import enum
-from typing import Callable
+from typing import Callable, TypedDict
 import traceback
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-import utils 
 from yt_types import *
-import yt_types
+from config import HOME, PATH_TMPLS
+import utils
+import display
 import post_processing
 
-def _download_video(
+def ytdlp_eval_tmpl(tmpl, info):
+    return YoutubeDL().evaluate_outtmpl(tmpl, info, True)
+
+def download_video(
         v_url_or_id: str,
         opts: YT_DLP_Params = {},
         yt: bool = True,
@@ -91,23 +96,22 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
     post_processing.add_pl_info_to_entries(flat_info)
     return flat_info
 
-class DL(enum.IntEnum):
-    USER = -1
-    QUIT = 0
-    SKIP = 1
-    EXTRACT = 2
-    DOWNLOAD = 3
 
-DL_STR_MAP = {
-    DL.QUIT:    utils.rgb(" QUIT ", bg_rgb=(255,   0,   0)),
-    DL.SKIP:    utils.rgb(" SKIP ", bg_rgb=(255, 255,   0)),
-    DL.EXTRACT: utils.rgb(" EXTR ", bg_rgb=(  0, 200, 200)),
-    DL.DOWNLOAD:utils.rgb(" DWLD ", bg_rgb=(  0, 255,   0)),
-}
+
+def get_result(v_info, success: bool) -> DL_Result:
+    if not success:
+        return DL_Result.FAIL
+    if v_info is None:
+        return DL_Result.NO_INFO
+    if not utils.has_extracted_info(v_info):
+        return DL_Result.UNRECOGNIZED
+    if not utils.has_download_info(v_info):
+        return DL_Result.EXTRACT
+    return DL_Result.DOWNLOAD
 
 def download_pl_videos(
         pl_info: PL_InfoDict,
-        wrapper_match_filter: Callable[[PL_V_InfoDict, PL_DownloadInfo], DL]|None = None,
+        wrapper_match_filter: Callable[[PL_V_InfoDict, PL_DownloadInfo], DL_Action]|None = None,
         opts: YT_DLP_Params = {},
         yt: bool = False,
         wa: bool = True,
@@ -120,71 +124,74 @@ def download_pl_videos(
         try_unavailable (bool, optional): Try youtube even if marked as unavailable in flat_info. Defaults to False.
 
     Returns:
-        (DownloadInfo)
+        
     """
-    dl_info: PL_DownloadInfo = yt_types.empty_DownloadInfo()
+    pl_dl_info: PL_DownloadInfo = []
 
     N = len(pl_info['entries'])
+    DL_MAP = {
+        str(action).lower(): action
+        for action in DL_Action
+        if action not in (DL_Action.USER)
+    }
     try:
         for i, entry in enumerate(pl_info['entries']):
-            action = DL.DOWNLOAD
+            action = DL_Action.DOWNLOAD
             if wrapper_match_filter is not None:
-                action = wrapper_match_filter(entry, dl_info)
+                action = wrapper_match_filter(entry, pl_dl_info)
             
-            if action == DL.USER:
-                # TODO
-                print(utils.rgb(" <USER> - Not implemented ", bg_rgb=(0,0,200)))
-                action = DL.EXTRACT
-                pass
+            if action == DL_Action.USER:
+                choice = utils.input_string(
+                    list(DL_MAP.keys()),
+                    f'Pick a Download Option: ',
+                    prefix_options=True,
+                )
+                action = DL_MAP[choice]
             
-            print(DL_STR_MAP[action], utils.rgb(f'[{i+1:{len(str(N))}}/{N}] [{entry['id']}] {entry['title'] or "???"} - {entry.get('channel') or '???'}', (120, 220, 180)))
+            i_of_N = f"{i+1:{len(str(N))}}/{N}"
+            pl_v_display = f'[{i_of_N}] [{entry['id']}] {entry.get('title') or "???"} - {entry.get('channel') or '???'}'
+            print(utils.hex(pl_v_display, '#78dcb4'))
+            print(display.DL_ACTION_STR_MAP[action])
+            input()
 
-            if action == DL.QUIT:
+            pl_dl_info.append({
+                'id': entry['id'],
+                'action': action,
+                'result': DL_Result.CANCELLED,
+                'errors': [],
+            })
+            if action == DL_Action.QUIT:
                 break
-            elif action == DL.SKIP:
-                dl_info['skip'].append(entry['id'])
+            elif action == DL_Action.SKIP:
                 continue
 
             # v_info, errors, success = {}, [], True
-            v_info, errors, success = _download_video(
+            v_info, errors, success = download_video(
                 entry['id'],
                 opts=opts,
                 yt = yt or utils.maybe_available_on_yt(entry),
                 wa = wa,
-                _download = (action==DL.DOWNLOAD)
+                _download = (action == DL_Action.DOWNLOAD)
             )
-            if not success:
-                dl_info['fail'].append(entry['id'])
-            else:
-                if v_info is None:
-                    dl_info['no_info'].append(entry['id'])
-                elif utils.has_extracted_info(v_info):
-                    dl_info['extract'].append(entry['id'])
-                    if utils.has_download_info(v_info):
-                        dl_info['download'].append(entry['id'])
 
-            if errors:
-                dl_info['error'].append( (entry['id'], errors) )
-
+            pl_dl_info[-1] = {
+                'id': entry['id'], 'action': action, 'errors': errors,
+                'result': get_result(v_info, success),
+            }
+            display.download_result(pl_dl_info[-1])
             entry.update(v_info) # type: ignore
     except KeyboardInterrupt:
-        print(utils.rgb("    USER INTERRUPT    ", bg_rgb=(255,255,255)))
+        print(utils.hex("    KEYBOARD INTERRUPT    ", bg='#ffffff'))
     except Exception as e:
-        print(utils.rgb(''.join(traceback.format_exception(e)), (200,50,50)))
+        print(utils.hex(''.join(traceback.format_exception(e)), fg='#c83232'))
     
     # may be redundent, but can't hurt
     post_processing.add_pl_info_to_entries(pl_info)
-    return dl_info
+    return pl_dl_info
 
 
-def make_paths(
-        Home: str,
-        Playlist: str,
-        indiv_video_folders: bool,
-        pl_archive: str|None,
-        Videos: str = 'Videos',
-        _Video: str = '%(title)s [%(id)s]',
-) -> tuple[YT_DLP_Params, str, str]:
+
+def make_paths(pl_info: PL_InfoDict) -> tuple[YT_DLP_Params, PL_ResolvedPaths]:
     """ make `outtmpl` and `download_archive` param
 
     Args:
@@ -196,72 +203,47 @@ def make_paths(
         _Video (str, optional): Name of individiual video folders (unused if `individual_video_folders = False`). Defaults to `%(title)s [%(id)s]`.
 
     Returns:
-        tuple[YT_DLP_Params, str, str]:
+        tuple[YT_DLP_Params, RequiredPaths]:
         - `paths`, `outtmpl`, and `download_path` Params
-        - `Playlist` Absolute Path
-        - `Videos` Absolute Path
-
-    File Structures:
-    ```
-        _Home
-            PL_TITLE_ID
-                archive
-                Info
-                    pl_infojson
-                Videos
-                    infojson
-                    default : (playlist videos)
-    ```
-    
-    With `indiv_video_folder = True`
-    ```
-        _Home
-            _Playlist
-                archive
-                Info
-                    pl_infojson
-                Videos
-                    _Video
-                        default
-                        pl_video : (same as default)
-                        chapter
-                        subtitle
-                        thumbnail
-                        description
-                        annotation
-                        infojson
-                        link
-    ```
+        - `RequiredPaths` are all absolute paths
     
     Defaults from `DEFAULT_OUTTMPL`, `OUTTMPL_TYPES` (in yt_dlp/utils/_utils.py)    
     field_reference: https://github.com/yt-dlp/yt-dlp#output-template
     """
     
-    paths: YT_DLP_Params = {
-        'paths': {'home': Home}, # type: ignore - Home directory
-        'outtmpl': {
-            'default':           os.path.join(Playlist, Videos, '%(title)s [%(id)s].%(ext)s'),
-            'pl_video':          os.path.join(Playlist, Videos, '%(title)s [%(id)s].%(ext)s'),
-            'pl_thumbnail':      os.path.join(Playlist, 'thumbnail.%(ext)s'),
-            'pl_description':    os.path.join(Playlist, 'description'),
-            'pl_infojson':       os.path.join(Playlist, 'Infojson', '%(epoch>%Y-%m-%d %H-%M-%S)s.json'),
-            'chapter':           os.path.join(Playlist, Videos, 'chapters', '%(section_number)03d %(section_title)s [%(id)s].%(ext)s'), # gets added by default
-        },
-        'download_archive': None if pl_archive is None else os.path.join(Home, Playlist, pl_archive),
+    if callable(PATH_TMPLS['Playlist']):
+        Playlist = PATH_TMPLS['Playlist'](pl_info)
+    else:
+        Playlist = YoutubeDL().evaluate_outtmpl(PATH_TMPLS['Playlist'], pl_info, True) # type: ignore - pl_info has the necessary info
+
+    req_paths: PL_ResolvedPaths = {
+        'Home':             HOME,
+        'Playlist':         os.path.join(HOME, Playlist),
+
+        'video_file':       os.path.join(HOME, Playlist, PATH_TMPLS['video_file']),
+
+        'flat_infojson':    os.path.join(HOME, Playlist, PATH_TMPLS['flat_infojson']),
+        'pl_infojson':      os.path.join(HOME, Playlist, PATH_TMPLS['pl_infojson']),
+        'merge_infojson':   os.path.join(HOME, Playlist, PATH_TMPLS['merge_infojson']),
+
+        'ytdlp_archive':    os.path.join(HOME, Playlist, PATH_TMPLS['ytdlp_archive']),
+        'metadata':         os.path.join(HOME, Playlist, PATH_TMPLS['metadata']),
     }
-    if indiv_video_folders:
-        indiv = {
-            'default':           os.path.join(Playlist, Videos, _Video, '%(title)s.%(ext)s'),
-            'pl_video':          os.path.join(Playlist, Videos, _Video, '%(title)s.%(ext)s'),
-            'subtitle':          os.path.join(Playlist, Videos, _Video, 'subtitles'),
-            'thumbnail':         os.path.join(Playlist, Videos, _Video, 'thumbnail.%(ext)s'),
-            'description':       os.path.join(Playlist, Videos, _Video, 'description'),
-            'annotation':        os.path.join(Playlist, Videos, _Video, 'annotations.xml'),
-            'infojson':          os.path.join(Playlist, Videos, _Video, 'Infojson', '%(epoch>%Y-%m-%d %H-%M-%S)s.json'),
-            'link':              os.path.join(Playlist, Videos, _Video, 'link.%(ext)s'),
-        }
-        paths['outtmpl'].update(indiv) # type: ignore
-    return paths, os.path.join(Home, Playlist), os.path.join(Home, Playlist, Videos)
+
+    paths: YT_DLP_Params = {
+        'paths': {'home': HOME}, # type: ignore - Home directory of all outtmpl (there's also `temp`)
+        'outtmpl': {
+            'default':  req_paths['video_file'],
+        },
+        'download_archive': req_paths['ytdlp_archive'],
+    }
+    for k in CustomOuttmpl.__optional_keys__:
+        if k in PATH_TMPLS:
+            p = os.path.join(Playlist, PATH_TMPLS[k])
+            req_paths[k] = p
+            paths['outtmpl'][k] = p # type: ignore - 'outtmpl' is defined, keys are hardcoded in to be valid
+
+    return paths, req_paths
 
 def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
     if not p or not os.path.exists(p):

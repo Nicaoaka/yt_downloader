@@ -4,10 +4,40 @@ import datetime
 from typing import Iterable, Any, Callable, Literal
 import json
 import copy
-from collections import defaultdict
 
 from yt_types import *
+from yt_types import NO_DEFAULT
 import yt_types
+
+
+# Print format helpers
+def _hex_to_rgb(hex_str: str|None) -> tuple[int,int,int]|None:
+    if hex_str is None:
+        return None
+    hex_str = hex_str.lstrip('#')
+    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4)) # type: ignore
+
+def hex(text, fg: str|None = None, bg: str|None = None, reset: bool=True):
+    return _rgb(text=text,
+               fg=_hex_to_rgb(fg),
+               bg=_hex_to_rgb(bg),
+               reset=reset)
+
+def _rgb(text, fg: tuple[int, int, int]|None = None, bg: tuple[int, int, int]|None = None, reset: bool=True):
+    """ Add ANSI commands to text (Select Graphic Rendition) """
+    sgr_cmd = '\033[{}m'
+    set_fg = sgr_cmd.format(f'38;2;{';'.join(map(lambda i:f'{i:03}', fg))}') if fg else ''
+    set_bg = sgr_cmd.format(f'48;2;{';'.join(map(lambda i:f'{i:03}', bg))}') if bg else ''
+    reset_cmd = sgr_cmd.format('0') if reset else ''
+    return set_fg \
+         + set_bg \
+         + str(text) \
+         + reset_cmd
+
+
+def WARNING(msg: str) -> None:
+    print(hex(" WARNING ", bg='#c8c800'), msg)
+
 
 def truncate(s: str, max_len: int, end='...', *, end_in_max: bool = True, trunc_start: bool = False):
     # note some chars have modifiers/combine with others. eg 👈🏾 is '👈 🏾' and len(👨‍👩🏽‍👧‍👦) == 8
@@ -27,6 +57,123 @@ def truncate(s: str, max_len: int, end='...', *, end_in_max: bool = True, trunc_
     return _truncate(s[::-1])[::-1]
 
 
+def format_epoch(epoch: float | None):
+    if epoch is None:
+        return "[Epoch Unknown]"
+    return datetime.datetime.strftime(datetime.datetime.fromtimestamp(epoch), '%Y/%m/%d %H:%M:%S')
+
+
+def numbered_list(an_iterable: Iterable[Any], start_number: int = 1, indent: int = 0, sort_elems: bool = False) -> str:
+    """ Returns the iterable's elements as a numbered list string, doesn't end with a new line (\\n) """
+    _list = list(an_iterable)
+    max_n = start_number + len(_list)
+    max_n_len = len(str(max_n))
+    try:
+        if sort_elems:
+            _list.sort()
+    except Exception:
+        ...
+    numbered_lines = []
+    for i, elem in enumerate(_list, start=start_number):
+        num_str = str(i).rjust(max_n_len)
+        elem_str = str(elem).replace('\n', '\n'+' '*(indent+len(num_str)))
+        numbered_lines.append(f"{" " * indent}{num_str}. {elem_str}")
+    return '\n'.join(numbered_lines) # don't start or end with a \n
+
+def clear(one_less_new_line: bool = False):
+    """ Moves cursor down to make it look like the console is cleared """
+    lines = os.get_terminal_size().lines
+    if one_less_new_line: lines -= 1
+    print('\n'*lines, end='')
+    print('\033[H', end='') # move cursor to top left
+
+
+
+# Input helpers
+
+def input_string(
+        options: list[str],
+        query_message: str = "",
+        prefix_options: bool = True,
+        case_sensitive: bool = True,
+        attempts: int = -1,
+        default: str|type[NO_DEFAULT] = NO_DEFAULT,
+        show_hints: bool = True,
+    ) -> str:
+    """ returns one of the string options or default if ran out of attempts
+    
+    input() is called directly after `query_message`. So a new line or space is recommended
+    """
+
+    HINT_COLOR = "#76A0A3"
+    INPUT_COLOR = "#6BF5FF"
+    WARN_COLOR = "#FF1515"
+
+    if not options:
+        raise ValueError("Options list cannot be empty.")
+
+    if attempts != -1 and default == NO_DEFAULT:
+        raise ValueError("Limited attempts requires a default.")
+
+    option_map = dict()
+    if not case_sensitive:
+        option_map = {s.lower(): s for s in options}
+        if not case_sensitive and len(option_map) != len(set(options)):
+            raise ValueError("Options that differ only by case must have case-specific inputs.\n"+str(options))
+    
+    def color_repr(s, fg: str|None=None, bg: str|None=None):
+        return f"'{hex(repr(s)[1:-1], fg, bg)}'"
+
+    if prefix_options:
+        print(numbered_list([color_repr(opt, INPUT_COLOR) for opt in options], indent=2))
+
+    attempts_left = attempts
+    while attempts_left != 0:
+
+        hints = []
+        hints.append(hex(
+                "[ Case-sensitive ]" if case_sensitive else "[ NOT Case-sensitive ]",
+                HINT_COLOR))
+        if attempts_left > 1:
+            hints.append(
+                hex("[ ", HINT_COLOR)
+                + hex(attempts_left, INPUT_COLOR)
+                + hex(" attempts left ]", HINT_COLOR)
+            )
+        elif attempts_left == 1:
+            hints.append(hex("< 1 ATTEMPT LEFT >", WARN_COLOR))
+        if attempts > 0:
+            hints.append(
+                hex('[ default = "', HINT_COLOR)
+                + hex(default, INPUT_COLOR)
+                + hex('" ]', HINT_COLOR)
+            )
+        hint_header = ' '.join(hints) + '\n' if hints and show_hints else ''
+
+        # prompt user
+        print(hint_header + query_message, end='')
+        try:
+            print(hex('', INPUT_COLOR, reset=False), end='') # set color
+            inp = input()
+        finally:
+            print(hex(''), end='') # reset color
+
+        if inp in options:
+            return inp
+        elif not case_sensitive and inp in option_map:
+            return option_map[inp]
+        
+        print(color_repr(inp, INPUT_COLOR) + hex(" is Unrecognized", WARN_COLOR), end='\n\n')
+        attempts_left -= 1
+
+    print(f"Using default: {color_repr(default, HINT_COLOR)}")
+
+    # ran out of attempts
+    return default # type: ignore - default is a str
+
+
+
+# Data helpers
 
 def dict_without_keys(d: dict, keys: Iterable):
     """
@@ -45,7 +192,6 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-class NO_DEFAULT: ...
 def dict_set_if(d: dict, k, repl, match=[NO_DEFAULT, None]) -> bool:
     """ if `d.get(k, NO_DEFAULT)`in `match`: set `d[k] = repl`
     
@@ -63,7 +209,6 @@ def dict_set_if(d: dict, k, repl, match=[NO_DEFAULT, None]) -> bool:
     return True
 
 
-
 class STRICT: ...
 def first_non_None[T,U](items: Iterable[T], default: U = STRICT) -> T|U:
     for x in items:
@@ -73,30 +218,49 @@ def first_non_None[T,U](items: Iterable[T], default: U = STRICT) -> T|U:
         raise RuntimeError("All items were None, and no default was provided")
     return default
 
+def isinstance_typeddict(data, typeddict) -> bool:
+    """ data may contain extra keys """
+    if not isinstance(data, dict):
+        return False
+    for k in typeddict.__required_keys__:
+        if k not in data:
+            return False
+    return True
 
 
-def json_load(src: str|Path, default: Any = STRICT):
+
+# Json helpers
+
+def json_load(src: str|Path, default: Any = STRICT) -> Any:
     if not os.path.exists(src) and default is not STRICT:
         return default
-    with open(src, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    if default is STRICT:
+        with open(src, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    try:
+        with open(src, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        WARNING(e.msg)
+        return default
 
 def json_dump(
         json_,
         dst: str|Path,
         on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
         auto_rename: bool = True,
-        quiet: bool = False,
 ):
     def _json_dump(dst: Path):
         dst.parent.mkdir(parents=True, exist_ok=True) # type: ignore
         with open(dst, 'w', encoding='utf-8') as f:
             json.dump(json_, f, default=str)
-        if not quiet:
-            print(rgb(f"[write_json] \"{dst.absolute()}\"", (200,0,200)))
+        print(hex(f"[write_json] \"{dst.absolute()}\"", '#c800c8'))
     handle_collision(Path(dst), _json_dump, on_collision, auto_rename)
 
 
+
+# File Writing helpers
 
 def _get_unused_name(dst: Path, auto_rename: bool = True, msg: str = "") -> Path:
     """ Find an unused name in dst_dir, optionally let user decide via input().
@@ -218,7 +382,6 @@ def handle_collision[T](
     return NO_DEFAULT
 
 
-
 def sanitize_str(s, data: dict, sanitizer: Callable[[str], str]|None = None) -> str:
     if sanitizer is None:
         def default_part_sanitizer(s: str):
@@ -274,36 +437,7 @@ def safely_resolve_path(path: Path|str, part_data: list[dict]|dict = {}, part_sa
 
 
 
-def rgb(text, text_rgb: tuple[int, int, int]|None = None, bg_rgb: tuple[int, int, int]|None = None, reset: bool=True):
-    """ Add ANSI commands to text (Select Graphic Rendition) """
-    sgr_cmd = '\033[{}m'
-    set_text = lambda rgb: sgr_cmd.format(f'38;2;{';'.join(map(str, rgb))}') if rgb else ''
-    set_bg = lambda rgb: sgr_cmd.format(f'48;2;{';'.join(map(str, rgb))}') if rgb else ''
-    reset_cmd = sgr_cmd.format('0') if reset and any([text_rgb, bg_rgb]) else ''
-    return set_text(text_rgb) \
-            + set_bg(bg_rgb) \
-            + str(text) \
-            + reset_cmd
-
-def rgb_list(l: list,
-        elem_text: tuple[int, int, int]|None = None, elem_hl: tuple[int, int, int]|None = None,
-        list_text: tuple[int, int, int]|None = None, list_hl: tuple[int, int, int]|None = None,
-):
-    rendered = [
-        rgb(elem, elem_text, elem_hl) for elem in l
-    ]
-    return rgb('[', list_text, list_hl) \
-         + rgb(', ', list_text, list_hl).join(rendered) \
-         + rgb(']', list_text, list_hl)
-
-
-
-def format_epoch(epoch: float | None):
-    if epoch is None:
-        return "[Epoch Unknown]"
-    return datetime.datetime.strftime(datetime.datetime.fromtimestamp(epoch), '%Y/%m/%d %H:%M:%S')
-
-
+# Youtube
 
 def is_id_like(id:str, is_video=False) -> bool:
     if not id:
@@ -338,7 +472,6 @@ def get_archiveorg_video_url(video_id: str) -> str:
     return f"https://web.archive.org/web/2oe_/http://wayback-fakeurl.archive.org/yt/{video_id}"
 
 
-
 def maybe_available_on_yt(info: V_InfoDict | dict) -> bool:
     """ Returns True if unsure """
     # 'ie_key' occurs in flat info, but flat will only use youtube - OK.
@@ -361,19 +494,51 @@ def has_download_info(info: V_InfoDict | dict) -> bool:
 def ids_from_ytdlp(l: YT_DLP_DownloadArchive) -> list[str]:
     return [tup[1] for tup in l]
 
-def merge_history(history: dict[yt_types.EPOCH, PL_DownloadInfo]) -> PL_DownloadInfo:
-    merged_history = yt_types.empty_DownloadInfo()
-    for epoch in sorted(history.keys()): # oldest -> newest
-        for k in yt_types.PL_DownloadInfo.__required_keys__:
-            merged_history[k].extend(history[epoch][k])
-    return merged_history
+def ids_from_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
+    res: ID_DownloadInfo = {
+        'fail':     [],
+        'no_info':  [],
+        'extract':  [],
+        'download': [],
+        'error':    [],
+    }
+    for v in pl_dl_info:
+        v_id = v['id']
+        if     v['result'] == DL_Result.FAIL:       res['fail'].append(v_id)
+        # elif   v['result'] == DL_Result.CANCELLED:  res['skip'].append(v_id)
+        elif   v['result'] == DL_Result.NO_INFO:    res['no_info'].append(v_id)
+        else:
+            if v['result'] == DL_Result.EXTRACT:    res['extract'].append(v_id)
+            if v['result'] == DL_Result.DOWNLOAD:   res['download'].append(v_id)
+        if v['errors']: res['error'].append(v_id)
+    return res
+
+def ids_from_history(history: dict[yt_types.EPOCH_STR, PL_DownloadInfo]) -> ID_DownloadInfo:
+
+    merged: ID_DownloadInfo = {
+        'fail':     [],
+        'no_info':  [],
+        'extract':  [],
+        'download': [],
+        'error':    [],
+    }
+    for epoch in sorted(map(int, history.keys())): # oldest -> newest
+        for k, ids in ids_from_download_info(history[str(epoch)]).items():
+            merged[k].extend(ids)
+    return merged
 
 
-def now_as_epoch():
+
+# Misc
+
+def epoch_now():
     return round(datetime.datetime.now().timestamp())
 
+
+
 def main():
-    print(now_as_epoch())
+    import random
+    print(input_string(['abc', 'def', 'ghi'], "Enter your favorite string! "))
     pass
 
 if __name__ == "__main__":

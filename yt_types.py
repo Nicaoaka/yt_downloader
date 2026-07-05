@@ -1,13 +1,22 @@
-__all__ = ['YT_DLP_Params', 'InfoDict', 'V_InfoDict', 'PL_V_InfoDict', 'PL_InfoDict', 'YT_DLP_DownloadArchive', 'PL_DownloadInfo', 'Metadata']
+__all__ = [
+    'YT_DLP_Params', 'InfoDict', 'V_InfoDict', 'PL_V_InfoDict', 'PL_InfoDict',
+    'YT_DLP_DownloadArchive',
+    'Metadata',
+    'CustomOuttmpl', 'PL_ResolvedPaths',
+    'DL_Action', 'DL_Result',
+    'PL_DownloadInfo', 'DownloadInfo', 'ID_DownloadInfo',
+]
 
-from typing import Literal, TypedDict, NotRequired, Required, Any, Callable, Optional, TYPE_CHECKING
+from enum import StrEnum, auto
+from typing import Literal, TypedDict, NotRequired, Required, Any, Callable, TYPE_CHECKING
 if TYPE_CHECKING:
     from yt_dlp import _Params
 
 type V_ID = str
 type PL_ID = str
-type EPOCH = int
+type EPOCH_STR = str
 type YT_DLP_Params = _Params
+class NO_DEFAULT: ...
 
 # copied from yt_dlp, slightly editted
 class InfoDict(TypedDict):
@@ -113,39 +122,106 @@ class Flat_PL_V_InfoDict(TypedDict):
     playlist_channel: str
 
 
-# custom
 type YT_DLP_DownloadArchive = list[tuple[str, str]]
 
 
-class PL_DownloadInfo(TypedDict):
-    skip:       list[str]
-    no_info:    list[str]
-    extract:    list[str]
-    download:   list[str]
-    fail:       list[str]
-    error:      list[tuple[str, list[Exception]]]
+# custom
+class CustomOuttmpl(TypedDict):
+    # Folders
+    Home: str
+    Playlist: str|Callable[[PL_InfoDict], str]
+
+    # Video Files
+    video_file: str # for `default`
+    chapter:    NotRequired[str]
+    subtitle:   NotRequired[str]
+    thumbnail:  NotRequired[str]
+    description:NotRequired[str]
+    annotation: NotRequired[str]
+    link:       NotRequired[str]
+
+    # Custom names
+    flat_infojson: str
+    pl_infojson: str
+    merge_infojson: str
+    
+    # Meta
+    metadata: str
+    ytdlp_archive: str
+
+class PL_ResolvedPaths(TypedDict):
+    Home: str
+    Playlist: str
+    video_file: str
+    flat_infojson: str
+    pl_infojson: str
+    merge_infojson: str
+    ytdlp_archive: str
+    metadata: str
+
+    chapter:     NotRequired[str]
+    subtitle:    NotRequired[str]
+    thumbnail:   NotRequired[str]
+    description: NotRequired[str]
+    annotation:  NotRequired[str]
+    link:        NotRequired[str]
+
+class DL_Action(StrEnum):
+    USER     = auto()
+    QUIT     = auto()
+    SKIP     = auto()
+    EXTRACT  = auto()
+    DOWNLOAD = auto()
+
+class DL_Result(StrEnum):
+    CANCELLED    = auto()
+    FAIL         = auto()
+    UNRECOGNIZED = auto()
+    NO_INFO      = auto()
+    EXTRACT      = auto()
+    DOWNLOAD   = auto()
+
+class DownloadInfo(TypedDict):
+    id: str
+    action: DL_Action
+    result: DL_Result
+    errors: list[Exception]
+
+class ID_DownloadInfo(TypedDict):
+    # skip: list[str]
+    fail: list[str]
+    no_info: list[str]
+    extract: list[str]
+    download: list[str]
+    error: list[str]
+
+type PL_DownloadInfo = list[DownloadInfo]
 
 
-class Metadata(TypedDict):
-    history: dict[EPOCH, PL_DownloadInfo]
-    paths: YT_DLP_Params
-    best_info_path: str|None
-    epoch: int
+class _MetadataFiles(TypedDict):
+    latest_flat_info:  str|None
+    latest_pl_info:    str|None
+    latest_merge_info: str|None
 
-def empty_DownloadInfo() -> PL_DownloadInfo:
-    return {
-        'skip': [],
-        'no_info': [],
-        'extract': [],
-        'download': [],
-        'fail': [],
-        'error': [],
-    }
+class Metadata(_MetadataFiles):
+    history:    dict[EPOCH_STR, PL_DownloadInfo]
+    path_tmpls: CustomOuttmpl
+    pl_epoch:   int
+    epoch:      int
 
 def empty_Metadata() -> Metadata:
     return {
-        'history': {},
-        'paths': {},
-        'best_info_path': None,
-        'epoch': 0
-    }
+        'history':    {},
+        'path_tmpls': {},
+        'latest_flat_info':  None,
+        'latest_pl_info':    None,
+        'latest_merge_info': None,
+        'pl_epoch':   NO_DEFAULT,
+        'epoch':      NO_DEFAULT,
+    } # type: ignore - epochs must be set manually
+
+def main():
+    print(_MetadataFiles.__required_keys__)
+
+if __name__ == "__main__":
+    main()
