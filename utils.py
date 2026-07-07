@@ -5,9 +5,11 @@ from typing import Iterable, Any, Callable, Literal
 import json
 import copy
 
-from yt_types import *
-from yt_types import NO_DEFAULT
-import yt_types
+
+
+class __NO_DEFAULT:
+    """ DO NOT USE outside of `utils.py` """
+    ...
 
 
 # Print format helpers
@@ -97,7 +99,7 @@ def input_string(
         prefix_options: bool = True,
         case_sensitive: bool = True,
         attempts: int = -1,
-        default: str|type[NO_DEFAULT] = NO_DEFAULT,
+        default: str|type[__NO_DEFAULT] = __NO_DEFAULT,
         show_hints: bool = True,
     ) -> str:
     """ returns one of the string options or default if ran out of attempts
@@ -112,7 +114,7 @@ def input_string(
     if not options:
         raise ValueError("Options list cannot be empty.")
 
-    if attempts != -1 and default == NO_DEFAULT:
+    if attempts != -1 and default == __NO_DEFAULT:
         raise ValueError("Limited attempts requires a default.")
 
     option_map = dict()
@@ -192,7 +194,7 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-def dict_set_if(d: dict, k, repl, match=[NO_DEFAULT, None]) -> bool:
+def dict_set_if(d: dict, k, repl, match=[__NO_DEFAULT, None]) -> bool:
     """ if `d.get(k, NO_DEFAULT)`in `match`: set `d[k] = repl`
     
     Does not create a deep copy of `repl`
@@ -200,7 +202,7 @@ def dict_set_if(d: dict, k, repl, match=[NO_DEFAULT, None]) -> bool:
     Returns:
         False if no replace, or if repl is the same as the default. True if there was a change.
     """
-    v = d.get(k, NO_DEFAULT)
+    v = d.get(k, __NO_DEFAULT)
     if v not in match:
         return False
     if repl == v:
@@ -218,6 +220,7 @@ def first_non_None[T,U](items: Iterable[T], default: U = STRICT) -> T|U:
         raise RuntimeError("All items were None, and no default was provided")
     return default
 
+
 def isinstance_typeddict(data, typeddict) -> bool:
     """ data may contain extra keys """
     if not isinstance(data, dict):
@@ -228,9 +231,14 @@ def isinstance_typeddict(data, typeddict) -> bool:
     return True
 
 
+def dif_sets(a: set, b: set) -> tuple[set, set]:
+    return a - b, b - a
 
-# Json helpers
 
+
+# File helpers
+
+# Json
 def json_load(src: str|Path, default: Any = STRICT) -> Any:
     if not os.path.exists(src) and default is not STRICT:
         return default
@@ -246,7 +254,7 @@ def json_load(src: str|Path, default: Any = STRICT) -> Any:
         return default
 
 def json_dump(
-        json_,
+        obj,
         dst: str|Path,
         on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
         auto_rename: bool = True,
@@ -254,14 +262,12 @@ def json_dump(
     def _json_dump(dst: Path):
         dst.parent.mkdir(parents=True, exist_ok=True) # type: ignore
         with open(dst, 'w', encoding='utf-8') as f:
-            json.dump(json_, f, default=str)
+            json.dump(obj, f, default=str)
         print(hex(f"[write_json] \"{dst.absolute()}\"", '#c800c8'))
     handle_collision(Path(dst), _json_dump, on_collision, auto_rename)
 
 
-
-# File Writing helpers
-
+# Writing
 def _get_unused_name(dst: Path, auto_rename: bool = True, msg: str = "") -> Path:
     """ Find an unused name in dst_dir, optionally let user decide via input().
 
@@ -369,7 +375,7 @@ def handle_collision[T](
         func: Callable[[Path], T],
         on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
         auto_rename: bool = True,
-) -> type[NO_DEFAULT] | T:
+) -> type[__NO_DEFAULT] | T:
     """
     Performs collision resolution given the policy.
     Call and return ``func(path)`` if it should be written,
@@ -379,7 +385,7 @@ def handle_collision[T](
     _setup_handle_collision(dst, old)
     if isinstance(new, Path):
         return func(new)
-    return NO_DEFAULT
+    return __NO_DEFAULT
 
 
 def sanitize_str(s, data: dict, sanitizer: Callable[[str], str]|None = None) -> str:
@@ -436,96 +442,19 @@ def safely_resolve_path(path: Path|str, part_data: list[dict]|dict = {}, part_sa
     return Path(*sanitized_parts).resolve()
 
 
-
-# Youtube
-
-def is_id_like(id:str, is_video=False) -> bool:
-    if not id:
-        return False
-    if is_video and len(id) != 11: # video ids are always 11 chars long
-        return False
-    
-    # playlist id lengths can vary dramatically
-
-    VALID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_"
-    # [a-zA-Z0-9-_]
-    return all(c in VALID_CHARS for c in id)
-
-def get_yt_video_url(video_id: str) -> str:
-    return f'https://www.youtube.com/watch?v={video_id}'
-
-def get_yt_playlist_url(playlist_id: str, video_id: str = '') -> str:
-    if not video_id:
-        return f'https://www.youtube.com/playlist?list={playlist_id}'
-    return f'https://www.youtube.com/watch?v={video_id}&list={playlist_id}'
-
-def get_archiveorg_url(v_id: str, date: int|str|None = None, for_yt_dlp: bool = False) -> str:
-    if not date:
-        if for_yt_dlp:
-            return 'ytarchive:' + v_id
-        return f"https://web.archive.org/https://www.youtube.com/watch?v={v_id}"
-    if for_yt_dlp:
-        return f'ytarchive:{v_id}:{date}'
-    return f'https://web.archive.org/web/{date}/https://www.youtube.com/watch?v={v_id}'
-
-def get_archiveorg_video_url(video_id: str) -> str:
-    return f"https://web.archive.org/web/2oe_/http://wayback-fakeurl.archive.org/yt/{video_id}"
-
-
-def maybe_available_on_yt(info: V_InfoDict | dict) -> bool:
-    """ Returns True if unsure """
-    # 'ie_key' occurs in flat info, but flat will only use youtube - OK.
-    if info.get('extractor_key') == 'YoutubeWebArchive':
-        return True
-    # incomplete extract (many other stats could be used like `duration`)
-    return info.get('channel') is not None
-
-def has_extracted_info(info: V_InfoDict | dict) -> bool:
-    return any([
-        bool(info.get('extractor')),
-    ])
-
-def has_download_info(info: V_InfoDict | dict) -> bool:
-    return any([
-        bool(info.get("requested_downloads")),
-    ])
-
-
-def ids_from_ytdlp(l: YT_DLP_DownloadArchive) -> list[str]:
-    return [tup[1] for tup in l]
-
-def ids_from_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
-    res: ID_DownloadInfo = {
-        'fail':     [],
-        'no_info':  [],
-        'extract':  [],
-        'download': [],
-        'error':    [],
-    }
-    for v in pl_dl_info:
-        v_id = v['id']
-        if     v['result'] == DL_Result.FAIL:       res['fail'].append(v_id)
-        # elif   v['result'] == DL_Result.CANCELLED:  res['skip'].append(v_id)
-        elif   v['result'] == DL_Result.NO_INFO:    res['no_info'].append(v_id)
-        else:
-            if v['result'] == DL_Result.EXTRACT:    res['extract'].append(v_id)
-            if v['result'] == DL_Result.DOWNLOAD:   res['download'].append(v_id)
-        if v['errors']: res['error'].append(v_id)
-    return res
-
-def ids_from_history(history: dict[yt_types.EPOCH_STR, PL_DownloadInfo]) -> ID_DownloadInfo:
-
-    merged: ID_DownloadInfo = {
-        'fail':     [],
-        'no_info':  [],
-        'extract':  [],
-        'download': [],
-        'error':    [],
-    }
-    for epoch in sorted(map(int, history.keys())): # oldest -> newest
-        for k, ids in ids_from_download_info(history[str(epoch)]).items():
-            merged[k].extend(ids)
-    return merged
+# Assertion
+def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = True):
+    if p is None:
+        if not or_None:
+            raise ValueError(f"{name} can not be None. Expected str path.")
+        return
+    if not os.path.exists(p):
+        raise FileNotFoundError(f"{name} does not exist")
+    if min_size <= 0:
+        return
+    size = os.stat(p).st_size
+    if size >= min_size:
+        raise RuntimeError(f"{name} is {size} bytes. Expected >= {min_size}.")
 
 
 

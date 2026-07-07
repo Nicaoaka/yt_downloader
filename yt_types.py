@@ -1,22 +1,26 @@
 __all__ = [
-    'YT_DLP_Params', 'InfoDict', 'V_InfoDict', 'PL_V_InfoDict', 'PL_InfoDict',
+    'YT_DLP_Params',
+    'V_ID', 'PL_ID', 'EPOCH_STR',
+    'InfoDict', 'V_InfoDict', 'PL_V_InfoDict', 'PL_InfoDict',
     'YT_DLP_DownloadArchive',
     'Metadata',
-    'CustomOuttmpl', 'PL_ResolvedPaths',
+    'ConfigOuttmpl', 'PL_Outtmpl',
     'DL_Action', 'DL_Result',
-    'PL_DownloadInfo', 'DownloadInfo', 'ID_DownloadInfo',
+    'DownloadInfo', 'PL_DownloadInfo', 'PL_DownloadHistory',
+    'ID_DownloadInfo',
+    '_V_InfoLevel', '_PL_InfoLevel',
 ]
 
-from enum import StrEnum, auto
-from typing import Literal, TypedDict, NotRequired, Required, Any, Callable, TYPE_CHECKING
+from enum import StrEnum, auto, IntEnum
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
+    from typing import Literal, TypedDict, NotRequired, Required, Any, Callable
     from yt_dlp import _Params
 
 type V_ID = str
 type PL_ID = str
 type EPOCH_STR = str
 type YT_DLP_Params = _Params
-class NO_DEFAULT: ...
 
 # copied from yt_dlp, slightly editted
 class InfoDict(TypedDict):
@@ -122,13 +126,16 @@ class Flat_PL_V_InfoDict(TypedDict):
     playlist_channel: str
 
 
-type YT_DLP_DownloadArchive = list[tuple[str, str]]
+type YT_DLP_DownloadArchive = tuple[tuple[str, str], ...]
+
 
 
 # custom
-class CustomOuttmpl(TypedDict):
+
+# outtmpl doesn't include Home,
+# so that the Home folder can be moved without edits
+class ConfigOuttmpl(TypedDict):
     # Folders
-    Home: str
     Playlist: str|Callable[[PL_InfoDict], str]
 
     # Video Files
@@ -149,8 +156,7 @@ class CustomOuttmpl(TypedDict):
     metadata: str
     ytdlp_archive: str
 
-class PL_ResolvedPaths(TypedDict):
-    Home: str
+class PL_Outtmpl(TypedDict):
     Playlist: str
     video_file: str
     flat_infojson: str
@@ -165,6 +171,7 @@ class PL_ResolvedPaths(TypedDict):
     description: NotRequired[str]
     annotation:  NotRequired[str]
     link:        NotRequired[str]
+
 
 class DL_Action(StrEnum):
     USER     = auto()
@@ -181,6 +188,7 @@ class DL_Result(StrEnum):
     EXTRACT      = auto()
     DOWNLOAD   = auto()
 
+
 class DownloadInfo(TypedDict):
     id: str
     action: DL_Action
@@ -196,7 +204,7 @@ class ID_DownloadInfo(TypedDict):
     error: list[str]
 
 type PL_DownloadInfo = list[DownloadInfo]
-
+type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
 
 class _MetadataFiles(TypedDict):
     latest_flat_info:  str|None
@@ -204,21 +212,41 @@ class _MetadataFiles(TypedDict):
     latest_merge_info: str|None
 
 class Metadata(_MetadataFiles):
-    history:    dict[EPOCH_STR, PL_DownloadInfo]
-    path_tmpls: CustomOuttmpl
-    pl_epoch:   int
-    epoch:      int
+    id: str
+    path_tmpls: ConfigOuttmpl
+    history: PL_DownloadHistory
+    pl_epoch: int # for latest pl extraction
+    v_epoch:  int # for latest video extraction
 
 def empty_Metadata() -> Metadata:
     return {
+        'id': '',
         'history':    {},
         'path_tmpls': {},
+        'pl_epoch':   -1,
+        'v_epoch':      -1,
+        
         'latest_flat_info':  None,
         'latest_pl_info':    None,
         'latest_merge_info': None,
-        'pl_epoch':   NO_DEFAULT,
-        'epoch':      NO_DEFAULT,
     } # type: ignore - epochs must be set manually
+
+
+
+class _V_InfoLevel(IntEnum):
+    NONE = 0
+    CHECK_WA = 1
+    CHECK_YT = 2
+    EXTRACT = 3
+    DOWNLOAD = 4
+
+class _PL_InfoLevel(IntEnum):
+    NONE = 0
+    FLAT = 1
+    NORMAL = 2
+    MERGED = 3
+
+
 
 def main():
     print(_MetadataFiles.__required_keys__)

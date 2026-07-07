@@ -4,10 +4,16 @@ import re
 from enum import IntEnum
 from typing import TypedDict, NotRequired
 
-from yt_types import *
+from yt_dlp import YoutubeDL
+
 import utils
 from merger import merge_ordered_lists
-from yt_types import V_InfoDict
+from yt_types import *
+import yt_types
+import yt_utils
+
+
+# Data helpers
 
 def get_pl_v_info(pl_info: PL_InfoDict, v_idx):
     return {
@@ -25,32 +31,44 @@ def get_pl_v_info(pl_info: PL_InfoDict, v_idx):
         'playlist_webpage_url':         pl_info.get('webpage_url') or pl_info.get('original_url') or pl_info.get('url'),
     }
 
+def get_latest_epoch(pl_info: PL_InfoDict) -> int:
+    latest = max(entry.get('epoch', 0) for entry in pl_info['entries'])
+    latest = max(latest, pl_info.get('epoch', 0))
+    if latest == 0:
+        utils.WARNING(f"All epochs are malformed or missing: {latest}")
+    return latest
 
 def add_pl_info_to_entries(pl_info: PL_InfoDict):
     for i, entry in enumerate(pl_info['entries']):
         entry.update(get_pl_v_info(pl_info, i)) # type: ignore
 
+
+
+# Playlist file helper
 # TODO: Test these 2 functions
-def denumber_videos(v_dir: Path, digits: int = 0, v_tmpl: str = '%(idx)s. %(name)s'):
+
+def denumber_videos(video_dir: str, video_tmpl: str, digits: int = 0):
     """Removes the index number from video files
 
     Args:
-        v_dir (Path): Videos directory
+        video_dir (str): Videos directory
+        v_tmpl (str): Video filename template. Defaults to `%(idx)s. %(name)s`.
         digits (int, optional): Expected number of digits (if 0 catch as many in a row as possible). Defaults to `0`.
-        number_tmpl (str, optional): Video filename template. Defaults to `%(idx)s. %(name)s`.
 
     Raises:
         ValueError: For invalid `v_tmpl`
     """
 
+    raise NotImplementedError(f"{denumber_videos.__name__} is not ready")
+
     __IDX = re.escape('__idx_placeholder')
     __NAME = re.escape('__name_placeholder')
-    if __IDX in v_tmpl:
-        raise ValueError(f"{repr(__IDX)} can't be in number_tmpl {repr(v_tmpl)}")
-    if __NAME in v_tmpl:
-        raise ValueError(f"{repr(__NAME)} can't be in number_tmpl {repr(v_tmpl)}")
+    if __IDX in video_tmpl:
+        raise ValueError(f"{repr(__IDX)} can't be in number_tmpl {repr(video_tmpl)}")
+    if __NAME in video_tmpl:
+        raise ValueError(f"{repr(__NAME)} can't be in number_tmpl {repr(video_tmpl)}")
     
-    fmt = v_tmpl % {
+    fmt = video_tmpl % {
         'idx': __IDX,
         'name': __NAME,
     }
@@ -58,14 +76,14 @@ def denumber_videos(v_dir: Path, digits: int = 0, v_tmpl: str = '%(idx)s. %(name
                     .replace(__IDX, fr'(\d{{{digits}}}\d*)')\
                     .replace(__NAME, fr'(.+)') + '$'
     
-    for v_path in v_dir.iterdir():
+    for v_path in video_dir.iterdir():
         match = re.match(pattern, v_path.name, re.VERBOSE)
         if not match:
             print(f"[UNRECOGNIZED or already DENUMBERED] {v_path.name}")
             continue
 
         _idx = match.group(1)
-        denumbered_path = v_dir / match.group(2)
+        denumbered_path = video_dir / match.group(2)
         if denumbered_path.exists():
             print(f"[WARNING] Denumbered file already exists ({v_path.name})")
             continue
@@ -74,6 +92,9 @@ def denumber_videos(v_dir: Path, digits: int = 0, v_tmpl: str = '%(idx)s. %(name
         print(f"[INFO] renamed: {v_path.name} -> {denumbered_path.name}")
 
 def number_videos(v_dir: Path, pl_info: PL_InfoDict, video_fn_tmpl: str, digits: int = 2, number_tmpl: str = '%(idx)s. %(name)s', denumber_before: bool = False):
+
+    raise NotImplementedError(f"{number_videos.__name__} is not ready")
+
     if denumber_before:
         denumber_videos(v_dir, digits, number_tmpl)
     if not v_dir.exists():
@@ -100,23 +121,12 @@ def number_videos(v_dir: Path, pl_info: PL_InfoDict, video_fn_tmpl: str, digits:
                 print(f"[Video {str(i).rjust(digits)} NOT FOUND] {denumbered_path.name}")
 
 
-# TODO: Update view count to max
-class InfoLevel(IntEnum):
-    NONE = 0
-    CHECK_WA = 1
-    CHECK_YT = 2
-    EXTRACT = 3
-    DOWNLOAD = 4
 
-def get_info_level(v_info: V_InfoDict) -> InfoLevel:
-    """ Webarchive could appear at Download or Extract """
-    if utils.has_download_info(v_info):       return InfoLevel.DOWNLOAD
-    if utils.has_extracted_info(v_info):      return InfoLevel.EXTRACT
-    if utils.maybe_available_on_yt(v_info):   return InfoLevel.CHECK_YT
-    return InfoLevel.CHECK_WA
+# Merging info
+# TODO: Update view count (etc.) using max
 
-class V_Metadata(TypedDict):
-    better_info: NotRequired[InfoLevel]
+class V_MergeInfo(TypedDict):
+    better_info: NotRequired[_V_InfoLevel]
     unavailable: NotRequired[list[str]]
     updates: NotRequired[list]
 
@@ -129,8 +139,8 @@ def merge_v_infos(v_infos: list[V_InfoDict | PL_V_InfoDict]) -> tuple[V_InfoDict
     
     v_infos = sorted(v_infos, key=lambda info: (info.get('epoch') or info.get('playlist_epoch') or 0), reverse=True)
     merge: V_InfoDict | PL_V_InfoDict = {} # type: ignore - init
-    merge_info_level = InfoLevel.NONE
-    metadata: dict[str, V_Metadata] = defaultdict(dict) # type: ignore
+    merge_info_level = _V_InfoLevel.NONE
+    metadata: dict[yt_types.EPOCH_STR, V_MergeInfo] = defaultdict(dict) # type: ignore
     for k in ('yt_unavailable_msg', 'wa_unavailable_msg'):
         if k in v_infos[0]:
             merge[k] = v_infos[0].get(k)
@@ -153,10 +163,10 @@ def merge_v_infos(v_infos: list[V_InfoDict | PL_V_InfoDict]) -> tuple[V_InfoDict
         for k, v in v_info.items():
             if k in ('yt_unavailable_msg', 'wa_unavailable_msg'):
                 continue # special case
-            if utils.dict_set_if(merge, k, v, match=[utils.NO_DEFAULT, None]): # type: ignore - res_entry is a dict
+            if utils.dict_set_if(merge, k, v, match=[utils.__NO_DEFAULT, None]): # type: ignore - res_entry is a dict
                 updates.append(k)
 
-        new_info_level = get_info_level(v_info)
+        new_info_level = yt_utils.get_v_info_level(v_info)
         if not updates:
             continue
         if new_info_level >= merge_info_level:
@@ -165,8 +175,6 @@ def merge_v_infos(v_infos: list[V_InfoDict | PL_V_InfoDict]) -> tuple[V_InfoDict
         else:
             metadata[V_EPOCH_KEY]['updates'] = updates
     return merge, metadata
-
-
 
 def merge_pl_infos(pl_infos: list[PL_InfoDict]) -> PL_InfoDict:
     """ Creates a new pl_info dict with the newest and largest info.
@@ -230,3 +238,5 @@ def merge_pl_infos(pl_infos: list[PL_InfoDict]) -> PL_InfoDict:
     pl_info['entries'] = entries
     pl_info['merge_info'] = pl_meta # overwrite existing
     return pl_info
+
+

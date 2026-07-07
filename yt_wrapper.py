@@ -1,26 +1,23 @@
 __all__ = [
-    'ytdlp_eval_tmpl',
     'download_video',
     'extract_flat_info', 'download_pl_videos',
-    'make_paths'
+    'load_yt_archive',
 ]
 
 import os
-import enum
-from typing import Callable, TypedDict
+from typing import Callable
 import traceback
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from yt_types import *
-from config import HOME, PATH_TMPLS
 import utils
-import display
+import yt_utils
 import post_processing
+import display
 
-def ytdlp_eval_tmpl(tmpl, info):
-    return YoutubeDL().evaluate_outtmpl(tmpl, info, True)
+
 
 def download_video(
         v_url_or_id: str,
@@ -62,7 +59,7 @@ def download_video(
     if wa:
         try:
             with YoutubeDL(opts) as ydl:
-                _info = ydl.extract_info(utils.get_archiveorg_url(v_url_or_id, for_yt_dlp=True), download=_download)
+                _info = ydl.extract_info(yt_utils.get_archiveorg_url(v_url_or_id, for_yt_dlp=True), download=_download)
                 if _info is None:
                     return None, errors, True
                 info.update(_info)
@@ -103,9 +100,9 @@ def get_result(v_info, success: bool) -> DL_Result:
         return DL_Result.FAIL
     if v_info is None:
         return DL_Result.NO_INFO
-    if not utils.has_extracted_info(v_info):
+    if not yt_utils.has_extracted_info(v_info):
         return DL_Result.UNRECOGNIZED
-    if not utils.has_download_info(v_info):
+    if not yt_utils.has_download_info(v_info):
         return DL_Result.EXTRACT
     return DL_Result.DOWNLOAD
 
@@ -169,7 +166,7 @@ def download_pl_videos(
             v_info, errors, success = download_video(
                 entry['id'],
                 opts=opts,
-                yt = yt or utils.maybe_available_on_yt(entry),
+                yt = yt or yt_utils.maybe_available_on_yt(entry),
                 wa = wa,
                 _download = (action == DL_Action.DOWNLOAD)
             )
@@ -191,67 +188,13 @@ def download_pl_videos(
 
 
 
-def make_paths(pl_info: PL_InfoDict) -> tuple[YT_DLP_Params, PL_ResolvedPaths]:
-    """ make `outtmpl` and `download_archive` param
-
-    Args:
-        Home (str): The home folder (e.g. r'C:/users/yomama/Videos')
-        Playlist (str): Playlist folder name
-        indiv_video_folders (bool): Adds more paths to video outtmpl. Set True for thorough downloading.
-        pl_archive (str|None): yt-dlp download archive filename.
-        Videos (str, optional): Name of the folder that will contains all playlist videos. Defaults to `Videos`.
-        _Video (str, optional): Name of individiual video folders (unused if `individual_video_folders = False`). Defaults to `%(title)s [%(id)s]`.
-
-    Returns:
-        tuple[YT_DLP_Params, RequiredPaths]:
-        - `paths`, `outtmpl`, and `download_path` Params
-        - `RequiredPaths` are all absolute paths
-    
-    Defaults from `DEFAULT_OUTTMPL`, `OUTTMPL_TYPES` (in yt_dlp/utils/_utils.py)    
-    field_reference: https://github.com/yt-dlp/yt-dlp#output-template
-    """
-    
-    if callable(PATH_TMPLS['Playlist']):
-        Playlist = PATH_TMPLS['Playlist'](pl_info)
-    else:
-        Playlist = YoutubeDL().evaluate_outtmpl(PATH_TMPLS['Playlist'], pl_info, True) # type: ignore - pl_info has the necessary info
-
-    req_paths: PL_ResolvedPaths = {
-        'Home':             HOME,
-        'Playlist':         os.path.join(HOME, Playlist),
-
-        'video_file':       os.path.join(HOME, Playlist, PATH_TMPLS['video_file']),
-
-        'flat_infojson':    os.path.join(HOME, Playlist, PATH_TMPLS['flat_infojson']),
-        'pl_infojson':      os.path.join(HOME, Playlist, PATH_TMPLS['pl_infojson']),
-        'merge_infojson':   os.path.join(HOME, Playlist, PATH_TMPLS['merge_infojson']),
-
-        'ytdlp_archive':    os.path.join(HOME, Playlist, PATH_TMPLS['ytdlp_archive']),
-        'metadata':         os.path.join(HOME, Playlist, PATH_TMPLS['metadata']),
-    }
-
-    paths: YT_DLP_Params = {
-        'paths': {'home': HOME}, # type: ignore - Home directory of all outtmpl (there's also `temp`)
-        'outtmpl': {
-            'default':  req_paths['video_file'],
-        },
-        'download_archive': req_paths['ytdlp_archive'],
-    }
-    for k in CustomOuttmpl.__optional_keys__:
-        if k in PATH_TMPLS:
-            p = os.path.join(Playlist, PATH_TMPLS[k])
-            req_paths[k] = p
-            paths['outtmpl'][k] = p # type: ignore - 'outtmpl' is defined, keys are hardcoded in to be valid
-
-    return paths, req_paths
-
 def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
     if not p or not os.path.exists(p):
-        return []
+        return ()
     res = []
     with open(p, 'r', encoding='utf-8') as f:
         for line in f:
             if line:
                 ie_key, v_id = line.split()
                 res.append( (ie_key, v_id) )
-    return res
+    return tuple(res)
