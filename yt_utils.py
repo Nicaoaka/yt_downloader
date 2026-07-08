@@ -100,7 +100,7 @@ def get_pl_info_level(pl_info: PL_InfoDict) -> _PL_InfoLevel:
 def ids_from_ytdlp(l: YT_DLP_DownloadArchive) -> tuple[str, ...]:
     return tuple(tup[1] for tup in l)
 
-def ids_from_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
+def ids_from_pl_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
     res: ID_DownloadInfo = {
         'fail':     [],
         'no_info':  [],
@@ -129,7 +129,7 @@ def ids_from_history(history: PL_DownloadHistory) -> ID_DownloadInfo:
         'error':    [],
     }
     for epoch in sorted(map(int, history.keys())): # oldest -> newest
-        for k, ids in ids_from_download_info(history[str(epoch)]).items():
+        for k, ids in ids_from_pl_download_info(history[str(epoch)]).items():
             merged[k].extend(ids)
     return merged
 

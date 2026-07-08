@@ -1,10 +1,9 @@
 from pathlib import Path
 import os
 import datetime
-from typing import Iterable, Any, Callable, Literal
+from typing import Iterable, Any, Callable, Literal, overload, TypeVar
 import json
 import copy
-
 
 
 class __NO_DEFAULT:
@@ -211,22 +210,31 @@ def dict_set_if(d: dict, k, repl, match=[__NO_DEFAULT, None]) -> bool:
     return True
 
 
-class STRICT: ...
-def first_non_None[T,U](items: Iterable[T], default: U = STRICT) -> T|U:
+class RAISE_EXC: ...
+def first_non_None[T,U](items: Iterable[T], default: U = RAISE_EXC) -> T|U:
     for x in items:
         if x is not None:
             return x
-    if default is STRICT:
+    if default is RAISE_EXC:
         raise RuntimeError("All items were None, and no default was provided")
     return default
 
 
-def isinstance_typeddict(data, typeddict) -> bool:
+def isinstance_typeddict(data, typeddict, raise_exc: bool = False) -> bool:
     """ data may contain extra keys """
     if not isinstance(data, dict):
+        if raise_exc:
+            raise TypeError(f"Expected dict, got {type(data)}")
         return False
+    
     for k in typeddict.__required_keys__:
         if k not in data:
+            if raise_exc:
+                extra, missing = dif_sets(set(data.keys()), set(typeddict.__required_keys__))
+                raise TypeError(
+                    f"Malformed\n"
+                    f"Extra keys:   {extra}\n"
+                    f"Missing keys: {missing}\n")
             return False
     return True
 
@@ -239,18 +247,35 @@ def dif_sets(a: set, b: set) -> tuple[set, set]:
 # File helpers
 
 # Json
-def json_load(src: str|Path, default: Any = STRICT) -> Any:
-    if not os.path.exists(src) and default is not STRICT:
+def json_load(src: str | Path, default: Any = RAISE_EXC) -> Any:
+    """
+    What the function does:
+    ```
+    if exist and no json error
+        return loaded json
+    if doesn't exist or json error:
+        RAISE_EXC or default
+    ```
+    """
+    if not os.path.exists(src) and default is not RAISE_EXC:
         return default
-    if default is STRICT:
-        with open(src, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    
     try:
         with open(src, 'r', encoding='utf-8') as f:
             return json.load(f)
     except json.JSONDecodeError as e:
+        if default is RAISE_EXC:
+            raise e from None
         WARNING(e.msg)
+        return default
+
+def json_load_typeddict(src: str | Path, typeddict, default: Any = RAISE_EXC) -> Any:
+    """
+    Like ``json_load()``, but check typeddict keys wil ``isinstance_typeddict()``
+    """
+    obj = json_load(src, default)
+    if isinstance_typeddict(obj, typeddict, raise_exc=(default is RAISE_EXC)):
+        return obj
+    else:
         return default
 
 def json_dump(
@@ -388,6 +413,7 @@ def handle_collision[T](
     return __NO_DEFAULT
 
 
+# Sanitization
 def sanitize_str(s, data: dict, sanitizer: Callable[[str], str]|None = None) -> str:
     if sanitizer is None:
         def default_part_sanitizer(s: str):
@@ -443,7 +469,7 @@ def safely_resolve_path(path: Path|str, part_data: list[dict]|dict = {}, part_sa
 
 
 # Assertion
-def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = True):
+def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = False):
     if p is None:
         if not or_None:
             raise ValueError(f"{name} can not be None. Expected str path.")

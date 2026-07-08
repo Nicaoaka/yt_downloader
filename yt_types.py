@@ -4,7 +4,7 @@ __all__ = [
     'InfoDict', 'V_InfoDict', 'PL_V_InfoDict', 'PL_InfoDict',
     'YT_DLP_DownloadArchive',
     'Metadata',
-    'ConfigOuttmpl', 'PL_Outtmpl',
+    'CustomOuttmpl', 'PL_Resolved_CustomOuttmpl',
     'DL_Action', 'DL_Result',
     'DownloadInfo', 'PL_DownloadInfo', 'PL_DownloadHistory',
     'ID_DownloadInfo',
@@ -12,9 +12,9 @@ __all__ = [
 ]
 
 from enum import StrEnum, auto, IntEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args, TypedDict, Literal
 if TYPE_CHECKING:
-    from typing import Literal, TypedDict, NotRequired, Required, Any, Callable
+    from typing import NotRequired, Required, Any, Callable
     from yt_dlp import _Params
 
 type V_ID = str
@@ -134,12 +134,8 @@ type YT_DLP_DownloadArchive = tuple[tuple[str, str], ...]
 
 # outtmpl doesn't include Home,
 # so that the Home folder can be moved without edits
-class ConfigOuttmpl(TypedDict):
-    # Folders
-    Playlist: str|Callable[[PL_InfoDict], str]
-
-    # Video Files
-    video_file: str # for `default`
+class _CustomOuttmpl(TypedDict):
+    video_file: str # instead of `default`
     chapter:    NotRequired[str]
     subtitle:   NotRequired[str]
     thumbnail:  NotRequired[str]
@@ -156,21 +152,12 @@ class ConfigOuttmpl(TypedDict):
     metadata: str
     ytdlp_archive: str
 
-class PL_Outtmpl(TypedDict):
-    Playlist: str
-    video_file: str
-    flat_infojson: str
-    pl_infojson: str
-    merge_infojson: str
-    ytdlp_archive: str
-    metadata: str
+class CustomOuttmpl(_CustomOuttmpl):
+    Playlist: str|Callable[[PL_InfoDict], str]
 
-    chapter:     NotRequired[str]
-    subtitle:    NotRequired[str]
-    thumbnail:   NotRequired[str]
-    description: NotRequired[str]
-    annotation:  NotRequired[str]
-    link:        NotRequired[str]
+class PL_Resolved_CustomOuttmpl(_CustomOuttmpl):
+    Playlist: str
+
 
 
 class DL_Action(StrEnum):
@@ -206,30 +193,33 @@ class ID_DownloadInfo(TypedDict):
 type PL_DownloadInfo = list[DownloadInfo]
 type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
 
+_MetadataFiles_Lit = Literal['latest_flat_info', 'latest_pl_info', 'latest_merge_info']
 class _MetadataFiles(TypedDict):
     latest_flat_info:  str|None
     latest_pl_info:    str|None
     latest_merge_info: str|None
+assert set(get_args(_MetadataFiles_Lit)) == set(_MetadataFiles.__required_keys__), "Must have same key names"
 
 class Metadata(_MetadataFiles):
     id: str
-    path_tmpls: ConfigOuttmpl
+    path_tmpls: PL_Resolved_CustomOuttmpl
     history: PL_DownloadHistory
     pl_epoch: int # for latest pl extraction
     v_epoch:  int # for latest video extraction
 
 def empty_Metadata() -> Metadata:
+    """ `id`, `path_tmpls`, `pl_epoch`, and `v_epoch` must be set """
     return {
         'id': '',
         'history':    {},
         'path_tmpls': {},
         'pl_epoch':   -1,
-        'v_epoch':      -1,
+        'v_epoch':    -1,
         
         'latest_flat_info':  None,
         'latest_pl_info':    None,
         'latest_merge_info': None,
-    } # type: ignore - epochs must be set manually
+    } # type: ignore
 
 
 
@@ -249,7 +239,7 @@ class _PL_InfoLevel(IntEnum):
 
 
 def main():
-    print(_MetadataFiles.__required_keys__)
+    pass
 
 if __name__ == "__main__":
     main()

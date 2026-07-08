@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 __all__ = [
-    'DownloaderConfig',
+    'PlaylistDL_Config',
 ]
 
 from dataclasses import dataclass, field
 from typing import Callable
 
 from yt_types import *
+import yt_types
 import utils
 import yt_utils
-import os
 
 
 def default_wrapper_match_filter(
@@ -26,7 +26,7 @@ def default_wrapper_match_filter(
     else extract once.
     """
 
-    id_curr = yt_utils.ids_from_download_info(curr)
+    id_curr = yt_utils.ids_from_pl_download_info(curr)
     id_history = yt_utils.ids_from_history(history)
     id_ytdlp = yt_utils.ids_from_ytdlp(ytdlp)
 
@@ -60,10 +60,6 @@ def default_edit_final_opts_in_place(opts: YT_DLP_Params) -> None:
     return None
 
 
-def default_edit_final_opts(opts: YT_DLP_Params) -> YT_DLP_Params:
-    return opts
-
-
 def default_opts() -> YT_DLP_Params:
     return {
         'quiet': False,
@@ -88,7 +84,7 @@ def default_opts() -> YT_DLP_Params:
     }
 
 
-def default_path_tmpls() -> ConfigOuttmpl:
+def default_path_tmpls() -> CustomOuttmpl:
     """
     reference: https://github.com/yt-dlp/yt-dlp#output-template
     
@@ -104,7 +100,7 @@ def default_path_tmpls() -> ConfigOuttmpl:
 
         'flat_infojson': 'flat/%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json',
         'pl_infojson': 'playlist/%(epoch>%Y-%m-%d %H-%M-%S)s.info.json',
-        'merge_infojson': 'merge/%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json',
+        'merge_infojson': '%(epoch>%Y-%m-%d %H-%M-%S)s.json',
 
         'ytdlp_archive': '_ytlp_archive.txt',
         'metadata': '_metadata.json',
@@ -113,23 +109,33 @@ def default_path_tmpls() -> ConfigOuttmpl:
 
 
 @dataclass
-class DownloaderConfig:
+class PlaylistDL_Config:
     # --- playlist identity / location (PICK ONLY ONE) ---
     playlist_id:   str | None = "test/The Verge of Impossibility [...3Cfmpjqm-Pa]/flat/2026-07-03 07-43-12.flat.json"
-    info_path:     str | None = None
+    pl_info_path:  str | None = None
     metadata_path: str | None = None
 
     # --- refresh ---
     refresh_after: int = 7 * 24*3600  # seconds; only used if the playlist identifier is a path
     
     # --- cookies ---
-    cookie_file:   str | None = None
-    empty_cookies: bool = False
+    cookie_file: str | None = None
+    cookies_for_pl:    bool = True
+    cookies_for_vids:  bool = False
+    empty_cookies:     bool = False
 
     # --- what to persist ---
     write_flat:    bool = True
     write_pl_info: bool = True
     write_merge:   bool = True
+    
+    # merge options
+    single_merge:  bool = True # removes old merges - one json
+    merge_fallbacks: list[yt_types._MetadataFiles_Lit] = [
+        'latest_merge_info', # checked/used first
+        'latest_pl_info',    # second
+        'latest_flat_info',  # last
+    ]
 
     # --- control hooks (override per-instance as needed) ---
     wrapper_match_filter: Callable[
@@ -138,11 +144,10 @@ class DownloaderConfig:
     ] = default_wrapper_match_filter
     yt_dlp_match_filter: Callable[..., str | None] = default_yt_dlp_match_filter
     edit_final_opts_in_place: Callable[[YT_DLP_Params], None] = default_edit_final_opts_in_place
-    edit_final_opts: Callable[[YT_DLP_Params], YT_DLP_Params] = default_edit_final_opts
 
     # --- yt-dlp params / path templates ---
     home: str = 'test'
-    path_tmpls: ConfigOuttmpl = field(default_factory=default_path_tmpls)
+    path_tmpls: CustomOuttmpl = field(default_factory=default_path_tmpls)
     opts: YT_DLP_Params = field(default_factory=default_opts)
 
     def __post_init__(self):
@@ -156,7 +161,7 @@ class DownloaderConfig:
         """
 
         # Identifiers
-        playlist_identifiers = [x for x in [self.playlist_id, self.info_path, self.metadata_path] if x]
+        playlist_identifiers = [x for x in [self.playlist_id, self.pl_info_path, self.metadata_path] if x]
         if len(playlist_identifiers) == 0:
             raise ValueError("Give at least one playlist identifier.\nAny of: playlist_id, info_path, metadata_path")
         if len(playlist_identifiers) > 1:
@@ -165,7 +170,7 @@ class DownloaderConfig:
         if self.playlist_id and not yt_utils.is_id_like(self.playlist_id, is_video=False):
             raise ValueError("playlist_id was not recognized as an id")
         
-        utils.assert_file(self.info_path,     'info_path',     min_size=1, or_None=True)
+        utils.assert_file(self.pl_info_path,     'info_path',     min_size=1, or_None=True)
         utils.assert_file(self.metadata_path, 'metadata_path', min_size=1, or_None=True)
 
         # Cookies

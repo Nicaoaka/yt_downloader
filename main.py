@@ -1,5 +1,5 @@
-from playlist_downloader import DownloadPlaylist
-from config import DownloaderConfig
+from playlist_downloader import PlaylistDL
+from config import PlaylistDL_Config
 
-config = DownloaderConfig()
-DownloadPlaylist(config)
+config = PlaylistDL_Config()
+PlaylistDL(config)
