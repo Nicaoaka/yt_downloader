@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 __all__ = [
-    'PlaylistDL_Config',
+    'PlaylistDL_Config'
 ]
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Literal
 
 from yt_types import *
 import yt_types
@@ -13,11 +13,21 @@ import utils
 import yt_utils
 
 
+def default_merge_fallbacks() -> list[yt_types._MetadataFiles_Lit]:
+    return [
+        'latest_merge_info', # checked/used first
+        'latest_pl_info',    # second
+        'latest_flat_info',  # last
+    ]
+
+
 def default_wrapper_match_filter(
     pl_v_info: PL_V_InfoDict,
-    curr: PL_DownloadInfo,
+    curr_dl_info: PL_DownloadInfo,
     history: PL_DownloadHistory,
+    history_ids: ID_DownloadInfo,
     ytdlp: YT_DLP_DownloadArchive,
+    ytdlp_ids: list[V_ID],
 ) -> DL_Action:
     """
     1 download OR 3 extracts per run,
@@ -26,19 +36,17 @@ def default_wrapper_match_filter(
     else extract once.
     """
 
-    id_curr = yt_utils.ids_from_pl_download_info(curr)
-    id_history = yt_utils.ids_from_history(history)
-    id_ytdlp = yt_utils.ids_from_ytdlp(ytdlp)
+    curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
 
-    if len(id_curr['download']) >= 1 or len(id_curr['extract']) >= 3:
+    if len(curr_dl_ids['download']) >= 1 or len(curr_dl_ids['extract']) >= 3:
         return DL_Action.QUIT
 
-    if pl_v_info['id'] in id_history['download']:
+    if pl_v_info['id'] in history_ids['download']:
         return DL_Action.SKIP
     if (pl_v_info['view_count'] or 0) < 1_000_000:
         return DL_Action.EXTRACT
 
-    if pl_v_info['id'] not in id_history['extract']:
+    if pl_v_info['id'] not in history_ids['extract']:
         return DL_Action.EXTRACT
 
     return DL_Action.SKIP
@@ -107,13 +115,11 @@ def default_path_tmpls() -> CustomOuttmpl:
     }
 
 
-
 @dataclass
 class PlaylistDL_Config:
     # --- playlist identity / location (PICK ONLY ONE) ---
-    playlist_id:   str | None = "test/The Verge of Impossibility [...3Cfmpjqm-Pa]/flat/2026-07-03 07-43-12.flat.json"
-    pl_info_path:  str | None = None
-    metadata_path: str | None = None
+    ident: str
+    ident_type: ConfigID_Type
 
     # --- refresh ---
     refresh_after: int = 7 * 24*3600  # seconds; only used if the playlist identifier is a path
@@ -130,16 +136,19 @@ class PlaylistDL_Config:
     write_merge:   bool = True
     
     # merge options
-    single_merge:  bool = True # removes old merges - one json
-    merge_fallbacks: list[yt_types._MetadataFiles_Lit] = [
-        'latest_merge_info', # checked/used first
-        'latest_pl_info',    # second
-        'latest_flat_info',  # last
-    ]
+    merge_keep_one: bool = True # removes old merges - one json
+    merge_fallback_order: list[yt_types._MetadataFiles_Lit] = field(default_factory=default_merge_fallbacks)
 
     # --- control hooks (override per-instance as needed) ---
     wrapper_match_filter: Callable[
-        [PL_V_InfoDict, PL_DownloadInfo, PL_DownloadHistory, YT_DLP_DownloadArchive],
+        [
+            PL_V_InfoDict,
+            PL_DownloadInfo,
+            PL_DownloadHistory,
+            ID_DownloadInfo,
+            YT_DLP_DownloadArchive,
+            list[V_ID],
+        ],
         DL_Action,
     ] = default_wrapper_match_filter
     yt_dlp_match_filter: Callable[..., str | None] = default_yt_dlp_match_filter
@@ -160,26 +169,22 @@ class PlaylistDL_Config:
         So the 
         """
 
-        # Identifiers
-        playlist_identifiers = [x for x in [self.playlist_id, self.pl_info_path, self.metadata_path] if x]
-        if len(playlist_identifiers) == 0:
-            raise ValueError("Give at least one playlist identifier.\nAny of: playlist_id, info_path, metadata_path")
-        if len(playlist_identifiers) > 1:
-            raise ValueError(f"Give only one playlist identifier. (Found {len(playlist_identifiers)})\nAny of: playlist_id, info_path, metadata_path")
-        
-        if self.playlist_id and not yt_utils.is_id_like(self.playlist_id, is_video=False):
-            raise ValueError("playlist_id was not recognized as an id")
-        
-        utils.assert_file(self.pl_info_path,     'info_path',     min_size=1, or_None=True)
-        utils.assert_file(self.metadata_path, 'metadata_path', min_size=1, or_None=True)
-
-        # Cookies
-        if self.empty_cookies: utils.assert_file(self.cookie_file,   'cookie_path',   min_size=1, or_None=False)
-        else:                  utils.assert_file(self.cookie_file,   'cookie_path',   min_size=1, or_None=True)
+        utils.assert_file(self.cookie_file, 'cookie_file', min_size=1, or_None=True)
 
         # opts
+        if 'cookiefile' in self.opts:
+            raise ValueError(
+                f"cookiefile can not be set in `config.opts`. Use `config.cookie_file` instead.")
         for k in ('outtmpl', 'paths', 'download_archive'):
             if k in self.opts:
                 raise ValueError(
                     f"{k} can not be set in `config.opts`. Use `config.path_tmpls` instead.\n"
                     "(`config.path_tmpls` will create 'outtmpl', 'paths', and 'download_archive')")
+
+def main():
+    print("Default config:")
+    import pprint
+    pprint.pprint(PlaylistDL_Config(ident='exampleid', ident_type=ConfigID_Type.PLAYLIST_ID))
+
+if __name__ == "__main__":
+    main()

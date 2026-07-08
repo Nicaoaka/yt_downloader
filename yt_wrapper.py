@@ -110,15 +110,20 @@ def download_pl_videos(
         pl_info: PL_InfoDict,
         wrapper_match_filter: Callable[[PL_V_InfoDict, PL_DownloadInfo], DL_Action]|None = None,
         opts: YT_DLP_Params = {},
-        yt: bool = False,
+        try_yt_if_unavailable: bool = False,
         wa: bool = True,
 ) -> PL_DownloadInfo:
     """ Extract and download videos in videos_to_download. Return the extracted info, download results, and errors
 
     Args:
-        opts (YT_DLP_Params, optional): Extra opts. Defaults to {}.
-        wa_fallback (bool, optional): Use archive.org fallback. Defaults to True.
-        try_unavailable (bool, optional): Try youtube even if marked as unavailable in flat_info. Defaults to False.
+        pl_info (PL_InfoDict): Info is changed in-place
+        wrapper_match_filter (Callable[[PL_V_InfoDict, PL_DownloadInfo], DL_Action]|None, optional):
+            Called before downloading the video. Is given current playlist download information.
+            Returns a download action to control the current playlist download.
+            Defaults to None; this will extract and download every video not in the yt-dlp download archive.
+        opts (YT_DLP_Params, optional): Extra opts used by ``download_video()``. Defaults to {}.
+        try_yt_if_unavailable (bool, optional): Try Youtube even if it seems unavailable. Defaults to True.
+        wa (bool, optional): Use archive.org if YouTube failed (fallback). Defaults to True.
 
     Returns:
         
@@ -166,7 +171,7 @@ def download_pl_videos(
             v_info, errors, success = download_video(
                 entry['id'],
                 opts=opts,
-                yt = yt or yt_utils.maybe_available_on_yt(entry),
+                yt = try_yt_if_unavailable or yt_utils.maybe_available_on_yt(entry),
                 wa = wa,
                 _download = (action == DL_Action.DOWNLOAD)
             )

@@ -3,11 +3,14 @@ __all__ = [
     'V_ID', 'PL_ID', 'EPOCH_STR',
     'InfoDict', 'V_InfoDict', 'PL_V_InfoDict', 'PL_InfoDict',
     'YT_DLP_DownloadArchive',
-    'Metadata',
+
+    'ConfigID_Type',
     'CustomOuttmpl', 'PL_Resolved_CustomOuttmpl',
+    
     'DL_Action', 'DL_Result',
     'DownloadInfo', 'PL_DownloadInfo', 'PL_DownloadHistory',
     'ID_DownloadInfo',
+    'Metadata',
     '_V_InfoLevel', '_PL_InfoLevel',
 ]
 
@@ -132,6 +135,19 @@ type YT_DLP_DownloadArchive = tuple[tuple[str, str], ...]
 
 # custom
 
+class ConfigID_Type(StrEnum):
+    """
+    On the first run you must use `PLAYLIST_ID`
+
+    Otherwise, the preferred type is
+    1. METADATA_PATH
+    2. PL_INFO_PATH
+    3. PLAYLIST_ID
+    """
+    PLAYLIST_ID   = auto()
+    PL_INFO_PATH  = auto()
+    METADATA_PATH = auto()
+
 # outtmpl doesn't include Home,
 # so that the Home folder can be moved without edits
 class _CustomOuttmpl(TypedDict):
@@ -182,6 +198,9 @@ class DownloadInfo(TypedDict):
     result: DL_Result
     errors: list[Exception]
 
+type PL_DownloadInfo = list[DownloadInfo]
+type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
+
 class ID_DownloadInfo(TypedDict):
     # skip: list[str]
     fail: list[str]
@@ -190,8 +209,6 @@ class ID_DownloadInfo(TypedDict):
     download: list[str]
     error: list[str]
 
-type PL_DownloadInfo = list[DownloadInfo]
-type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
 
 _MetadataFiles_Lit = Literal['latest_flat_info', 'latest_pl_info', 'latest_merge_info']
 class _MetadataFiles(TypedDict):

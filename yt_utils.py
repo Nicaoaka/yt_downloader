@@ -1,11 +1,6 @@
-from functools import lru_cache
-from enum import IntEnum
-
 from yt_dlp import YoutubeDL
 
 from yt_types import *
-import yt_types
-import utils
 
 # YouTube and InternetWebArchive id/url
 
@@ -96,9 +91,8 @@ def get_pl_info_level(pl_info: PL_InfoDict) -> _PL_InfoLevel:
     return _PL_InfoLevel.FLAT
 # Processing archives
 
-@lru_cache(1)
-def ids_from_ytdlp(l: YT_DLP_DownloadArchive) -> tuple[str, ...]:
-    return tuple(tup[1] for tup in l)
+def ids_from_ytdlp_archive(l: YT_DLP_DownloadArchive) -> list[V_ID]:
+    return [tup[1] for tup in l]
 
 def ids_from_pl_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
     res: ID_DownloadInfo = {
@@ -119,7 +113,6 @@ def ids_from_pl_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
         if v['errors']: res['error'].append(v_id)
     return res
 
-# TODO: Add Caching
 def ids_from_history(history: PL_DownloadHistory) -> ID_DownloadInfo:
     merged: ID_DownloadInfo = {
         'fail':     [],

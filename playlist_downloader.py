@@ -1,7 +1,9 @@
-__all__ = ['PlaylistDL']
+__all__ = [
+    'PlaylistDL',
+    'PlaylistDL_Config', 'ConfigID_Type'
+]
 
 import os
-import copy
 
 from config import PlaylistDL_Config
 from yt_types import *
@@ -30,14 +32,21 @@ class PlaylistDL:
         self.metadata['pl_epoch'] = self.pl_info.get('epoch', 0)
         self.metadata['history'] = {} if not self.old_metadata else self.old_metadata['history']
         self.metadata['path_tmpls'] = self._meta_outtmpls(self.config.home, self.pl_outtmpls)
+        
         PlaylistDL._validate_metadata(self.old_metadata, self.metadata)
+        # ``_validate_metadata()`` may raise an exception which will prevent the flat pl_info from being written.
+        # This is intentional, but not ideal.
+        # A way to have flat written anyway would be to write the flat pl_info to a temp folder.
 
         if config.write_flat and self.is_new_pl_info:
             self.metadata['latest_flat_info'] = yt_utils.ytdlp_eval_tmpl(self.pl_outtmpls['flat_infojson'], self.pl_info)
             utils.json_dump(self.pl_info, dst=self.metadata['latest_flat_info'], on_collision='mov new', auto_rename=True)
         
         self.history: PL_DownloadHistory = dict() if not self.old_metadata else self.old_metadata.get('history', dict())
+        self.history_ids: ID_DownloadInfo = yt_utils.ids_from_history(self.history)
+        
         self.ytdlp_archive: YT_DLP_DownloadArchive = yt_wrapper.load_yt_archive(self.metadata['path_tmpls']['ytdlp_archive'])
+        self.ytdlp_archive_ids: list[V_ID] = yt_utils.ids_from_ytdlp_archive(self.ytdlp_archive)
         PlaylistDL._validate_dl_archive_sync(self.ytdlp_archive, self.metadata)
 
         # Playlist Video Extraction/Download
@@ -49,18 +58,26 @@ class PlaylistDL:
         )
         self.config.edit_final_opts_in_place(self.opts)
 
+        def wrapper_match_filter(pl_v_info: PL_V_InfoDict, curr_dl_info: PL_DownloadInfo):
+            return self.config.wrapper_match_filter(pl_v_info, curr_dl_info,
+                self.history,
+                self.history_ids,
+                self.ytdlp_archive,
+                self.ytdlp_archive_ids,
+            )
+
         pl_dl_info = yt_wrapper.download_pl_videos(
             pl_info              = self.pl_info,
-            wrapper_match_filter = lambda v_info, curr: self.config.wrapper_match_filter(v_info, curr, self.history, self.ytdlp_archive),
+            wrapper_match_filter = wrapper_match_filter,
             opts                 = self.opts)
-        if self.config.empty_cookies:
-            with open(self.config.cookie_file, 'r'): ... # type: ignore - validated by DL_Config
+        if self.config.empty_cookies and self.config.cookie_file:
+            with open(self.config.cookie_file, 'w'): ... # clear cookie file
         
         id_dl_info = yt_utils.ids_from_pl_download_info(pl_dl_info)
         has_new_v_info = bool(id_dl_info['extract'] or id_dl_info['download'])
         if has_new_v_info:
             self.metadata['v_epoch'] = utils.epoch_now()
-        self.metadata['history'][str(utils.epoch_now())]
+        self.metadata['history'][str(utils.epoch_now())] = pl_dl_info
 
         if self.config.write_pl_info:
             if not has_new_v_info:
@@ -77,13 +94,13 @@ class PlaylistDL:
                 self.pl_info,
                 post_processing.get_latest_epoch(self.pl_info),
                 self.pl_outtmpls['merge_infojson'])
-            if not self.config.single_merge:
+            if not self.config.merge_keep_one:
                 utils.json_dump(self.pl_info, self.metadata['latest_merge_info'], on_collision='mov new')
             else:
                 utils.json_dump(self.pl_info, self.metadata['latest_merge_info'], on_collision='rm old')
                 if (self.old_metadata
-                        and self.old_metadata['latest_merge_info']
                         and self.metadata['latest_merge_info'] != self.old_metadata['latest_merge_info']
+                        and self.old_metadata['latest_merge_info']
                         and os.path.exists(self.old_metadata['latest_merge_info'])):
                     os.unlink(self.old_metadata['latest_merge_info'])
 
@@ -109,25 +126,26 @@ class PlaylistDL:
         def extract_flat_info(id: str):
             return yt_wrapper.extract_flat_info(id, opts= {} if self.config.cookies_for_pl else {'cookiefile': self.config.cookie_file})
 
-        if self.config.playlist_id:
-            return extract_flat_info(self.config.playlist_id), True
+        if self.config.ident_type == ConfigID_Type.PLAYLIST_ID:
+            return extract_flat_info(self.config.ident), True
         
-        elif self.config.pl_info_path:
-            info: PL_InfoDict = utils.json_load_typeddict(self.config.pl_info_path, PL_InfoDict)
+        elif self.config.ident_type == ConfigID_Type.PL_INFO_PATH:
+            info: PL_InfoDict = utils.json_load_typeddict(self.config.ident, PL_InfoDict)
             if self._need_refresh(info.get('epoch', 0)):
                 return extract_flat_info(info['id']), True
             return info, False
         
-        elif self.config.metadata_path:
-            old_metadata: Metadata = utils.json_load_typeddict(self.config.metadata_path, Metadata)
+        elif self.config.ident_type == ConfigID_Type.METADATA_PATH:
+            old_metadata: Metadata = utils.json_load_typeddict(self.config.ident, Metadata)
             
             if self._need_refresh(old_metadata['pl_epoch']):
                 return extract_flat_info(old_metadata['id']), True
             
-            for k in ['latest_flat_info', 'latest_pl_info', 'latest_merge_info']:
+            # one should match old_metadata['pl_epoch']. If none match, extract new because the old_metadata is malformed.
+            for k in ['latest_merge_info', 'latest_pl_info', 'latest_flat_info']:
                 if p := old_metadata.get(k):
                     info = utils.json_load_typeddict(p, PL_InfoDict)
-                    if not self._need_refresh(info.get('epoch', 0)):
+                    if info.get('epoch') == old_metadata['pl_epoch']:
                         return info, False
             utils.WARNING("Malformed metadata 'pl_epoch'")
             return extract_flat_info(old_metadata['id']), True
@@ -220,7 +238,7 @@ class PlaylistDL:
 
     @staticmethod
     def _validate_dl_archive_sync(yt_dlp_archive: YT_DLP_DownloadArchive, metadata: Metadata):
-        ytdlp_dl = set(yt_utils.ids_from_ytdlp(yt_dlp_archive))
+        ytdlp_dl = set(yt_utils.ids_from_ytdlp_archive(yt_dlp_archive))
         hist_dl = set(yt_utils.ids_from_history(metadata['history'])['download'])
         if ytdlp_dl != hist_dl:
             raise ValueError(f"Detected download state mismatch:\nytdlp-only: {ytdlp_dl - hist_dl}\nhist-only: {hist_dl - ytdlp_dl}")
@@ -228,7 +246,7 @@ class PlaylistDL:
 
     def get_merge_info(self) -> PL_InfoDict:
         infos = [self.pl_info]
-        for k in self.config.merge_fallbacks:
+        for k in self.config.merge_fallback_order:
             if not self.old_metadata:
                 break
             if info_path := self.old_metadata.get(k):
@@ -238,11 +256,3 @@ class PlaylistDL:
         return post_processing.merge_pl_infos(infos)
         
 
-
-
-def main():
-    PlaylistDL(PlaylistDL_Config())
-    pass
-
-if __name__ == "__main__":
-    main()
