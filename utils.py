@@ -37,7 +37,7 @@ def _rgb(text, fg: tuple[int, int, int]|None = None, bg: tuple[int, int, int]|No
 
 
 def WARNING(msg: str) -> None:
-    print(hex(" WARNING ", bg='#c8c800'), msg)
+    print(hex(" WARNING ", bg="#ffff47"), msg)
 
 
 def truncate(s: str, max_len: int, end='...', *, end_in_max: bool = True, trunc_start: bool = False):
@@ -99,6 +99,7 @@ def input_string(
         case_sensitive: bool = True,
         attempts: int = -1,
         default: str|type[__NO_DEFAULT] = __NO_DEFAULT,
+        use_default_for: set[str] = set(),
         show_hints: bool = True,
     ) -> str:
     """ returns one of the string options or default if ran out of attempts
@@ -113,8 +114,11 @@ def input_string(
     if not options:
         raise ValueError("Options list cannot be empty.")
 
-    if attempts != -1 and default == __NO_DEFAULT:
+    if attempts >= 0 and default is __NO_DEFAULT:
         raise ValueError("Limited attempts requires a default.")
+    
+    if use_default_for and default is __NO_DEFAULT:
+        raise ValueError('Entered use_default_for requires a default')
 
     option_map = dict()
     if not case_sensitive:
@@ -122,32 +126,23 @@ def input_string(
         if not case_sensitive and len(option_map) != len(set(options)):
             raise ValueError("Options that differ only by case must have case-specific inputs.\n"+str(options))
     
-    def color_repr(s, fg: str|None=None, bg: str|None=None):
-        return f"'{hex(repr(s)[1:-1], fg, bg)}'"
-
     if prefix_options:
-        print(numbered_list([color_repr(opt, INPUT_COLOR) for opt in options], indent=2))
+        print(numbered_list(
+            [f"'{hex(repr(opt)[1:-1], INPUT_COLOR)}'" for opt in options],
+            indent=2))
 
     attempts_left = attempts
     while attempts_left != 0:
 
         hints = []
-        hints.append(hex(
-                "[ Case-sensitive ]" if case_sensitive else "[ NOT Case-sensitive ]",
-                HINT_COLOR))
-        if attempts_left > 1:
-            hints.append(
-                hex("[ ", HINT_COLOR)
-                + hex(attempts_left, INPUT_COLOR)
-                + hex(" attempts left ]", HINT_COLOR)
-            )
-        elif attempts_left == 1:
-            hints.append(hex("< 1 ATTEMPT LEFT >", WARN_COLOR))
+        hints.append(hex(f"[ {case_sensitive=} ]", HINT_COLOR))
         if attempts > 0:
+            hints.append(hex(f"[ {attempts_left=} ]", HINT_COLOR if attempts_left > 1 else WARN_COLOR))
+        if default is not __NO_DEFAULT:
             hints.append(
-                hex('[ default = "', HINT_COLOR)
+                hex('[ default= \'', HINT_COLOR)
                 + hex(default, INPUT_COLOR)
-                + hex('" ]', HINT_COLOR)
+                + hex('\' ]', HINT_COLOR)
             )
         hint_header = ' '.join(hints) + '\n' if hints and show_hints else ''
 
@@ -161,13 +156,19 @@ def input_string(
 
         if inp in options:
             return inp
-        elif not case_sensitive and inp in option_map:
-            return option_map[inp]
+        elif not case_sensitive and inp.lower() in option_map:
+            return option_map[inp.lower()]
+        elif inp in use_default_for:
+            return default # type: ignore - default is a str
         
-        print(color_repr(inp, INPUT_COLOR) + hex(" is Unrecognized", WARN_COLOR), end='\n\n')
+        print(
+            hex("Unrecognized: '", WARN_COLOR)
+            + hex(inp, INPUT_COLOR)
+            + hex("'", WARN_COLOR),
+            end='\n\n')
         attempts_left -= 1
 
-    print(f"Using default: {color_repr(default, HINT_COLOR)}")
+    print(f"Using default: '{hex(default, HINT_COLOR)}'")
 
     # ran out of attempts
     return default # type: ignore - default is a str
@@ -230,11 +231,10 @@ def isinstance_typeddict(data, typeddict, raise_exc: bool = False) -> bool:
     for k in typeddict.__required_keys__:
         if k not in data:
             if raise_exc:
-                extra, missing = dif_sets(set(data.keys()), set(typeddict.__required_keys__))
+                missing = set(typeddict.__required_keys__) - set(data.keys())
                 raise TypeError(
                     f"Malformed\n"
-                    f"Extra keys:   {extra}\n"
-                    f"Missing keys: {missing}\n")
+                    f"Missing keys: {', '.join(sorted(missing))}\n")
             return False
     return True
 
@@ -273,10 +273,11 @@ def json_load_typeddict(src: str | Path, typeddict, default: Any = RAISE_EXC) ->
     Like ``json_load()``, but check typeddict keys wil ``isinstance_typeddict()``
     """
     obj = json_load(src, default)
-    if isinstance_typeddict(obj, typeddict, raise_exc=(default is RAISE_EXC)):
-        return obj
-    else:
-        return default
+    try:
+        if isinstance_typeddict(obj, typeddict, raise_exc=(default is RAISE_EXC)):
+            return obj
+    except TypeError as e:
+        raise TypeError(f'{e}\nPath: {src}\nExpected: {typeddict}') from None
 
 def json_dump(
         obj,
@@ -287,7 +288,8 @@ def json_dump(
     def _json_dump(dst: Path):
         dst.parent.mkdir(parents=True, exist_ok=True) # type: ignore
         with open(dst, 'w', encoding='utf-8') as f:
-            json.dump(obj, f, default=str)
+            # 日本語 and 絵文字 are expected!
+            json.dump(obj, f, ensure_ascii=False, default=str)
         print(hex(f"[write_json] \"{dst.absolute()}\"", '#c800c8'))
     handle_collision(Path(dst), _json_dump, on_collision, auto_rename)
 
@@ -472,15 +474,15 @@ def safely_resolve_path(path: Path|str, part_data: list[dict]|dict = {}, part_sa
 def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = False):
     if p is None:
         if not or_None:
-            raise ValueError(f"{name} can not be None. Expected str path.")
+            raise ValueError(f"{name} can not be None. Expected str path.\nPath: {p}")
         return
     if not os.path.exists(p):
-        raise FileNotFoundError(f"{name} does not exist")
+        raise FileNotFoundError(f"{name} does not exist.\nPath: {p}")
     if min_size <= 0:
         return
     size = os.stat(p).st_size
-    if size >= min_size:
-        raise RuntimeError(f"{name} is {size} bytes. Expected >= {min_size}.")
+    if size < min_size:
+        raise RuntimeError(f"{name} is {size} bytes. Expected >= {min_size}.\nPath: {p}")
 
 
 

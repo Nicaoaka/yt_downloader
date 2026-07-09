@@ -163,7 +163,7 @@ def merge_v_infos(v_infos: list[V_InfoDict | PL_V_InfoDict]) -> tuple[V_InfoDict
         for k, v in v_info.items():
             if k in ('yt_unavailable_msg', 'wa_unavailable_msg'):
                 continue # special case
-            if utils.dict_set_if(merge, k, v, match=[utils.__NO_DEFAULT, None]): # type: ignore - res_entry is a dict
+            if utils.dict_set_if(merge, k, v): # type: ignore - res_entry is a dict
                 updates.append(k)
 
         new_info_level = yt_utils.get_v_info_level(v_info)

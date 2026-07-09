@@ -2,9 +2,9 @@ __all__ = [
     'YT_DLP_Params',
     'V_ID', 'PL_ID', 'EPOCH_STR',
     'InfoDict', 'V_InfoDict', 'PL_V_InfoDict', 'PL_InfoDict',
-    'YT_DLP_DownloadArchive',
+    'YT_DLP_DownloadArchive', 'YT_DLP_DownloadArchive_IDs',
 
-    'ConfigID_Type',
+    'Config_IdentType',
     'CustomOuttmpl', 'PL_Resolved_CustomOuttmpl',
     
     'DL_Action', 'DL_Result',
@@ -15,9 +15,8 @@ __all__ = [
 ]
 
 from enum import StrEnum, auto, IntEnum
-from typing import TYPE_CHECKING, get_args, TypedDict, Literal
+from typing import get_args, TypedDict, Literal, NotRequired, Required, Any, Callable, TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import NotRequired, Required, Any, Callable
     from yt_dlp import _Params
 
 type V_ID = str
@@ -35,13 +34,13 @@ class InfoDict(TypedDict):
     # duration: int | None
     # formats: list[dict[str, Any]]
     id: Required[str]
-    like_count: int | None
+    like_count: NotRequired[int | None]
     # tags: list[str] | None
-    thumbnail: str | None
+    thumbnail: NotRequired[str | None]
     # timestamp: int | float | None 
     title: str | None
     uploader: str | None
-    url: str | None
+    url: NotRequired[str | None]
 
     view_count: int | None
     channel: str | None
@@ -130,12 +129,12 @@ class Flat_PL_V_InfoDict(TypedDict):
 
 
 type YT_DLP_DownloadArchive = tuple[tuple[str, str], ...]
-
+type YT_DLP_DownloadArchive_IDs = list[V_ID]
 
 
 # custom
 
-class ConfigID_Type(StrEnum):
+class Config_IdentType(StrEnum):
     """
     On the first run you must use `PLAYLIST_ID`
 
@@ -189,7 +188,7 @@ class DL_Result(StrEnum):
     UNRECOGNIZED = auto()
     NO_INFO      = auto()
     EXTRACT      = auto()
-    DOWNLOAD   = auto()
+    DOWNLOAD     = auto()
 
 
 class DownloadInfo(TypedDict):

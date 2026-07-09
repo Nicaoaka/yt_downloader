@@ -61,6 +61,9 @@ DL_RESULT_STR_MAP = {
 }
 
 
+def exc(e: BaseException):
+    return utils.hex(''.join(traceback.format_exception(e)).rstrip(), fg='#db6a6a')
+
 def download_result(dl: DownloadInfo) -> str:
     if dl['action'] == DL_Action.USER:
         return IMPOSSIBLE_STATE + " DL_Action.User is an invalid action for a DL_Result."
@@ -83,7 +86,7 @@ def download_result(dl: DownloadInfo) -> str:
         if dl['result'] in (DL_Result.DOWNLOAD):
             return OK
         if dl['result'] in (DL_Result.EXTRACT, DL_Result.NO_INFO):
-            return NO_DOWNLOAD + " No download detected!!!"
+            return NO_DOWNLOAD + " No download detected."
         return DL_RESULT_STR_MAP[dl['result']]
 
     return IMPOSSIBLE_STATE + f" Unknown DL_Action: {dl['action']}"
@@ -92,7 +95,7 @@ def _download_info(dl: DownloadInfo, errors: bool) -> str:
     res = f'{DL_ACTION_STR_MAP[dl['action']]} -> {download_result(dl)} {dl['id']:100}'
     if errors:
         for e in dl['errors']:
-            res += '\n'+utils.hex(''.join(traceback.format_exception(e)).rstrip(), fg='#c83232')
+            res += '\n'+exc(e)
     return res
 
 def download_info(dl_info: DownloadInfo, errors: bool):

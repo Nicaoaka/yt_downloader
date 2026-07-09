@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 __all__ = [
-    'PlaylistDL_Config'
+    'PlaylistDL_Config', 'Config_IdentType',
 ]
 
+import os
 from dataclasses import dataclass, field
-from typing import Callable, Literal
+from typing import Callable
 
 from yt_types import *
+from yt_types import Config_IdentType
 import yt_types
 import utils
 import yt_utils
@@ -27,24 +29,26 @@ def default_wrapper_match_filter(
     history: PL_DownloadHistory,
     history_ids: ID_DownloadInfo,
     ytdlp: YT_DLP_DownloadArchive,
-    ytdlp_ids: list[V_ID],
+    ytdlp_ids: YT_DLP_DownloadArchive_IDs,
 ) -> DL_Action:
     """
-    1 download OR 3 extracts per run,
-    skip if already downloaded,
-    download if under 1,000,000 views,
-    else extract once.
+    Per run
+    QUIT: After 5 downloads OR 20 extracts
+    DOWNLOAD: If under 1,000,000 views
+    EXTRACT: If not extracted yet
+    SKIP: Otherwise
     """
 
     curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
 
-    if len(curr_dl_ids['download']) >= 1 or len(curr_dl_ids['extract']) >= 3:
+    if len(curr_dl_ids['download']) >= 5 or len(curr_dl_ids['extract']) >= 20:
         return DL_Action.QUIT
 
     if pl_v_info['id'] in history_ids['download']:
         return DL_Action.SKIP
-    if (pl_v_info['view_count'] or 0) < 1_000_000:
-        return DL_Action.EXTRACT
+    
+    if (pl_v_info.get('view_count') or 0) < 1_000_000:
+        return DL_Action.DOWNLOAD
 
     if pl_v_info['id'] not in history_ids['extract']:
         return DL_Action.EXTRACT
@@ -76,7 +80,16 @@ def default_opts() -> YT_DLP_Params:
         'max_sleep_interval': 10,
         'ratelimit': 3_000_000,
         'remote_components': {'ejs:npm'},
-        'match_filter': default_yt_dlp_match_filter,  # type: ignore
+        'match_filter': default_yt_dlp_match_filter, # type: ignore
+
+        'format': (
+            'bestaudio[ext=m4a][filesize<20M]+bestvideo[filesize<20M]/'
+            'bestaudio[filesize<20M]+bestvideo[filesize<20M]/'
+            'best[filesize<20M]/'
+            'bestaudio[filesize<20M]/'
+            'bestaudio'
+        ),
+        'format_sort': ['aext:m4a', 'abr', 'res', 'vbr'],
 
         'postprocessors': [
             {'already_have_subtitle': False, 'key': 'FFmpegEmbedSubtitle'},
@@ -94,6 +107,8 @@ def default_opts() -> YT_DLP_Params:
 
 def default_path_tmpls() -> CustomOuttmpl:
     """
+    USE `\\` instead of `/`
+    
     reference: https://github.com/yt-dlp/yt-dlp#output-template
     
     Defaults for outtmpl can be found in yt_dlp/utils/_utils.py in the symbol `OUTTMPL_TYPES`.
@@ -104,35 +119,58 @@ def default_path_tmpls() -> CustomOuttmpl:
             f"[{utils.truncate(pl_info['id'], 11, end_in_max=False, trunc_start=True)}]"
         ),
 
-        'video_file': 'Videos/%(title)s [%(id)s].%(ext)s',
+        'video_file': 'Videos\\%(title)s [%(id)s].%(ext)s',
 
-        'flat_infojson': 'flat/%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json',
-        'pl_infojson': 'playlist/%(epoch>%Y-%m-%d %H-%M-%S)s.info.json',
-        'merge_infojson': '%(epoch>%Y-%m-%d %H-%M-%S)s.json',
+        'flat_infojson': 'flat\\%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json',   # uses latest   pl epoch
+        'pl_infojson': 'playlist\\%(epoch>%Y-%m-%d %H-%M-%S)s.info.json', # uses latest v/pl epoch
+        'merge_infojson': '%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json',      # uses latest v/pl epoch
 
-        'ytdlp_archive': '_ytlp_archive.txt',
+        'ytdlp_archive': '_ytdlp_archive.txt',
         'metadata': '_metadata.json',
     }
+
+
+def validate_metdata(metadata: Metadata, config: PlaylistDL_Config):
+    for k in yt_types._MetadataFiles.__required_keys__:
+        if metadata[k]:
+            utils.assert_file(os.path.join(config.home, metadata['path_tmpls']['Playlist'], metadata[k]), f'{k} (metadata)', min_size=1)
+    
+    meta_path = os.path.join(config.home, metadata['path_tmpls'].get('Playlist', 'NA'), metadata['path_tmpls'].get('metadata', 'NA'))
+    for k in metadata['path_tmpls'].keys() | config.path_tmpls.keys():
+        if k == 'Playlist':
+            continue # can't be checked without info
+        if k not in metadata['path_tmpls']:
+            raise ValueError(
+                f"Missing key in metadata: {repr(k)}"
+                f"\nPath: {meta_path}")
+        if k not in config.path_tmpls:
+            raise ValueError(f"Missing key in path_tmpls: {repr(k)}")
+        if metadata['path_tmpls'][k] != config.path_tmpls[k]:
+            raise ValueError(
+                f"Changed `path_tmpls`: {repr(k)}:\n"
+                f"metadata: {metadata['path_tmpls'][k]}\n"
+                f"config:   {config.path_tmpls[k]}"
+                f"\nPath: {meta_path}")
 
 
 @dataclass
 class PlaylistDL_Config:
     # --- playlist identity / location (PICK ONLY ONE) ---
     ident: str
-    ident_type: ConfigID_Type
+    ident_type: Config_IdentType
 
     # --- refresh ---
-    refresh_after: int = 7 * 24*3600  # seconds; only used if the playlist identifier is a path
+    refresh_after: int = 7 * 24 * 3600  # seconds; if ident_type is Playlist_ID, it will extract
     
     # --- cookies ---
     cookie_file: str | None = None
     cookies_for_pl:    bool = True
-    cookies_for_vids:  bool = False
+    cookies_for_v:  bool = False
     empty_cookies:     bool = False
 
     # --- what to persist ---
-    write_flat:    bool = True
-    write_pl_info: bool = True
+    write_flat:    bool = False
+    write_pl_info: bool = False
     write_merge:   bool = True
     
     # merge options
@@ -140,16 +178,12 @@ class PlaylistDL_Config:
     merge_fallback_order: list[yt_types._MetadataFiles_Lit] = field(default_factory=default_merge_fallbacks)
 
     # --- control hooks (override per-instance as needed) ---
-    wrapper_match_filter: Callable[
-        [
+    wrapper_match_filter: Callable[[
             PL_V_InfoDict,
             PL_DownloadInfo,
-            PL_DownloadHistory,
-            ID_DownloadInfo,
-            YT_DLP_DownloadArchive,
-            list[V_ID],
-        ],
-        DL_Action,
+            PL_DownloadHistory,     ID_DownloadInfo,
+            YT_DLP_DownloadArchive, YT_DLP_DownloadArchive_IDs,
+        ], DL_Action,
     ] = default_wrapper_match_filter
     yt_dlp_match_filter: Callable[..., str | None] = default_yt_dlp_match_filter
     edit_final_opts_in_place: Callable[[YT_DLP_Params], None] = default_edit_final_opts_in_place
@@ -169,6 +203,20 @@ class PlaylistDL_Config:
         So the 
         """
 
+        # ident
+        match self.ident_type:
+            case Config_IdentType.PLAYLIST_ID:
+                if not yt_utils.get_pl_id(self.ident):
+                    raise ValueError(f"{self.ident} wasn't recognized as a playlist id")
+            case Config_IdentType.PL_INFO_PATH:
+                utils.assert_file(self.ident, 'pl_info_path (ident)', min_size=1)
+            case Config_IdentType.METADATA_PATH:
+                utils.assert_file(self.ident, 'metadata_path (ident)', min_size=1)
+
+                metadata: Metadata = utils.json_load_typeddict(self.ident, Metadata)
+                validate_metdata(metadata, self) # Okay if called multiple times. This isn't expensive
+
+        # cookies
         utils.assert_file(self.cookie_file, 'cookie_file', min_size=1, or_None=True)
 
         # opts
@@ -184,7 +232,7 @@ class PlaylistDL_Config:
 def main():
     print("Default config:")
     import pprint
-    pprint.pprint(PlaylistDL_Config(ident='exampleid', ident_type=ConfigID_Type.PLAYLIST_ID))
+    pprint.pprint(PlaylistDL_Config(ident='LL', ident_type=Config_IdentType.PLAYLIST_ID))
 
 if __name__ == "__main__":
     main()

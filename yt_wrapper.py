@@ -6,7 +6,6 @@ __all__ = [
 
 import os
 from typing import Callable
-import traceback
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
@@ -131,7 +130,7 @@ def download_pl_videos(
     pl_dl_info: PL_DownloadInfo = []
 
     N = len(pl_info['entries'])
-    DL_MAP = {
+    DL_MAP_NO_USER = {
         str(action).lower(): action
         for action in DL_Action
         if action not in (DL_Action.USER)
@@ -142,19 +141,19 @@ def download_pl_videos(
             if wrapper_match_filter is not None:
                 action = wrapper_match_filter(entry, pl_dl_info)
             
+            i_of_N = f"{i+1:{len(str(N))}}/{N}"
+            pl_v_display = f'[{i_of_N}] [{entry['id']}] {entry.get('title') or "???"} - {entry.get('channel') or '???'}'
+            
+            print(display.DL_ACTION_STR_MAP[action], end=' ')
+            print(utils.hex(pl_v_display, '#78dcb4'))
             if action == DL_Action.USER:
                 choice = utils.input_string(
-                    list(DL_MAP.keys()),
+                    list(DL_MAP_NO_USER.keys()),
                     f'Pick a Download Option: ',
                     prefix_options=True,
                 )
-                action = DL_MAP[choice]
-            
-            i_of_N = f"{i+1:{len(str(N))}}/{N}"
-            pl_v_display = f'[{i_of_N}] [{entry['id']}] {entry.get('title') or "???"} - {entry.get('channel') or '???'}'
-            print(utils.hex(pl_v_display, '#78dcb4'))
-            print(display.DL_ACTION_STR_MAP[action])
-            input()
+                action = DL_MAP_NO_USER[choice]
+                print(display.DL_ACTION_STR_MAP[action])
 
             pl_dl_info.append({
                 'id': entry['id'],
@@ -180,12 +179,13 @@ def download_pl_videos(
                 'id': entry['id'], 'action': action, 'errors': errors,
                 'result': get_result(v_info, success),
             }
-            display.download_result(pl_dl_info[-1])
-            entry.update(v_info) # type: ignore
+            print(display.download_result(pl_dl_info[-1]))
+            if v_info:
+                entry.update(v_info) # type: ignore
     except KeyboardInterrupt:
         print(utils.hex("    KEYBOARD INTERRUPT    ", bg='#ffffff'))
     except Exception as e:
-        print(utils.hex(''.join(traceback.format_exception(e)), fg='#c83232'))
+        print(display.exc(e))
     
     # may be redundent, but can't hurt
     post_processing.add_pl_info_to_entries(pl_info)

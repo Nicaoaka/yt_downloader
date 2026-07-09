@@ -1,10 +1,17 @@
 from yt_dlp import YoutubeDL
+from yt_dlp.extractor.youtube import YoutubePlaylistIE
 
 from yt_types import *
 
 # YouTube and InternetWebArchive id/url
 
-def is_id_like(id:str, is_video=False) -> bool:
+def get_pl_id(url_or_id: str) -> str|None:
+    try:
+        return YoutubePlaylistIE._match_id(url_or_id)
+    except:
+        return None
+
+def is_id_like(id: str, is_video=False) -> bool:
     if not id:
         return False
     if is_video and len(id) != 11: # video ids are always 11 chars long
