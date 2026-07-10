@@ -19,35 +19,37 @@ def wrapper_match_filter(
     ytdlp_ids: YT_DLP_DownloadArchive_IDs,
 ) -> DL_Action:
     
+    # already downloaded - would be skipped by yt-dlp anyway from download_archive
+    if pl_v_info['id'] in history_ids['download'] or pl_v_info['id'] in ytdlp_ids:
+        return DL_Action.SKIP
+    
     if pl_v_info['id'] in DOWNLOAD_OVERRIDE:
         return DL_Action.DOWNLOAD
-    if pl_v_info['id'] in EXTRACT_OVERRIDE:
-        return DL_Action.EXTRACT
-
-    curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
     
-    if len(curr_dl_ids['download']) >= 1 or len(curr_dl_ids['extract']) >= 3:
-        return DL_Action.QUIT
-    
-    if pl_v_info['id'] in history_ids['download']:
-        return DL_Action.SKIP
-
-    # only skip if the fail was in the last week
     if pl_v_info['id'] in history_ids['fail'] or pl_v_info['id'] in history_ids['no_info']:
         for epoch in history:
+            # ignore dl_info older than a week
             if int(epoch) < utils.epoch_now() - 7*24*3600:
                 continue
+            # skip if failed in the last week
             for dl_info in history[str(epoch)]:
                 if dl_info['result'] in (DL_Result.FAIL, DL_Result.NO_INFO) and dl_info['id'] == pl_v_info['id']:
                     return DL_Action.SKIP
     
+    if pl_v_info['id'] in EXTRACT_OVERRIDE:
+        return DL_Action.EXTRACT
+    
+    curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
+    if len(curr_dl_ids['download']) >= 1 or len(curr_dl_ids['extract']) >= 3:
+        return DL_Action.SKIP
+        
     if (pl_v_info.get('view_count') or 0) < 1_000_000:
         return DL_Action.DOWNLOAD
-
-    if pl_v_info['id'] in history_ids['extract']:
-        return DL_Action.SKIP
-
-    return DL_Action.EXTRACT
+    
+    if pl_v_info['id'] not in history_ids['extract']:
+        return DL_Action.EXTRACT
+    
+    return DL_Action.SKIP
 
 # `DOWNLOAD_OVERRIDE` does not override yt_dlp download archive
 DOWNLOAD_OVERRIDE = []

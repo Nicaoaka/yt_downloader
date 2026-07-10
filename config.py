@@ -34,26 +34,36 @@ def default_wrapper_match_filter(
     """
     Per run
     QUIT: After 5 downloads OR 20 extracts
-    DOWNLOAD: If under 1,000,000 views
+    DOWNLOAD: If <1,000,000 or unknown views
     EXTRACT: If not extracted yet
     SKIP: Otherwise
     """
-
+    
     curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
-
     if len(curr_dl_ids['download']) >= 5 or len(curr_dl_ids['extract']) >= 20:
         return DL_Action.QUIT
 
-    if pl_v_info['id'] in history_ids['download']:
+    # already downloaded - would be skipped by yt-dlp anyway from download_archive
+    if pl_v_info['id'] in history_ids['download'] or pl_v_info['id'] in ytdlp_ids:
         return DL_Action.SKIP
+    
+    if pl_v_info['id'] in history_ids['fail'] or pl_v_info['id'] in history_ids['no_info']:
+        for epoch in history:
+            # ignore dl_info older than a week
+            if int(epoch) < utils.epoch_now() - 7*24*3600:
+                continue
+            # skip if failed in the last week
+            for dl_info in history[str(epoch)]:
+                if dl_info['result'] in (DL_Result.FAIL, DL_Result.NO_INFO) and dl_info['id'] == pl_v_info['id']:
+                    return DL_Action.SKIP
     
     if (pl_v_info.get('view_count') or 0) < 1_000_000:
         return DL_Action.DOWNLOAD
-
-    if pl_v_info['id'] in history_ids['extract']:
-        return DL_Action.SKIP
-
-    return DL_Action.EXTRACT
+    
+    if pl_v_info['id'] not in history_ids['extract']:
+        return DL_Action.EXTRACT
+    
+    return DL_Action.SKIP
 
 
 def default_yt_dlp_match_filter(v_info: V_InfoDict, *, incomplete: bool) -> str | None:
@@ -82,14 +92,9 @@ def default_opts() -> YT_DLP_Params:
         'remote_components': {'ejs:npm'},
         'match_filter': default_yt_dlp_match_filter, # type: ignore
 
-        'format': (
-            'bestaudio[ext=m4a][filesize<20M]+bestvideo[filesize<20M]/'
-            'bestaudio[filesize<20M]+bestvideo[filesize<20M]/'
-            'best[filesize<20M]/'
-            'bestaudio[filesize<20M]/'
-            'bestaudio'
-        ),
-        'format_sort': ['aext:m4a', 'abr', 'res', 'vbr'],
+        'format': 'ba+bv',
+        'format_sort': ['abr', 'res:1080', 'vbr'],
+        # default: lang,quality,res,fps,hdr:12,vcodec,channels,acodec,size,br,asr,proto,ext,hasaud,source,id
 
         'postprocessors': [
             {'already_have_subtitle': False, 'key': 'FFmpegEmbedSubtitle'},
@@ -123,7 +128,7 @@ def default_path_tmpls() -> CustomOuttmpl:
 
         'flat_infojson': 'flat\\%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json',   # uses latest   pl epoch
         'pl_infojson': 'playlist\\%(epoch>%Y-%m-%d %H-%M-%S)s.info.json', # uses latest v/pl epoch
-        'merge_infojson': '%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json',      # uses latest v/pl epoch
+        'merge_infojson': '%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json',       # uses latest v/pl epoch
 
         'ytdlp_archive': '_ytdlp_archive.txt',
         'metadata': '_metadata.json',

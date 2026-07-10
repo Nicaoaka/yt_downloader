@@ -1,7 +1,7 @@
 from pathlib import Path
 import os
 import datetime
-from typing import Iterable, Any, Callable, Literal, overload, TypeVar
+from typing import Iterable, Any, Callable, Literal
 import json
 import copy
 
@@ -194,7 +194,8 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-def dict_set_if(d: dict, k, repl, match=[__NO_DEFAULT, None]) -> bool:
+class UNSET: ...
+def dict_set_if(d: dict, k, repl, match=[UNSET, None]) -> bool:
     """ if `d.get(k, NO_DEFAULT)`in `match`: set `d[k] = repl`
     
     Does not create a deep copy of `repl`
@@ -202,7 +203,7 @@ def dict_set_if(d: dict, k, repl, match=[__NO_DEFAULT, None]) -> bool:
     Returns:
         False if no replace, or if repl is the same as the default. True if there was a change.
     """
-    v = d.get(k, __NO_DEFAULT)
+    v = d.get(k, UNSET)
     if v not in match:
         return False
     if repl == v:
