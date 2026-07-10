@@ -106,7 +106,7 @@ def _format_download_info(dl: DownloadInfo, errors: bool) -> str:
 
     line = f"{action_tag} -> {result_tag} {utils.hex(f'{fmt_id} {fmt_title}', fg=result_tag.color)}"
 
-    if errors and dl['errors']:
+    if errors and 'errors' in dl:
         line += ''.join(f'\n{exc(e)}' for e in dl['errors'])
 
     return line
@@ -128,20 +128,22 @@ def _make_pl_dl_info() -> PL_DownloadInfo:
     except Exception as e:
         errors = [e]
     infos: PL_DownloadInfo = []
-    for i, a in enumerate(DL_Action):
-        for j, r in enumerate(DL_Result):
-            infos.append({
-                'id': f'{i}x{j}',
-                'title': f'{a}-{r}',
-                'action': a,
-                'result': r,
-                'errors': errors,
-            })
+    for with_errors in [True, False]:
+        for i, a in enumerate(DL_Action):
+            for j, r in enumerate(DL_Result):
+                infos.append({
+                    'id': f'{i}x{j}',
+                    'title': f'{a}-{r}',
+                    'action': a,
+                    'result': r,
+                })
+                if with_errors:
+                    infos[-1]['errors'] = errors
     return infos
 
 def main():
     pl_dl_info = _make_pl_dl_info()
-    pl_download_info(pl_dl_info, False)
+    pl_download_info(pl_dl_info, True)
     pass
 
 if __name__ == "__main__":
