@@ -2,6 +2,7 @@ __all__ = [
     'download_video',
     'extract_flat_info', 'download_pl_videos',
     'load_yt_archive',
+    'download_video_alt',
 ]
 
 import os
@@ -98,12 +99,12 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
 def get_result(v_info, success: bool) -> DL_Result:
     if not success:
         return DL_Result.FAIL
+    if v_info is None: # special case
+        return DL_Result.NO_INFO
     if yt_utils.has_download_info(v_info):
         return DL_Result.DOWNLOAD
     if yt_utils.has_extracted_info(v_info):
         return DL_Result.EXTRACT
-    if v_info is None:
-        return DL_Result.NO_INFO
     return DL_Result.UNRECOGNIZED
 
 def download_pl_videos(

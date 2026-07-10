@@ -6,8 +6,9 @@ import yt_utils
 import post_processing
 
 # TODO:
-# Remove yt_dlp archive - already have custom archiving
 # Add post processing for filtering pl_info (eg especially `heatmap` and `automatic_captions`)
+# Update post-processing merge
+# Figure out what DL_Result.NO_INFO really means. Does it just represent hitting yt_dlp download_archive (cache)?
 
 def wrapper_match_filter(
     pl_v_info: PL_V_InfoDict,
@@ -17,10 +18,10 @@ def wrapper_match_filter(
     ytdlp: YT_DLP_DownloadArchive,
     ytdlp_ids: YT_DLP_DownloadArchive_IDs,
 ) -> DL_Action:
-
-    if pl_v_info['id'] in DOWNLOAD_OVERIDE:
+    
+    if pl_v_info['id'] in DOWNLOAD_OVERRIDE:
         return DL_Action.DOWNLOAD
-    if pl_v_info['id'] in EXTRACT_OVERIDE:
+    if pl_v_info['id'] in EXTRACT_OVERRIDE:
         return DL_Action.EXTRACT
 
     curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
@@ -32,12 +33,12 @@ def wrapper_match_filter(
         return DL_Action.SKIP
 
     # only skip if the fail was in the last week
-    if pl_v_info['id'] in history_ids['fail']:
+    if pl_v_info['id'] in history_ids['fail'] or pl_v_info['id'] in history_ids['no_info']:
         for epoch in history:
             if int(epoch) < utils.epoch_now() - 7*24*3600:
                 continue
             for dl_info in history[str(epoch)]:
-                if dl_info['id'] == pl_v_info['id']:
+                if dl_info['result'] in (DL_Result.FAIL, DL_Result.NO_INFO) and dl_info['id'] == pl_v_info['id']:
                     return DL_Action.SKIP
     
     if (pl_v_info.get('view_count') or 0) < 1_000_000:
@@ -48,10 +49,9 @@ def wrapper_match_filter(
 
     return DL_Action.EXTRACT
 
-
-
-EXTRACT_OVERIDE = ['']
-DOWNLOAD_OVERIDE = ['']
+# `DOWNLOAD_OVERRIDE` does not override yt_dlp download archive
+DOWNLOAD_OVERRIDE = []
+EXTRACT_OVERRIDE  = []
 
 config = PlaylistDL_Config(
     ident='test/jyes [...A-E9x23WGD3]/_metadata.json',
@@ -69,4 +69,5 @@ config = PlaylistDL_Config(
 
     wrapper_match_filter=wrapper_match_filter,
 )
-PlaylistDL(config)
+
+# PlaylistDL(config)

@@ -141,16 +141,18 @@ def validate_metdata(metadata: Metadata, config: PlaylistDL_Config):
             continue # can't be checked without info
         if k not in metadata['path_tmpls']:
             raise ValueError(
-                f"Missing key in metadata: {repr(k)}"
-                f"\nPath: {meta_path}")
+                f"Missing key in metadata: {{{k!r}: {config.path_tmpls[k]!r}}}\n"
+                f"Path: {meta_path}")
         if k not in config.path_tmpls:
-            raise ValueError(f"Missing key in path_tmpls: {repr(k)}")
+            raise ValueError(
+                f"Extra key in metdata: {{{k!r}: {metadata['path_tmpls'][k]!r}}}\n"
+                f"Path: {meta_path}")
         if metadata['path_tmpls'][k] != config.path_tmpls[k]:
             raise ValueError(
                 f"Changed `path_tmpls`: {repr(k)}:\n"
                 f"metadata: {metadata['path_tmpls'][k]}\n"
-                f"config:   {config.path_tmpls[k]}"
-                f"\nPath: {meta_path}")
+                f"config:   {config.path_tmpls[k]}\n"
+                f"Path: {meta_path}")
 
 
 @dataclasses.dataclass
