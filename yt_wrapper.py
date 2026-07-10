@@ -5,6 +5,7 @@ __all__ = [
 ]
 
 import os
+import pprint
 from typing import Callable
 
 from yt_dlp import YoutubeDL
@@ -47,7 +48,7 @@ def download_video(
             with YoutubeDL(opts) as ydl:
                 _info = ydl.extract_info(v_url_or_id, download=_download)
                 if _info is None:
-                    return None, errors, True
+                    return None, errors, True # already downloaded
                 info.update(_info)
                 return info, errors, True
         except Exception as yt_err:
@@ -60,7 +61,7 @@ def download_video(
             with YoutubeDL(opts) as ydl:
                 _info = ydl.extract_info(yt_utils.get_archiveorg_url(v_url_or_id, for_yt_dlp=True), download=_download)
                 if _info is None:
-                    return None, errors, True
+                    return None, errors, True # already downloaded
                 info.update(_info)
                 return info, errors, True
         except Exception as wa_err:
@@ -97,13 +98,13 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
 def get_result(v_info, success: bool) -> DL_Result:
     if not success:
         return DL_Result.FAIL
+    if yt_utils.has_download_info(v_info):
+        return DL_Result.DOWNLOAD
+    if yt_utils.has_extracted_info(v_info):
+        return DL_Result.EXTRACT
     if v_info is None:
         return DL_Result.NO_INFO
-    if not yt_utils.has_extracted_info(v_info):
-        return DL_Result.UNRECOGNIZED
-    if not yt_utils.has_download_info(v_info):
-        return DL_Result.EXTRACT
-    return DL_Result.DOWNLOAD
+    return DL_Result.UNRECOGNIZED
 
 def download_pl_videos(
         pl_info: PL_InfoDict,
@@ -144,27 +145,34 @@ def download_pl_videos(
             i_of_N = f"{i+1:{len(str(N))}}/{N}"
             pl_v_display = f'[{i_of_N}] [{entry['id']}] {entry.get('title') or "???"} - {entry.get('channel') or '???'}'
             
-            print(display.DL_ACTION_STR_MAP[action], end=' ')
-            print(utils.hex(pl_v_display, '#78dcb4'))
+
             if action == DL_Action.USER:
+
+                # TODO: Display video details
+                print(f"[TEMP]:\n{pprint.pformat(entry, indent=4)}")
                 choice = utils.input_string(
                     list(DL_MAP_NO_USER.keys()),
                     f'Pick a Download Option: ',
                     prefix_options=True,
                 )
                 action = DL_MAP_NO_USER[choice]
-                print(display.DL_ACTION_STR_MAP[action])
 
             pl_dl_info.append({
                 'id': entry['id'],
+                'title': entry['title'],
                 'action': action,
                 'result': DL_Result.CANCELLED,
-                'errors': [],
             })
+
             if action == DL_Action.QUIT:
+                print(display.ACTION_TAG[DL_Action.QUIT].rendered)
                 break
             elif action == DL_Action.SKIP:
+                print(display.ACTION_TAG[action].rendered + ' ' + utils.hex(pl_v_display, display.ACTION_TAG[action].color))
                 continue
+
+            print()
+            print(display.ACTION_TAG[action].rendered + ' ' + utils.hex(pl_v_display, display.ACTION_TAG[action].color))
 
             # v_info, errors, success = {}, [], True
             v_info, errors, success = download_video(
@@ -176,10 +184,18 @@ def download_pl_videos(
             )
 
             pl_dl_info[-1] = {
-                'id': entry['id'], 'action': action, 'errors': errors,
+                'id': entry['id'],
+                'title': (v_info or entry).get('title'),
+                'action': action,
                 'result': get_result(v_info, success),
             }
-            print(display.download_result(pl_dl_info[-1]))
+            if errors:
+                pl_dl_info[-1]['errors'] = errors
+
+            result_tag = display.download_result(pl_dl_info[-1])
+            print(result_tag.rendered + ' ' + utils.hex(pl_v_display, result_tag.color))
+            print()
+            
             if v_info:
                 entry.update(v_info) # type: ignore
     except KeyboardInterrupt:
@@ -203,3 +219,16 @@ def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
                 ie_key, v_id = line.split()
                 res.append( (ie_key, v_id) )
     return tuple(res)
+
+
+# TODO
+def download_video_alt(url: str, opts: YT_DLP_Params) -> InfoDict|dict | Exception:
+    """
+    Tries to downlaod the video given the url using yt_dlp
+    Returns the resulting data
+    """
+    try:
+        with YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url) # type: ignore
+    except Exception as e:
+        return e

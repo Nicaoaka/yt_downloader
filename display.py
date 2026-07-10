@@ -25,103 +25,123 @@ def pl_v_ids(pl_info: PL_InfoDict) -> None:
     for i, id in enumerate(video_ids, 1):
         print(f"{str(i).rjust(_max_index_len)}. {id}")
 
+# ── Display tags ─────────────────────────────────────────────────────────
+# Each tag keeps its raw color alongside its rendered text, since we need to
+# reuse the *color* elsewhere (e.g. tinting the id/title to match).
+# NOTE: utils.hex() always emits a trailing reset. Never nest a hex()'d string
+# inside another hex()'d string — the inner reset clobbers the outer color
+# for everything after it. Every colored segment must be built flat/standalone.
 
-USER         = utils.hex("   USER INPUT   ", bg='#696969')
-QUIT         = utils.hex("   QUIT   ", bg="#ff5c5c")
-SKIP         = utils.hex("   SKIP   ", bg="#363636")
-EXTRACT      = utils.hex("   EXTRACT   ", bg="#97ffff")
-DOWNLOAD     = utils.hex("   DOWNLOAD   ", bg="#8c00ff")
+class _Tag:
+    __slots__ = ("text", "color", "rendered")
 
-# Results
-_EXTRACT     = utils.hex("  EXTR  ", bg="#97ffff")
-_DOWNLOAD    = utils.hex("  DWLD  ", bg="#8c00ff")
-CANCEL       = utils.hex(" CANCEL ", bg="#363636")
-FAIL         = utils.hex("  FAIL  ", bg="#ff5c5c")
-UNRECOGNIZED = utils.hex("  ????  ", bg="#ffffff")
-NO_INFO      = utils.hex(" NOINFO ", bg="#FFEE52")
-OK           = utils.hex("   OK   ", bg='#4bc84b')
-NO_DOWNLOAD  = utils.hex(" NODWLD ", bg="#ff8738")
-IMPOSSIBLE_STATE = utils.hex("  IMPOSSIBLE STATE  ", bg="#0000ac")
+    def __init__(self, text: str, color: str, width: int = 8):
+        self.text = text
+        self.color = color
+        self.rendered = utils.hex(text.center(width), bg=color)
 
-DL_ACTION_STR_MAP = {
-    DL_Action.USER     : USER,
-    DL_Action.QUIT     : QUIT,
-    DL_Action.SKIP     : SKIP,
-    DL_Action.EXTRACT  : EXTRACT,
-    DL_Action.DOWNLOAD : DOWNLOAD,
+    def __str__(self) -> str:
+        return self.rendered
+
+
+# Actions
+ACTION_TAG: dict[DL_Action, _Tag] = {
+    DL_Action.USER     : _Tag("USER INPUT", "#696969", width=10),
+    DL_Action.QUIT     : _Tag("QUIT",       "#ff5c5c", width=10),
+    DL_Action.SKIP     : _Tag("SKIP",       "#363636", width=10),
+    DL_Action.EXTRACT  : _Tag("EXTRACT",    "#67ff53", width=10),
+    DL_Action.DOWNLOAD : _Tag("DOWNLOAD",   "#418b1e", width=10),
 }
 
-DL_RESULT_STR_MAP = {
-    DL_Result.CANCELLED    : CANCEL,
-    DL_Result.FAIL         : FAIL,
-    DL_Result.UNRECOGNIZED : UNRECOGNIZED,
-    DL_Result.NO_INFO      : NO_INFO,
-    DL_Result.EXTRACT      : _EXTRACT,
-    DL_Result.DOWNLOAD     : _DOWNLOAD,
+# Raw results (used when the result is reported "as-is")
+RESULT_TAG: dict[DL_Result, _Tag] = {
+    DL_Result.CANCELLED    : _Tag("CANCEL", "#363636"),
+    DL_Result.FAIL         : _Tag("FAIL",   "#ff5c5c"),
+    DL_Result.UNRECOGNIZED : _Tag("????",   "#8f0000"),
+    DL_Result.NO_INFO      : _Tag("NOINFO", "#FFEE52"),
+    DL_Result.EXTRACT      : _Tag("EXTR",   "#67ff53"),
+    DL_Result.DOWNLOAD     : _Tag("DWLD",   "#418b1e"),
 }
 
+# Derived/outcome tags (not 1:1 with a DL_Result - depend on action+result combo)
+IMPOSSIBLE = _Tag("IMP!", "#0000ac")
 
-def exc(e: BaseException):
+def exc(e: BaseException) -> str:
     return utils.hex(''.join(traceback.format_exception(e)).rstrip(), fg='#db6a6a')
 
-def download_result(dl: DownloadInfo) -> str:
-    if dl['action'] == DL_Action.USER:
-        return IMPOSSIBLE_STATE + " DL_Action.User is an invalid action for a DL_Result."
-    
-    if dl['action'] in (DL_Action.QUIT, DL_Action.SKIP):
-        if dl['result'] == DL_Result.CANCELLED:
-            return CANCEL + " Action was skipped."
-        else:
-            return IMPOSSIBLE_STATE + f" SKIP or QUIT should have DL_Result.CANCELLED. Got {dl['result']}"
 
-    if dl['action'] == DL_Action.EXTRACT:
-        if dl['result'] == DL_Result.EXTRACT:
-            return OK
-        if dl['result'] == DL_Result.DOWNLOAD:
-            utils.WARNING("Download detected in extract!")
-            return OK
-        return DL_RESULT_STR_MAP[dl['result']]
-    
-    if dl['action'] == DL_Action.DOWNLOAD:
-        if dl['result'] in (DL_Result.DOWNLOAD):
-            return OK
-        if dl['result'] in (DL_Result.EXTRACT, DL_Result.NO_INFO):
-            return NO_DOWNLOAD + " No download detected."
-        return DL_RESULT_STR_MAP[dl['result']]
+def download_result(dl: DownloadInfo) -> _Tag:
+    """Reconcile action + result into the single outcome tag to display."""
+    action, result = dl['action'], dl['result']
 
-    return IMPOSSIBLE_STATE + f" Unknown DL_Action: {dl['action']}"
+    match action:
+        case DL_Action.USER:
+            # USER is not a valid action to have reached a result stage.
+            return IMPOSSIBLE
 
-def _download_info(dl: DownloadInfo, errors: bool) -> str:
-    res = f'{DL_ACTION_STR_MAP[dl['action']]} -> {download_result(dl)} {dl['id']:100}'
-    if errors:
-        for e in dl['errors']:
-            res += '\n'+exc(e)
-    return res
+        case DL_Action.QUIT | DL_Action.SKIP:
+            # Quitting/skipping should always resolve as CANCELLED.
+            return RESULT_TAG[DL_Result.CANCELLED] if result == DL_Result.CANCELLED else IMPOSSIBLE
 
-def download_info(dl_info: DownloadInfo, errors: bool):
-    print(_download_info(dl_info, errors))
+        case DL_Action.EXTRACT:
+            return RESULT_TAG[result]
 
-def pl_download_info(pl_dl_info: PL_DownloadInfo, errors: bool):
-    for dl_info in pl_dl_info:
-        print(_download_info(dl_info, errors))
+        case DL_Action.DOWNLOAD:
+            if result == DL_Result.DOWNLOAD:
+                return RESULT_TAG[DL_Result.DOWNLOAD]
+            if result in (DL_Result.EXTRACT, DL_Result.NO_INFO):
+                return RESULT_TAG[DL_Result.FAIL]
+            return RESULT_TAG[result]
 
-def _test_dl_info():
+        case _:
+            return IMPOSSIBLE
+
+
+def _format_download_info(dl: DownloadInfo, errors: bool) -> str:
+    action_tag = ACTION_TAG[dl['action']]
+    result_tag = download_result(dl)
+
+    fmt_id = f"[{utils.truncate(dl['id'], 11)}]"
+    fmt_title = dl['title'] or ""
+
+    line = f"{action_tag} -> {result_tag} {utils.hex(f'{fmt_id} {fmt_title}', fg=result_tag.color)}"
+
+    if errors and dl['errors']:
+        line += ''.join(f'\n{exc(e)}' for e in dl['errors'])
+
+    return line
+
+
+def download_info(dl_info: DownloadInfo, errors: bool) -> None:
+    print(_format_download_info(dl_info, errors))
+
+
+def pl_download_info(pl_dl_info: PL_DownloadInfo, errors: bool) -> None:
+    idx_width = len(str(len(pl_dl_info)))
+    for i, dl_info in enumerate(pl_dl_info):
+        print(f"{i:>{idx_width}}. {_format_download_info(dl_info, errors)}")
+
+def _make_pl_dl_info() -> PL_DownloadInfo:
     errors = []
     try:
         raise ValueError("Hello")
     except Exception as e:
         errors = [e]
-    for a in DL_Action:
-        for r in DL_Result:
-            download_info({
-                'id': 'id',
+    infos: PL_DownloadInfo = []
+    for i, a in enumerate(DL_Action):
+        for j, r in enumerate(DL_Result):
+            infos.append({
+                'id': f'{i}x{j}',
+                'title': f'{a}-{r}',
                 'action': a,
                 'result': r,
                 'errors': errors,
-            }, False)
+            })
+    return infos
 
 def main():
-    _test_dl_info()
+    pl_dl_info = _make_pl_dl_info()
+    pl_download_info(pl_dl_info, False)
     pass
 
 if __name__ == "__main__":

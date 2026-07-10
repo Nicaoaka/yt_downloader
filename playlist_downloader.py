@@ -75,7 +75,10 @@ class PlaylistDL:
 
         if self.new_v_info:
             self.metadata['v_epoch'] = utils.epoch_now()
-        self.metadata['history'][str(utils.epoch_now())] = pl_dl_info
+        self.metadata['history'][str(utils.epoch_now())] = [dl_info
+            for dl_info in pl_dl_info
+            if dl_info['action'] not in (DL_Action.SKIP, DL_Action.QUIT)
+            and dl_info['result'] not in (DL_Result.CANCELLED)]
 
         if self.config.write_pl_info:
             self._write_pl_info()
@@ -113,7 +116,7 @@ class PlaylistDL:
                 pl_url_or_id=id,
                 opts={'cookiefile': self.config.cookie_file if self.config.cookies_for_pl else None})
 
-        if self.config.ident_type == Config_IdentType.PLAYLIST_ID:
+        if self.config.ident_type == Config_IdentType.PL_ID_OR_URL:
             return extract_flat_info(self.config.ident), True
         
         elif self.config.ident_type == Config_IdentType.PL_INFO_PATH:

@@ -117,7 +117,9 @@ def ids_from_pl_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
         else:
             if v['result'] == DL_Result.EXTRACT:    res['extract'].append(v_id)
             if v['result'] == DL_Result.DOWNLOAD:   res['download'].append(v_id)
-        if v['errors']: res['error'].append(v_id)
+        
+        if v.get('errors'):
+            res['error'].append(v_id)
     return res
 
 def ids_from_history(history: PL_DownloadHistory) -> ID_DownloadInfo:

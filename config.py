@@ -5,7 +5,7 @@ __all__ = [
 ]
 
 import os
-from dataclasses import dataclass, field
+import dataclasses
 from typing import Callable
 
 from yt_types import *
@@ -50,10 +50,10 @@ def default_wrapper_match_filter(
     if (pl_v_info.get('view_count') or 0) < 1_000_000:
         return DL_Action.DOWNLOAD
 
-    if pl_v_info['id'] not in history_ids['extract']:
-        return DL_Action.EXTRACT
+    if pl_v_info['id'] in history_ids['extract']:
+        return DL_Action.SKIP
 
-    return DL_Action.SKIP
+    return DL_Action.EXTRACT
 
 
 def default_yt_dlp_match_filter(v_info: V_InfoDict, *, incomplete: bool) -> str | None:
@@ -153,11 +153,12 @@ def validate_metdata(metadata: Metadata, config: PlaylistDL_Config):
                 f"\nPath: {meta_path}")
 
 
-@dataclass
+@dataclasses.dataclass
 class PlaylistDL_Config:
     # --- playlist identity / location (PICK ONLY ONE) ---
     ident: str
     ident_type: Config_IdentType
+    home: str
 
     # --- refresh ---
     refresh_after: int = 7 * 24 * 3600  # seconds; if ident_type is Playlist_ID, it will extract
@@ -175,7 +176,7 @@ class PlaylistDL_Config:
     
     # merge options
     merge_keep_one: bool = True # removes old merges - one json
-    merge_fallback_order: list[yt_types._MetadataFiles_Lit] = field(default_factory=default_merge_fallbacks)
+    merge_fallback_order: list[yt_types._MetadataFiles_Lit] = dataclasses.field(default_factory=default_merge_fallbacks)
 
     # --- control hooks (override per-instance as needed) ---
     wrapper_match_filter: Callable[[
@@ -186,12 +187,11 @@ class PlaylistDL_Config:
         ], DL_Action,
     ] = default_wrapper_match_filter
     yt_dlp_match_filter: Callable[..., str | None] = default_yt_dlp_match_filter
-    edit_final_opts_in_place: Callable[[YT_DLP_Params], None] = default_edit_final_opts_in_place
 
     # --- yt-dlp params / path templates ---
-    home: str = 'test'
-    path_tmpls: CustomOuttmpl = field(default_factory=default_path_tmpls)
-    opts: YT_DLP_Params = field(default_factory=default_opts)
+    path_tmpls: CustomOuttmpl = dataclasses.field(default_factory=default_path_tmpls)
+    opts: YT_DLP_Params = dataclasses.field(default_factory=default_opts)
+    edit_final_opts_in_place: Callable[[YT_DLP_Params], None] = default_edit_final_opts_in_place
 
     def __post_init__(self):
         """
@@ -205,16 +205,15 @@ class PlaylistDL_Config:
 
         # ident
         match self.ident_type:
-            case Config_IdentType.PLAYLIST_ID:
+            case Config_IdentType.PL_ID_OR_URL:
                 if not yt_utils.get_pl_id(self.ident):
-                    raise ValueError(f"{self.ident} wasn't recognized as a playlist id")
+                    raise ValueError(f"{self.ident} wasn't recognized as a playlist id or url")
             case Config_IdentType.PL_INFO_PATH:
                 utils.assert_file(self.ident, 'pl_info_path (ident)', min_size=1)
+                utils.json_load_typeddict(self.ident, PL_InfoDict)
             case Config_IdentType.METADATA_PATH:
                 utils.assert_file(self.ident, 'metadata_path (ident)', min_size=1)
-
-                metadata: Metadata = utils.json_load_typeddict(self.ident, Metadata)
-                validate_metdata(metadata, self) # Okay if called multiple times. This isn't expensive
+                validate_metdata(utils.json_load_typeddict(self.ident, Metadata), self)
 
         # cookies
         utils.assert_file(self.cookie_file, 'cookie_file', min_size=1, or_None=True)
@@ -222,17 +221,38 @@ class PlaylistDL_Config:
         # opts
         if 'cookiefile' in self.opts:
             raise ValueError(
-                f"cookiefile can not be set in `config.opts`. Use `config.cookie_file` instead.")
-        for k in ('outtmpl', 'paths', 'download_archive'):
+                f"'cookiefile' can not be set in `config.opts`.\n"
+                f"Set `config.cookie_file` instead.")
+        for k in ('outtmpl', 'download_archive'):
             if k in self.opts:
                 raise ValueError(
-                    f"{k} can not be set in `config.opts`. Use `config.path_tmpls` instead.\n"
-                    "(`config.path_tmpls` will create 'outtmpl', 'paths', and 'download_archive')")
+                    f"'{k}' can not be set in `config.opts`.\n"
+                    f"Set `config.path_tmpls` instead.")
+        if 'paths' in self.opts:
+            raise ValueError(
+                f"'paths' can not be set in `config.opts`.\n"
+                f"Set `config.home` instead.")
+
 
 def main():
-    print("Default config:")
+
+    from utils import hex
     import pprint
-    pprint.pprint(PlaylistDL_Config(ident='LL', ident_type=Config_IdentType.PLAYLIST_ID))
+
+    example = PlaylistDL_Config(
+        ident='LL',
+        ident_type=Config_IdentType.PL_ID_OR_URL,
+        home='example_home',
+    )
+    pprint.pprint(example, indent=4, width=20)
+    required_fields = [
+        repr(f.name) for f in dataclasses.fields(example)
+        if (f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING)]
+    print(hex(
+        f"Note:\n"
+        f"1. Required fields: {', '.join(required_fields)}\n"
+        f"2. Generated opts:  'cookiefile', outtmpl', 'paths', 'download_archive'",
+        "#4AA5FF"))
 
 if __name__ == "__main__":
     main()

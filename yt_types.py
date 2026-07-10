@@ -136,14 +136,14 @@ type YT_DLP_DownloadArchive_IDs = list[V_ID]
 
 class Config_IdentType(StrEnum):
     """
-    On the first run you must use `PLAYLIST_ID`
+    On the first run you must use `PL_ID_OR_URL`
 
     Otherwise, the preferred type is
     1. METADATA_PATH
     2. PL_INFO_PATH
-    3. PLAYLIST_ID
+    3. PL_ID_OR_URL
     """
-    PLAYLIST_ID   = auto()
+    PL_ID_OR_URL   = auto()
     PL_INFO_PATH  = auto()
     METADATA_PATH = auto()
 
@@ -193,9 +193,10 @@ class DL_Result(StrEnum):
 
 class DownloadInfo(TypedDict):
     id: str
+    title: str | None
     action: DL_Action
     result: DL_Result
-    errors: list[Exception]
+    errors: NotRequired[list[Exception]]
 
 type PL_DownloadInfo = list[DownloadInfo]
 type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
