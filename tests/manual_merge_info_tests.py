@@ -138,7 +138,7 @@ def record(data, name):
 
 
 
-def test_basic_v():
+def test_v_basic():
     res = merge_v_infos([
         v(1),
     ])
@@ -238,21 +238,20 @@ def test_large_list():
     
     record(res, 'large list')
 
-def test_jyes():
+def test_real():
     res = {}
-    d = 'test/jyes [...A-E9x23WGD3]/playlist'
+    d = ''
     for _p in os.listdir(d):
         p = os.path.join(d, _p)
         if not res:
             res = utils.json_load(p)
             continue
-        res = merge_pl_infos([res, utils.json_load(p)])
-    pp_utils.filter_pl_info(res, set(), {'formats', 'requested_formats', 'automatic_captions'})
+        res = merge_pl_infos([res, utils.json_load(p)]) # type: ignore
     record(res, 'jyes')
 
 def main():
     tests = [
-        test_basic_v,
+        test_v_basic,
         test_v_better_past,
         test_v_unavail,
         test_on_new,
@@ -262,7 +261,7 @@ def main():
         test_no_change_iterations,
         test_stale,
         test_large_list,
-        test_jyes,
+        test_real,
     ]
     
     for t in tests:

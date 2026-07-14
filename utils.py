@@ -521,7 +521,7 @@ BAD_EPOCH_FMT = '{} (bad epoch)' # epoch number is placed at every {}
 BAD_EPOCH_RE = '^'+re.escape(BAD_EPOCH_FMT).replace('\\{\\}', '(.+?)')+'$'
 
 def to_readable_epoch(epoch: int) -> str:
-    if epoch < 0:
+    if epoch <= 0:
         return BAD_EPOCH_FMT.replace('{}', str(epoch))
     # from time since epoch (seconds) to YYYYmmddHHMMSS
     return datetime.datetime.fromtimestamp(epoch).strftime(READABLE_EPOCH_FMT)
@@ -531,15 +531,3 @@ def from_readable_epoch(readable: str) -> int:
     if match:
         return int(match.groups()[0])
     return int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())
-
-
-def main():
-    now = epoch_now()
-    print(to_readable_epoch(now))
-    assert from_readable_epoch(to_readable_epoch(now)) == now
-    print(to_readable_epoch(-100))
-    assert from_readable_epoch(to_readable_epoch(-100)) == -100
-    pass
-
-if __name__ == "__main__":
-    main()
