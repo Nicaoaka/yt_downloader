@@ -104,20 +104,17 @@ def ids_from_ytdlp_archive(l: YT_DLP_DownloadArchive) -> list[V_ID]:
 def ids_from_pl_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
     res: ID_DownloadInfo = {
         'fail':     [],
-        'no_info':  [],
         'extract':  [],
         'download': [],
         'error':    [],
     }
     for v in pl_dl_info:
         v_id = v['id']
-        if     v['result'] == DL_Result.FAIL:       res['fail'].append(v_id)
-        # elif   v['result'] == DL_Result.CANCELLED:  res['skip'].append(v_id)
-        elif   v['result'] == DL_Result.NO_INFO:    res['no_info'].append(v_id)
-        else:
-            if v['result'] == DL_Result.EXTRACT:    res['extract'].append(v_id)
-            if v['result'] == DL_Result.DOWNLOAD:   res['download'].append(v_id)
-        
+        if v['result'] == DL_Result.FAIL: res['fail'].append(v_id)
+        # if v['result'] == DL_Result.CANCELLED: res['skip'].append(v_id)
+        # if v['result'] == DL_Result.CACHED: res['cached'].append(v_id)
+        if v['result'] in (DL_Result.EXTRACT, DL_Result.DOWNLOAD): res['extract'].append(v_id)
+        if v['result'] == DL_Result.DOWNLOAD: res['download'].append(v_id)
         if v.get('errors'):
             res['error'].append(v_id)
     return res
@@ -125,7 +122,6 @@ def ids_from_pl_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
 def ids_from_history(history: PL_DownloadHistory) -> ID_DownloadInfo:
     merged: ID_DownloadInfo = {
         'fail':     [],
-        'no_info':  [],
         'extract':  [],
         'download': [],
         'error':    [],

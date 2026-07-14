@@ -46,21 +46,21 @@ class _Tag:
 
 # Actions
 ACTION_TAG: dict[DL_Action, _Tag] = {
-    DL_Action.USER     : _Tag("USER INPUT", "#696969", width=10),
-    DL_Action.QUIT     : _Tag("QUIT",       "#ff5c5c", width=10),
-    DL_Action.SKIP     : _Tag("SKIP",       "#363636", width=10),
-    DL_Action.EXTRACT  : _Tag("EXTRACT",    "#67ff53", width=10),
-    DL_Action.DOWNLOAD : _Tag("DOWNLOAD",   "#418b1e", width=10),
+    DL_Action.USER     : _Tag("USER INPUT", "#000000", width=10),
+    DL_Action.QUIT     : _Tag("QUIT",       "#ffffff", width=10),
+    DL_Action.SKIP     : _Tag("SKIP",       "#161616", width=10),
+    DL_Action.EXTRACT  : _Tag("EXTRACT",    "#4ec9b0", width=10),
+    DL_Action.DOWNLOAD : _Tag("DOWNLOAD",   "#6a9955", width=10),
 }
 
 # Raw results (used when the result is reported "as-is")
 RESULT_TAG: dict[DL_Result, _Tag] = {
-    DL_Result.CANCELLED    : _Tag("CANCEL", "#363636"),
-    DL_Result.FAIL         : _Tag("FAIL",   "#ff5c5c"),
-    DL_Result.UNRECOGNIZED : _Tag("????",   "#8f0000"),
-    DL_Result.NO_INFO      : _Tag("NOINFO", "#FFEE52"),
-    DL_Result.EXTRACT      : _Tag("EXTR",   "#67ff53"),
-    DL_Result.DOWNLOAD     : _Tag("DWLD",   "#418b1e"),
+    DL_Result.UNRECOGNIZED : _Tag("????",   "#ffffff"),
+    DL_Result.FAIL         : _Tag("FAIL",   "#ff3826"),
+    DL_Result.CANCELLED    : _Tag("CANCEL", "#161616"),
+    DL_Result.CACHED       : _Tag("CACHED", "#2d4123"),
+    DL_Result.EXTRACT      : _Tag("EXTR",   "#4ec9b0"),
+    DL_Result.DOWNLOAD     : _Tag("DWLD",   "#6a9955"),
 }
 
 # Derived/outcome tags (not 1:1 with a DL_Result - depend on action+result combo)
@@ -89,7 +89,7 @@ def download_result(dl: DownloadInfo) -> _Tag:
         case DL_Action.DOWNLOAD:
             if result == DL_Result.DOWNLOAD:
                 return RESULT_TAG[DL_Result.DOWNLOAD]
-            if result in (DL_Result.EXTRACT, DL_Result.NO_INFO):
+            if result in (DL_Result.EXTRACT, DL_Result.CACHED):
                 return RESULT_TAG[DL_Result.FAIL]
             return RESULT_TAG[result]
 

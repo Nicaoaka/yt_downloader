@@ -4,16 +4,14 @@ from playlist_downloader import PlaylistDL
 import utils
 import yt_utils
 import pp_utils
+
 """
 TODO:
-- Update `post_processing` merge functions
-
-- Add post processing for filtering pl_info (eg especially `heatmap` and `automatic_captions`)
 - Change ``yt_wrapper.download_pl_videos()`` to try download if there hasn't been a previous download fail (get yt_unavailabe_reason)
-- Figure out what `DL_Result.NO_INFO` really means. Does it just represent hitting yt_dlp download_archive (cache)?
 
 - Ability to mixin downloads from other sources, eg vimeo (see ``yt_wrapper.download_video_alt()``)
 """
+
 def wrapper_match_filter(
     pl_v_info: PL_V_InfoDict,
     curr_dl_info: PL_DownloadInfo,
@@ -30,14 +28,14 @@ def wrapper_match_filter(
     if pl_v_info['id'] in DOWNLOAD_OVERRIDE:
         return DL_Action.DOWNLOAD
     
-    if pl_v_info['id'] in history_ids['fail'] or pl_v_info['id'] in history_ids['no_info']:
+    if pl_v_info['id'] in history_ids['fail']:
         for epoch in history:
             # ignore dl_info older than a week
             if int(epoch) < utils.epoch_now() - 7*24*3600:
                 continue
-            # skip if failed in the last week
+            # skip if failed in that time
             for dl_info in history[str(epoch)]:
-                if dl_info['result'] in (DL_Result.FAIL, DL_Result.NO_INFO) and dl_info['id'] == pl_v_info['id']:
+                if dl_info['result'] in (DL_Result.FAIL) and dl_info['id'] == pl_v_info['id']:
                     return DL_Action.SKIP
     
     if pl_v_info['id'] in EXTRACT_OVERRIDE:

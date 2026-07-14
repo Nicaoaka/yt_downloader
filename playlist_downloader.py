@@ -76,10 +76,10 @@ class PlaylistDL:
 
         if self.new_v_info:
             self.metadata['v_epoch'] = utils.epoch_now()
-        self.metadata['history'][str(utils.epoch_now())] = [dl_info
-            for dl_info in pl_dl_info
-            if dl_info['action'] not in (DL_Action.SKIP, DL_Action.QUIT)
-            and dl_info['result'] not in (DL_Result.CANCELLED)]
+        self.metadata['history'][str(utils.epoch_now())] = [
+            dl_info for dl_info in pl_dl_info
+                if dl_info['action'] not in (DL_Action.SKIP, DL_Action.QUIT) and \
+                   dl_info['result'] not in (DL_Result.CANCELLED, DL_Result.CACHED)]
 
         if self.config.write_pl_info:
             self._write_pl_info()

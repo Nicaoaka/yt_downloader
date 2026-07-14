@@ -103,8 +103,9 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
 def get_result(v_info, success: bool) -> DL_Result:
     if not success:
         return DL_Result.FAIL
-    if v_info is None: # special case
-        return DL_Result.NO_INFO
+    if v_info is None:
+        # None is returned if download cache or cancelled.
+        return DL_Result.CACHED
     if yt_utils.has_download_info(v_info):
         return DL_Result.DOWNLOAD
     if yt_utils.has_extracted_info(v_info):

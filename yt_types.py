@@ -197,7 +197,7 @@ class DL_Result(StrEnum):
     CANCELLED    = auto()
     FAIL         = auto()
     UNRECOGNIZED = auto()
-    NO_INFO      = auto()
+    CACHED      = auto()
     EXTRACT      = auto()
     DOWNLOAD     = auto()
 
@@ -215,7 +215,6 @@ type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
 class ID_DownloadInfo(TypedDict):
     # skip: list[str]
     fail: list[str]
-    no_info: list[str]
     extract: list[str]
     download: list[str]
     error: list[str]
