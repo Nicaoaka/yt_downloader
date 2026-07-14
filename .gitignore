@@ -1,6 +1,5 @@
 /__pycache__
 /.venv
-/Lists
-/test_lists
+/Lists*
 /test
 /secrets/*

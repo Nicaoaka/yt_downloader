@@ -238,3 +238,29 @@ def download_video_alt(url: str, opts: YT_DLP_Params) -> InfoDict|dict | Excepti
             return ydl.extract_info(url) # type: ignore
     except Exception as e:
         return e
+
+
+
+def sanitize_info(info_dict, remove_private_keys=False):
+    """ Like ``YoutubeDL.sanitize_info()``, but doesn't reject `entries` and traverses lists to clean v_infos. """
+
+    info_dict = YoutubeDL.sanitize_info(info_dict, False)
+
+    if remove_private_keys is False:
+        return info_dict
+    
+    reject = lambda k, v: v is None or k.startswith('__') or k in {
+        'requested_downloads', 'requested_formats', 'requested_subtitles', 'requested_entries',
+        'filepath', '_filename', 'filename', 'infojson_filename', 'original_url',
+        'playlist_autonumber',
+    }
+    
+    def filter_fn(obj):
+        if isinstance(obj, dict):
+            return {k: filter_fn(v) for k, v in obj.items() if not reject(k, v)}
+        elif isinstance(obj, list):
+            return [filter_fn(x) for x in obj] # get entries
+        # other cases are handled in YoutubeDL
+        return obj
+
+    return filter_fn(info_dict)

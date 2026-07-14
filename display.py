@@ -118,7 +118,7 @@ def download_info(dl_info: DownloadInfo, errors: bool) -> None:
 
 def pl_download_info(pl_dl_info: PL_DownloadInfo, errors: bool) -> None:
     idx_width = len(str(len(pl_dl_info)))
-    for i, dl_info in enumerate(pl_dl_info):
+    for i, dl_info in enumerate(pl_dl_info, start=1):
         print(f"{i:>{idx_width}}. {_format_download_info(dl_info, errors)}")
 
 def _make_pl_dl_info() -> PL_DownloadInfo:

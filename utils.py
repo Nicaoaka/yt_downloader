@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import time
 import datetime
 from typing import Iterable, Any, Callable, Literal, Hashable
 import json
@@ -514,7 +515,7 @@ def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = False
 # Misc
 
 def epoch_now():
-    return round(datetime.datetime.now().timestamp())
+    return int(time.time())
 
 READABLE_EPOCH_FMT = '%Y_%m_%d__%H_%M_%S'
 BAD_EPOCH_FMT = '{} (bad epoch)' # epoch number is placed at every {}

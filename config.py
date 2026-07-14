@@ -13,6 +13,7 @@ from yt_types import Config_IdentType
 import yt_types
 import utils
 import yt_utils
+import pp_utils
 
 
 def default_merge_fallbacks() -> list[yt_types._MetadataFiles_Lit]:
@@ -92,8 +93,8 @@ def default_opts() -> YT_DLP_Params:
         'remote_components': {'ejs:npm'},
         'match_filter': default_yt_dlp_match_filter, # type: ignore
 
-        'format': 'ba+bv',
-        'format_sort': ['abr', 'res:1080', 'vbr'],
+        'format': 'ba+bv/b',
+        'format_sort': ['abr', 'res:1080', 'vbr', '+size', ],
         # default: lang,quality,res,fps,hdr:12,vcodec,channels,acodec,size,br,asr,proto,ext,hasaud,source,id
 
         'postprocessors': [
@@ -103,6 +104,7 @@ def default_opts() -> YT_DLP_Params:
             {'already_have_thumbnail': False, 'key': 'EmbedThumbnail'},
         ],
 
+        'clean_infojson': False,
         'writeautomaticsub': False,
         'subtitleslangs': ['ja*', 'en*', '日本語', '英語', '-live_chat'],
         'writesubtitles': True,
@@ -133,6 +135,31 @@ def default_path_tmpls() -> CustomOuttmpl:
         'ytdlp_archive': '_ytdlp_archive.txt',
         'metadata': '_metadata.json',
     }
+
+
+# all filters are in-place
+def default_filter_flat(pl_info: PL_InfoDict):
+    pass
+def default_filter_normal(pl_info: PL_InfoDict):
+    pass
+def default_filter_merge(pl_info: PL_InfoDict):
+    pass
+def default_filter_common(pl_info: PL_InfoDict):
+    pp_utils.filter_pl_info(pl_info, set(), {'automatic_captions'})
+
+
+def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
+    """
+    Return True to keep, False to filter out
+
+    These skip when nothing happens, while still being a successful operation
+    
+    DL_Result.CACHED being in this category is debatable because
+    the user-defined match filter chose to download even though it was already
+    downloaded in the metadata history.
+    """
+    return dl_info['action'] not in (DL_Action.SKIP, DL_Action.QUIT) and \
+           dl_info['result'] not in (DL_Result.CANCELLED)
 
 
 def validate_metdata(metadata: Metadata, config: PlaylistDL_Config):
@@ -176,11 +203,20 @@ class PlaylistDL_Config:
     cookies_for_v:  bool = False
     empty_cookies:     bool = False
 
+
     # --- what to persist ---
     write_flat:    bool = False
     write_pl_info: bool = False
     write_merge:   bool = True
     
+    # filters
+    filter_flat:   Callable[[PL_InfoDict]] = default_filter_flat
+    filter_normal: Callable[[PL_InfoDict]] = default_filter_normal
+    filter_merge:  Callable[[PL_InfoDict]] = default_filter_merge
+    filter_common: Callable[[PL_InfoDict]] = default_filter_common # used after filter_flat, filter_normal, and filter_merge
+
+    meta_dl_history_filter: Callable[[DownloadInfo], bool] = default_dl_info_filter
+
     # merge options
     merge_keep_one: bool = True # removes old merges - one json
     merge_fallback_order: list[yt_types._MetadataFiles_Lit] = dataclasses.field(default_factory=default_merge_fallbacks)
@@ -195,8 +231,10 @@ class PlaylistDL_Config:
     ] = default_wrapper_match_filter
     yt_dlp_match_filter: Callable[..., str | None] = default_yt_dlp_match_filter
 
-    # --- yt-dlp params / path templates ---
+    # --- path templates ---
     path_tmpls: CustomOuttmpl = dataclasses.field(default_factory=default_path_tmpls)
+    
+    # --- yt-dlp params ---
     opts: YT_DLP_Params = dataclasses.field(default_factory=default_opts)
     edit_final_opts_in_place: Callable[[YT_DLP_Params], None] = default_edit_final_opts_in_place
 

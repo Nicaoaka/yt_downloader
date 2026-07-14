@@ -7,8 +7,7 @@ import pp_utils
 
 """
 TODO:
-- Change ``yt_wrapper.download_pl_videos()`` to try download if there hasn't been a previous download fail (get yt_unavailabe_reason)
-
+- Figure out how to display `updates` in timeline
 - Ability to mixin downloads from other sources, eg vimeo (see ``yt_wrapper.download_video_alt()``)
 """
 
@@ -45,7 +44,7 @@ def wrapper_match_filter(
     if len(curr_dl_ids['download']) >= MAX_DOWNLOADS or len(curr_dl_ids['extract']) >= MAX_EXTRACTS:
         return DL_Action.SKIP
         
-    if (pl_v_info.get('view_count') or 0) < 1_000_000:
+    if (pl_v_info.get('view_count') or 0) < 100_000:
         return DL_Action.DOWNLOAD
     
     if pl_v_info['id'] not in history_ids['extract']:
@@ -53,16 +52,17 @@ def wrapper_match_filter(
     
     return DL_Action.SKIP
 
-# `DOWNLOAD_OVERRIDE` does not override yt_dlp download archive
+# OVERRIDEs take presedence over ALL, but yt_dlp download archive
+# An attempt will be made every run, regardless of the MAXs.
 DOWNLOAD_OVERRIDE = []
 EXTRACT_OVERRIDE  = []
 MAX_DOWNLOADS = 1
 MAX_EXTRACTS = 3
 
 config = PlaylistDL_Config(
-    ident='https://www.youtube.com/watch?v=UKXDb0INlCc&list=PLVw6cgrOWNXsFnOc3zpRqrQcfHZFo6S5U',
+    ident=r'',
     ident_type=Config_IdentType.PL_ID_OR_URL,
-    home='test',
+    home='',
 
     # cookie_file='secrets/cookie_file.txt',
     # cookies_for_pl=True,
@@ -76,4 +76,4 @@ config = PlaylistDL_Config(
     wrapper_match_filter=wrapper_match_filter,
 )
 
-# PlaylistDL(config)
+PlaylistDL(config)
