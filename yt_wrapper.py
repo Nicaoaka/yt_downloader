@@ -15,7 +15,7 @@ from yt_dlp.utils import DownloadError
 from yt_types import *
 import utils
 import yt_utils
-import post_processing
+import pp_utils
 import display
 
 
@@ -91,7 +91,11 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
         'ignoreerrors': True,
     }) as ydl:
         flat_info: PL_InfoDict = ydl.extract_info(pl_url_or_id, download=False) # type: ignore
-    post_processing.add_pl_info_to_entries(flat_info)
+    
+    pp_utils.add_pl_info_to_entries(flat_info)
+    now = utils.epoch_now()
+    for entry in flat_info['entries']:
+        entry['epoch'] = flat_info.get('epoch', -now)
     return flat_info
 
 
@@ -111,7 +115,7 @@ def download_pl_videos(
         pl_info: PL_InfoDict,
         wrapper_match_filter: Callable[[PL_V_InfoDict, PL_DownloadInfo], DL_Action]|None = None,
         opts: YT_DLP_Params = {},
-        try_yt_if_unavailable: bool = False,
+        try_yt_if_unavailable: bool = True,
         wa: bool = True,
 ) -> PL_DownloadInfo:
     """ Extract and download videos in videos_to_download. Return the extracted info, download results, and errors
@@ -205,7 +209,7 @@ def download_pl_videos(
         print(display.exc(e))
     
     # may be redundent, but can't hurt
-    post_processing.add_pl_info_to_entries(pl_info)
+    pp_utils.add_pl_info_to_entries(pl_info)
     return pl_dl_info
 
 

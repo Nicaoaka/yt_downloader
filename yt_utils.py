@@ -81,21 +81,21 @@ def has_download_info(info: V_InfoDict | dict) -> bool:
 
 
 
-def get_v_info_level(v_info: V_InfoDict) -> _V_InfoLevel:
+def get_v_info_level(v_info: V_InfoDict|None) -> _V_InfoLevel:
     """ Webarchive could appear at Download or Extract """
-    if has_download_info(v_info):       return _V_InfoLevel.DOWNLOAD
-    if has_extracted_info(v_info):      return _V_InfoLevel.EXTRACT
-    if maybe_available_on_yt(v_info):   return _V_InfoLevel.CHECK_YT
-    return _V_InfoLevel.CHECK_WA
+    if not v_info:                    return _V_InfoLevel.NONE
+    if has_download_info(v_info):     return _V_InfoLevel.DOWNLOAD
+    if has_extracted_info(v_info):    return _V_InfoLevel.EXTRACT
+    if maybe_available_on_yt(v_info): return _V_InfoLevel.FLAT
+    return _V_InfoLevel.UNAVAIL_YT
 
-def get_pl_info_level(pl_info: PL_InfoDict) -> _PL_InfoLevel:
-
-    if pl_info.get('merge_info'): return _PL_InfoLevel.MERGED
-    if not pl_info.get('entries'): return _PL_InfoLevel.FLAT
-    entry = pl_info['entries'][0]
-    if get_v_info_level(entry) >= _V_InfoLevel.EXTRACT:
+def get_pl_info_level(pl_info: PL_InfoDict|None) -> _PL_InfoLevel:
+    if not pl_info or not pl_info.get('entries'): return _PL_InfoLevel.NONE
+    if pl_info.get('merge_timeline'):             return _PL_InfoLevel.MERGED
+    if any(get_v_info_level(entry) >= _V_InfoLevel.EXTRACT for entry in pl_info['entries']):
         return _PL_InfoLevel.NORMAL
     return _PL_InfoLevel.FLAT
+
 # Processing archives
 
 def ids_from_ytdlp_archive(l: YT_DLP_DownloadArchive) -> list[V_ID]:

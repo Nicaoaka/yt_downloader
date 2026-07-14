@@ -1,10 +1,10 @@
 from pathlib import Path
 import os
 import datetime
-from typing import Iterable, Any, Callable, Literal
+from typing import Iterable, Any, Callable, Literal, Hashable
 import json
 import copy
-
+import re
 
 class __NO_DEFAULT:
     """ DO NOT USE outside of `utils.py` """
@@ -243,6 +243,30 @@ def isinstance_typeddict(data, typeddict, raise_exc: bool = False) -> bool:
 def dif_sets(a: set, b: set) -> tuple[set, set]:
     return a - b, b - a
 
+
+def dedup[T](items: Iterable[T], hash: Callable[[T], Hashable]=hash) -> list[T]:
+    seen = set()
+    res = []
+    for x in items:
+        h = hash(x)
+        if h in seen:
+            continue
+        seen.add(h)
+        res.append(x)
+    return res
+
+
+def dict_merge(dict1: dict, dict2: dict) -> dict:
+    """ Recursive dict merge. `dict2` is prioritized in collisions. """
+    res = dict1.copy()
+    for key, value in dict2.items():
+        # dict collision
+        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
+            res[key] = dict_merge(res[key], value)
+        else:
+            # dict2 overwrites non-dict collisions
+            res[key] = value
+    return res
 
 
 # File helpers
@@ -492,11 +516,29 @@ def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = False
 def epoch_now():
     return round(datetime.datetime.now().timestamp())
 
+READABLE_EPOCH_FMT = '%Y_%m_%d__%H_%M_%S'
+BAD_EPOCH_FMT = '{} (bad epoch)' # epoch number is placed at every {}
+BAD_EPOCH_RE = '^'+re.escape(BAD_EPOCH_FMT).replace('\\{\\}', '(.+?)')+'$'
+
+def to_readable_epoch(epoch: int) -> str:
+    if epoch < 0:
+        return BAD_EPOCH_FMT.replace('{}', str(epoch))
+    # from time since epoch (seconds) to YYYYmmddHHMMSS
+    return datetime.datetime.fromtimestamp(epoch).strftime(READABLE_EPOCH_FMT)
+
+def from_readable_epoch(readable: str) -> int:
+    match = re.match(BAD_EPOCH_RE, readable)
+    if match:
+        return int(match.groups()[0])
+    return int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())
 
 
 def main():
-    import random
-    print(input_string(['abc', 'def', 'ghi'], "Enter your favorite string! "))
+    now = epoch_now()
+    print(to_readable_epoch(now))
+    assert from_readable_epoch(to_readable_epoch(now)) == now
+    print(to_readable_epoch(-100))
+    assert from_readable_epoch(to_readable_epoch(-100)) == -100
     pass
 
 if __name__ == "__main__":

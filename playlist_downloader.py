@@ -9,7 +9,8 @@ import config
 import utils
 import yt_utils
 import yt_wrapper
-import post_processing
+import pp_utils
+import merge_infos
 
 import display
 
@@ -255,7 +256,7 @@ class PlaylistDL:
         
         self.metadata['latest_pl_info'] = yt_utils.eval_with_dif_epoch(
             self.pl_info,
-            post_processing.get_latest_epoch(self.pl_info),
+            pp_utils.get_latest_epoch(self.pl_info),
             self.pl_outtmpls['pl_infojson'])
         self.metadata['latest_pl_info'] = self._rel_to_Playlist(self.metadata['latest_pl_info'])
         utils.json_dump(
@@ -278,10 +279,10 @@ class PlaylistDL:
         if not self.new_pl_info and not self.new_v_info:
             return
         if last_best_info := self._get_prev_best_info():
-            self.pl_info = post_processing.merge_pl_infos([self.pl_info, last_best_info])
+            self.pl_info = merge_infos.merge_pl_infos([self.pl_info, last_best_info])
         self.metadata['latest_merge_info'] = yt_utils.eval_with_dif_epoch(
             self.pl_info,
-            post_processing.get_latest_epoch(self.pl_info),
+            pp_utils.get_latest_epoch(self.pl_info),
             self.pl_outtmpls['merge_infojson'])
         self.metadata['latest_merge_info'] = self._rel_to_Playlist(self.metadata['latest_merge_info'])
         utils.json_dump(

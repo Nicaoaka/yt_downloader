@@ -1,243 +1,277 @@
 from yt_types import *
-from post_processing import merge_pl_infos
-import pprint, json, sys
+from merge_infos import merge_pl_infos, merge_v_infos
+import pprint
+import json
+import sys
+import display
+import utils
+import random
+import pp_utils
 
-# --- Helpers ---
 
-COMMON = {
+def rand(chance: float) -> bool:
+    return random.random() < chance
+
+PL = {
     "id": "PL_ID",
     "title": "PL TITLE",
-    "availability": "private",
-    "channel_follower_count": None,
-    "description": "PL Desc",
-    "tags": ['pl_tag'],
-    "modified_date": "20260625",
-    "view_count": None,
-    "playlist_count": 4,
+    # "availability": "private",
+    # "channel_follower_count": None,
+    # "description": "PL Desc",
+    # "tags": ['pl_tag'],
+    # "modified_date": "20260625",
+    # "view_count": None,
+    # "playlist_count": 4,
     "channel": "PL Channel",
-    "channel_id": "PLChannelID",
+    # "channel_id": "PLChannelID",
     "uploader_id": "@PLChannelDisplay",
     "uploader": "PL Channel Username",
-    "channel_url": "https://www.youtube.com/channel/PLChannelID",
-    "uploader_url": "https://www.youtube.com/@PLChannelDisplay",
-    "_type": "playlist",
-    "extractor_key": "YoutubeTab",
-    "extractor": "youtube:tab",
-    "webpage_url": "https://www.youtube.com/playlist?list=PL_ID",
-    "original_url": "https://www.youtube.com/watch?v=FIRST_V_ID&list=PL_ID&index=1",
-    "webpage_url_basename": "playlist",
-    "webpage_url_domain": "youtube.com",
-    "release_year": None,
+    # "channel_url": "https://www.youtube.com/channel/PLChannelID",
+    # "uploader_url": "https://www.youtube.com/@PLChannelDisplay",
+    # "_type": "playlist",
+    # "extractor_key": "YoutubeTab",
+    # "extractor": "youtube:tab",
+    # "webpage_url": "https://www.youtube.com/playlist?list=PL_ID",
+    # "original_url": "https://www.youtube.com/watch?v=FIRST_V_ID&list=PL_ID&index=1",
+    # "webpage_url_basename": "playlist",
+    # "webpage_url_domain": "youtube.com",
+    # "release_year": None,
     "epoch": 12345
 }
-ARBITRARY = "ArBiTrArY"
 
+FLAT_UNAVAIL = {
+    # "_type": "url",
+    # "ie_key": "Youtube",
+    "id": "v_id",
+    # "url": "https://www.youtube.com/watch?v=v_id",
+    # "title": "v title",
+    # "description": None,
+    # "duration": None,
+    # "channel_id": None,
+    "channel": None,
+    # "channel_url": None,
+    # "uploader": None,
+    # "uploader_id": None,
+    # "uploader_url": None,
+    # "thumbnails": [
+    # {
+    #     "url": "https://i.ytimg.com/img/no_thumbnail.jpg",
+    #     "height": 90,
+    #     "width": 120
+    # },
+    # {
+    #     "url": "https://i.ytimg.com/img/no_thumbnail.jpg",
+    #     "height": 180,
+    #     "width": 320
+    # },
+    # {
+    #     "url": "https://i.ytimg.com/img/no_thumbnail.jpg",
+    #     "height": 360,
+    #     "width": 480
+    # }
+    # ],
+    # "timestamp": None,
+    # "release_timestamp": None,
+    # "availability": None,
+    # "view_count": None,
+    # "live_status": None,
+    # "channel_is_verified": None,
+    # "__x_forwarded_for_ip": None,
+
+    # "playlist_id": "PL_ID",
+    # "playlist": "PL TITLE",
+    # "playlist_count": 1,
+    # "n_entries": 2,
+    # "playlist_index": 3,
+    # "playlist_autonumber": 4,
+    # "playlist_title": "PL TITLE",
+    # "playlist_channel": "PLChannel",
+    # "playlist_channel_id": "PLChannelID",
+    # "playlist_uploader": "PL Channel Username",
+    # "playlist_uploader_id": "@PLChannelDisplay",
+    # "playlist_webpage_url": "https://www.youtube.com/playlist?list=PL_ID"
+}
+
+ARBITRARY = "ArBiTrArY"
+global_epoch = 0
+def reset():
+    global global_epoch
+    global_epoch = utils.epoch_now()
+
+class DEFAULT: ...
 def v(
         id,
-        avail: bool = True,
-        ext: bool = True,
-        dl: bool = True,
-        yt_unavail=None,
-        wa_unavail=None,
-        epoch: list[int] = [100000],
-):
-    res = {'id': id, 'epoch': epoch[0]}
-    epoch[0] -= 1
-    if avail:       res['channel'] = ARBITRARY
-    if ext:         res['extractor'] = ARBITRARY
-    if dl:          res['requested_downloads'] = ARBITRARY
-    if yt_unavail:  res['yt_unavailable_msg'] = yt_unavail
-    if wa_unavail:  res['wa_unavailable_msg'] = wa_unavail
-    return res
+        avail_yt: bool = True,
+        ext:   bool = True,
+        dl:    bool = False,
+        yt: bool=False,
+        wa: bool=False,
+        epoch:int|None|type[DEFAULT]=DEFAULT,
+        **overrides,
+) -> V_InfoDict:
+    global global_epoch
+    global_epoch += 1
+    res = {**FLAT_UNAVAIL, 'id': f'{id} (v_id)'}
+    if epoch is not None:
+        res['epoch'] = global_epoch if epoch is DEFAULT else epoch
+    if avail_yt:    res['channel'] = 'AVAIL_YT'
+    if ext:         res['extractor'] = 'EXTRACT'
+    if dl:          res['requested_downloads'] = 'DOWNLOADED'
+    if yt:  res['yt_unavailable_msg'] = f'{res['epoch']} YouTube'
+    if wa:  res['wa_unavailable_msg'] = f'{res['epoch']} WebArchive'
+    return res | overrides # type: ignore
 
-def pl(entries, epoch, **overrides):
-    return {**COMMON, 'entries': entries, 'epoch': epoch, **overrides}
+def pl(entries, epoch:int|None|type[DEFAULT]=DEFAULT, **overrides) -> PL_InfoDict:
+    global global_epoch
+    global_epoch += 1
+    res = {**PL, **overrides, 'entries': entries}
+    if epoch is not None:
+        res['epoch'] = global_epoch if epoch is DEFAULT else epoch
+    return res # type: ignore
 
-def run(name, pl_infos, checks=None):
-    print(f'\n{"="*60}')
-    print(f'TEST: {name}')
-    print('='*60)
-    try:
-        res = merge_pl_infos(pl_infos)  # type: ignore
-        pprint.pprint(res)
-        if checks:
-            for desc, ok in checks(res):
-                status = 'PASS' if ok else 'FAIL'
-                print(f'  [{status}] {desc}')
-        with open(f'test/merge_pl/test_{name.replace(" ", "_")}.json', 'w') as f:
-            json.dump(res, f, indent=4, default=str)
-    except Exception as e:
-        print(f'  [ERROR] {e}')
-        raise
-
-
-# =============================================================================
-# 1. Single playlist — baseline, nothing to merge
-# =============================================================================
-run('single playlist', [
-    pl([v('1'), v('2'), v('3')], epoch=100),
-], checks=lambda r: [
-    ('3 entries', len(r['entries']) == 3),
-    ('order preserved: 1,2,3', [e['id'] for e in r['entries']] == ['1','2','3']),
-    ('playlist_count matches', r['playlist_count'] == 3),
-])
+import os
+TEST_HOME = 'test/merge_pl'
+os.makedirs(TEST_HOME, exist_ok=True)
+def record(data, name):
+    with open(f'{TEST_HOME}/{name.replace(" ", "_")}.json', 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4, default=str, ensure_ascii=False)
 
 
-# =============================================================================
-# 2. Two identical playlists — deduplication, no drift
-# =============================================================================
-run('identical playlists', [
-    pl([v('1'), v('2'), v('3')], epoch=200),
-    pl([v('1'), v('2'), v('3')], epoch=100),
-], checks=lambda r: [
-    ('no duplicate entries', len(r['entries']) == 3),
-    ('order preserved', [e['id'] for e in r['entries']] == ['1','2','3']),
-])
 
-
-# =============================================================================
-# 3. Newer playlist has a video added at the end
-# =============================================================================
-run('addition at end', [
-    pl([v('1'), v('2'), v('3'), v('4')], epoch=200),
-    pl([v('1'), v('2'), v('3')],         epoch=100),
-], checks=lambda r: [
-    ('4 entries', len(r['entries']) == 4),
-    ('4 is last', r['entries'][-1]['id'] == '4'),
-])
-
-
-# =============================================================================
-# 4. Newer playlist has a video added in the middle
-# =============================================================================
-run('addition in middle', [
-    pl([v('1'), v('2'), v('NEW'), v('3')], epoch=200),
-    pl([v('1'), v('2'), v('3')],           epoch=100),
-], checks=lambda r: [
-    ('4 entries', len(r['entries']) == 4),
-    ('NEW before 3', r['entries'].index(next(e for e in r['entries'] if e['id']=='NEW'))
-                   < r['entries'].index(next(e for e in r['entries'] if e['id']=='3'))),
-])
-
-
-# =============================================================================
-# 5. Video removed in newer playlist — should still appear (from older)
-# =============================================================================
-run('removal in newer', [
-    pl([v('1'), v('3')],         epoch=200),
-    pl([v('1'), v('2'), v('3')], epoch=100),
-], checks=lambda r: [
-    ('all 3 videos present', {e['id'] for e in r['entries']} == {'1','2','3'}),
-    ('playlist_count == 3', r['playlist_count'] == 3),
-    # 2 is an "orphan" from old list — should appear between 1 and 3 or at end
-    ('1 before 3', r['entries'].index(next(e for e in r['entries'] if e['id']=='1'))
-                 < r['entries'].index(next(e for e in r['entries'] if e['id']=='3'))),
-])
-
-
-# =============================================================================
-# 6. Video info level upgrade: unavailable → available
-# =============================================================================
-E6 = [200000]
-run('info level upgrade unavail to avail', [
-    pl([v('1', epoch=E6)],                    epoch=200),  # fully available
-    pl([v('1', avail=False, yt_unavail='yt-gone', epoch=E6)], epoch=100),  # unavailable
-], checks=lambda r: [
-    ('entry has requested_downloads', 'requested_downloads' in r['entries'][0]),
-    ('unavailable_msgs recorded', 'unavailable_msgs' in r['entries'][0]),
-    ('wa msg not present', r['entries'][0].get('yt_unavailable_msg') is None
-                        or 'unavailable_msgs' in r['entries'][0]),
-])
-
-
-# =============================================================================
-# 7. Video info level downgrade: available in old, unavailable in new
-#    The higher info level (downloaded) should win regardless of epoch
-# =============================================================================
-E7 = [200000]
-run('info level: downloaded beats newer unavailable', [
-    pl([v('1', avail=False, yt_unavail='now-gone', epoch=E7)], epoch=200),  # newer but unavail
-    pl([v('1', epoch=E7)],                                      epoch=100),  # older but downloaded
-], checks=lambda r: [
-    ('requested_downloads present (higher info level wins)', 'requested_downloads' in r['entries'][0]),
-    ('unavailable_msgs recorded', 'unavailable_msgs' in r['entries'][0]),
-])
-
-
-# =============================================================================
-# 8. Both wa and yt unavailable messages across versions
-# =============================================================================
-E8 = [200000]
-run('both unavail msg types', [
-    pl([v('1', False, False, False, wa_unavail='wa-200', epoch=E8)], epoch=200),
-    pl([v('1', False, False, False, yt_unavail='yt-100', epoch=E8)], epoch=100),
-], checks=lambda r: [
-    ('unavailable_msgs has 2 entries', len(r['entries'][0].get('unavailable_msgs', [])) == 2),
-    ('wa msg present', any(m['msg'] == 'wa-200' for m in r['entries'][0].get('unavailable_msgs', []))),
-    ('yt msg present', any(m['msg'] == 'yt-100' for m in r['entries'][0].get('unavailable_msgs', []))),
-])
-
-
-# =============================================================================
-# 9. Ordering conflict: two playlists disagree on relative order of two videos
-#    Newer playlist's order should win
-# =============================================================================
-run('ordering conflict newer wins', [
-    pl([v('A'), v('B'), v('C')], epoch=200),  # newer: A B C
-    pl([v('B'), v('A'), v('C')], epoch=100),  # older: B A C
-], checks=lambda r: [
-    ('A before B (newer playlist order)', 
-     [e['id'] for e in r['entries']].index('A') < [e['id'] for e in r['entries']].index('B')),
-])
-
-
-# =============================================================================
-# 10. Multiple playlists, progressive additions over time
-# =============================================================================
-run('progressive additions', [
-    pl([v('1'), v('2'), v('3'), v('4'), v('5')], epoch=500),
-    pl([v('1'), v('2'), v('3'), v('4')],         epoch=400),
-    pl([v('1'), v('2'), v('3')],                 epoch=300),
-    pl([v('1'), v('2')],                         epoch=200),
-    pl([v('1')],                                 epoch=100),
-], checks=lambda r: [
-    ('5 entries', len(r['entries']) == 5),
-    ('order is 1-5', [e['id'] for e in r['entries']] == ['1','2','3','4','5']),
-])
-
-
-# =============================================================================
-# 11. Single video playlist
-# =============================================================================
-run('single video', [
-    pl([v('ONLY')], epoch=100),
-], checks=lambda r: [
-    ('1 entry', len(r['entries']) == 1),
-    ('correct id', r['entries'][0]['id'] == 'ONLY'),
-    ('playlist_count == 1', r['playlist_count'] == 1),
-])
-
-
-# =============================================================================
-# 12. Error cases
-# =============================================================================
-print(f'\n{"="*60}')
-print('TEST: error — empty list')
-print('='*60)
-try:
-    merge_pl_infos([])
-    print('  [FAIL] should have raised')
-except ValueError as e:
-    print(f'  [PASS] raised ValueError: {e}')
-
-print(f'\n{"="*60}')
-print('TEST: error — mismatched playlist ids')
-print('='*60)
-try:
-    merge_pl_infos([  # type: ignore
-        {**COMMON, 'id': 'PL_A', 'entries': [], 'epoch': 100},
-        {**COMMON, 'id': 'PL_B', 'entries': [], 'epoch': 200},
+def test_basic_v():
+    res = merge_v_infos([
+        v(1),
     ])
-    print('  [FAIL] should have raised')
-except ValueError as e:
-    print(f'  [PASS] raised ValueError: {e}')
+    record(res, 'basic v')
+
+def test_v_better_past():
+    res = merge_v_infos([
+        v(1, avail_yt=True,  ext=True,  dl=True),
+        v(1, avail_yt=True,  ext=True,  dl=False),
+        v(1, avail_yt=True,  ext=False, dl=False),
+        v(1, avail_yt=False, ext=False, dl=False),
+    ])
+    record(res, 'better past')
+
+def test_v_unavail():
+    res = merge_v_infos([
+        v(1, yt=True),
+        v(1, wa=True),
+        v(1),
+        v(1, wa=True),
+        v(1, yt=True),
+        v(1, yt=True, wa=True),
+    ])
+    record(res, 'unavailable video')
+
+def test_on_new():
+    res = merge_pl_infos([
+        pl([v(1)]),
+        pl([v(2)]),
+        pl([v(3)]),
+    ])
+    record(res, 'on new')
+
+def test_steps():
+    res = merge_pl_infos([
+        pl([v(1)]),
+        pl([v(2), v(1)]),
+        pl([v(3), v(2), v(1)]),
+    ])
+    record(res, 'steps')
+
+def test_unavailable():
+    res = merge_pl_infos([
+        pl([v(1, dl=True)]),
+        pl([v(1, yt=True)]),
+        pl([v(1, yt=True)]),
+        pl([v(1, yt=True, wa=True)]),
+    ])
+
+    record(res, 'unavailable')
+
+def test_iterations():
+    res = merge_pl_infos([
+        pl([v(1, yt=True, wa=True)]),
+        pl([v(1, yt=True)]),
+    ])
+    res = merge_pl_infos([
+        res,
+        pl([v(1, dl=True)]),
+    ])
+    record(res, 'iterations')
+
+def test_no_change_iterations():
+    pls = [
+        pl([v(x) for x in range(5)])
+        for _ in range(20)
+    ]
+    res = pls[0]
+    for _pl in pls[1:]:
+        res = merge_pl_infos([res, _pl])
+
+    res = merge_pl_infos([res, pl([v(x) for x in range(6)])])
+    
+    record(res, 'no_change_iterations')
+
+def test_stale():
+    res = merge_pl_infos([
+        pl([v(1, is_stale=1000)]),
+        pl([v(1, is_stale=1000)]),
+    ])
+    res = merge_pl_infos([
+        res,
+        pl([v(1, is_stale=False)]),
+    ])
+    record(res, 'stale')
+
+def test_large_list():
+    pls = [
+        pl([v(x, rand(0.5), rand(0.5), rand(0.5), rand(0.5), rand(0.5)) for x in range(20)])
+        for _ in range(5)
+    ]
+    res = pls[0]
+    for _pl in pls[1:]:
+        res = merge_pl_infos([res, _pl])
+
+    res = merge_pl_infos([res, pl([v(x) for x in range(6)])])
+    
+    record(res, 'large list')
+
+def test_jyes():
+    res = {}
+    d = 'test/jyes [...A-E9x23WGD3]/playlist'
+    for _p in os.listdir(d):
+        p = os.path.join(d, _p)
+        if not res:
+            res = utils.json_load(p)
+            continue
+        res = merge_pl_infos([res, utils.json_load(p)])
+    pp_utils.filter_pl_info(res, set(), {'formats', 'requested_formats', 'automatic_captions'})
+    record(res, 'jyes')
+
+def main():
+    tests = [
+        test_basic_v,
+        test_v_better_past,
+        test_v_unavail,
+        test_on_new,
+        test_steps,
+        test_unavailable,
+        test_iterations,
+        test_no_change_iterations,
+        test_stale,
+        test_large_list,
+        test_jyes,
+    ]
+    
+    for t in tests:
+        try:
+            reset()
+            t()
+        except Exception as e:
+            print(display.exc(e))
+            print()
+
+if __name__ == "__main__":
+    main()

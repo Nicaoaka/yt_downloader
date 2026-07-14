@@ -7,6 +7,8 @@ __all__ = [
     'Config_IdentType',
     'CustomOuttmpl', 'PL_Resolved_CustomOuttmpl',
     
+    'UnavailableMsg',
+    'V_MergeTimeline', 'PL_MergeTimeline',
     'DL_Action', 'DL_Result',
     'DownloadInfo', 'PL_DownloadInfo', 'PL_DownloadHistory',
     'ID_DownloadInfo',
@@ -70,7 +72,7 @@ class V_InfoDict(InfoDict):
     # custom
     yt_unavailable_msg: NotRequired[str|None]
     wa_unavailable_msg: NotRequired[str|None]
-    unavailable_msgs: NotRequired[list[dict]]
+    unavailable_msgs: NotRequired[list[UnavailableMsg]]
 
 
 class __PL_V_InfoDict(TypedDict):
@@ -95,37 +97,37 @@ class PL_InfoDict(InfoDict):
     tags: list[str] | None
 
     # Custom
-    merge_info: NotRequired[dict[str, dict[str, Any]]]
+    merge_timeline: NotRequired[PL_MergeTimeline]
 
 
-class Flat_PL_V_InfoDict(TypedDict):
-    _type: str
-    ie_key: str
-    id: str
-    url: str
-    title: str
-    description:  None
-    duration: int | None
-    channel_id: str | None
-    channel: str | None
-    channel_url: str | None
-    uploader: str | None
-    uploader_id: None
-    uploader_url: None
-    thumbnails: list
-    timestamp: None
-    release_timestamp: None
-    availability: None
-    view_count: int | None
-    live_status: None
-    channel_is_verified: None
-    __x_forwarded_for_ip: None
-    playlist: str
-    playlist_id: str
-    playlist_index: int
-    playlist_uploader: str
-    playlist_uploader_id: str
-    playlist_channel: str
+# class Flat_PL_V_InfoDict(TypedDict):
+#     _type: str
+#     ie_key: str
+#     id: str
+#     url: str
+#     title: str
+#     description:  None
+#     duration: int | None
+#     channel_id: str | None
+#     channel: str | None
+#     channel_url: str | None
+#     uploader: str | None
+#     uploader_id: None
+#     uploader_url: None
+#     thumbnails: list
+#     timestamp: None
+#     release_timestamp: None
+#     availability: None
+#     view_count: int | None
+#     live_status: None
+#     channel_is_verified: None
+#     __x_forwarded_for_ip: None
+#     playlist: str
+#     playlist_id: str
+#     playlist_index: int
+#     playlist_uploader: str
+#     playlist_uploader_id: str
+#     playlist_channel: str
 
 
 type YT_DLP_DownloadArchive = tuple[tuple[str, str], ...]
@@ -173,7 +175,16 @@ class CustomOuttmpl(_CustomOuttmpl):
 class PL_Resolved_CustomOuttmpl(_CustomOuttmpl):
     Playlist: str
 
+class UnavailableMsg(TypedDict):
+    epoch: int|None
+    msg:   str|None
+    type:  str
 
+class _V_MergeTimeline(TypedDict):
+    better_info: NotRequired[str] # "{merge_V_InfoLevel.name} -> {new_V_InfoLevel.name}"
+    unavailable: NotRequired[list[str]]
+type V_MergeTimeline = dict[EPOCH_STR, _V_MergeTimeline]
+type PL_MergeTimeline = dict[V_ID, V_MergeTimeline]
 
 class DL_Action(StrEnum):
     USER     = auto()
@@ -242,8 +253,8 @@ def empty_Metadata() -> Metadata:
 
 class _V_InfoLevel(IntEnum):
     NONE = 0
-    CHECK_WA = 1
-    CHECK_YT = 2
+    UNAVAIL_YT = 1
+    FLAT = 2
     EXTRACT = 3
     DOWNLOAD = 4
 
