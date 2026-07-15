@@ -12,11 +12,10 @@ from typing import Callable
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from yt_types import *
-import utils
-import yt_utils
-import pp_utils
-import display
+from .utils import utils
+from .yt_types import *
+from . import yt_utils
+from . import display
 
 
 
@@ -92,10 +91,10 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
     }) as ydl:
         flat_info: PL_InfoDict = ydl.extract_info(pl_url_or_id, download=False) # type: ignore
     
-    pp_utils.add_pl_info_to_entries(flat_info)
+    yt_utils.add_pl_info_to_entries(flat_info)
     now = utils.epoch_now()
     for entry in flat_info['entries']:
-        entry['epoch'] = flat_info.get('epoch', -now)
+        entry['epoch'] = flat_info.get('epoch', now)
     return flat_info
 
 
@@ -149,7 +148,7 @@ def download_pl_videos(
                 action = wrapper_match_filter(entry, pl_dl_info)
             
             i_of_N = f"{i+1:{len(str(N))}}/{N}"
-            pl_v_display = f'[{i_of_N}] [{entry['id']}] {entry.get('title') or "???"} - {entry.get('channel') or '???'}'
+            pl_v_display = f"[{i_of_N}] [{entry['id']}] {entry.get('title') or "???"} - {entry.get('channel') or "???"}"
             
 
             if action == DL_Action.USER:
@@ -158,7 +157,7 @@ def download_pl_videos(
                 print(f"[TEMP]:\n{pprint.pformat(entry, indent=4)}")
                 choice = utils.input_string(
                     list(DL_MAP_NO_USER.keys()),
-                    f'Pick a Download Option: ',
+                    f"Pick a Download Option: ",
                     prefix_options=True,
                 )
                 action = DL_MAP_NO_USER[choice]
@@ -207,10 +206,10 @@ def download_pl_videos(
     except KeyboardInterrupt:
         print(utils.hex("    KEYBOARD INTERRUPT    ", bg='#ffffff'))
     except Exception as e:
-        print(display.exc(e))
+        print(utils.exc(e))
     
     # may be redundent, but can't hurt
-    pp_utils.add_pl_info_to_entries(pl_info)
+    yt_utils.add_pl_info_to_entries(pl_info)
     return pl_dl_info
 
 
@@ -227,7 +226,7 @@ def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
     return tuple(res)
 
 
-# TODO
+
 def download_video_alt(url: str, opts: YT_DLP_Params) -> InfoDict|dict | Exception:
     """
     Tries to downlaod the video given the url using yt_dlp

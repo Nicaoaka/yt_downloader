@@ -8,12 +8,14 @@ import os
 import dataclasses
 from typing import Callable
 
-from yt_types import *
-from yt_types import Config_IdentType
-import yt_types
-import utils
-import yt_utils
-import pp_utils
+from .utils import utils
+from .yt_types import *
+from . import yt_types
+from . import yt_utils
+
+# Do these need to be configurable?
+DEFAULT_EPOCH: Callable[[],int] = lambda: -1
+TIMELINE_EPOCH_FMT = '%Y_%m_%d__%H_%M_%S' # For formats, see datetime.strftime()
 
 
 def default_merge_fallbacks() -> list[yt_types._MetadataFiles_Lit]:
@@ -69,12 +71,15 @@ def default_wrapper_match_filter(
 
 def default_yt_dlp_match_filter(v_info: V_InfoDict, *, incomplete: bool) -> str | None:
     """
-    May be called multiple times for during the same video.
-    Only effects download, will extract no matter what! `(use wrapper_match_filter instead)`
+    `Prefer using wrapper_match_filter when possible`
+
+    May be called multiple times for the same video.
+    Extraction occurs before this is called, so it can only effect downloads.
 
     - Return a message to skip.
-    - Return None to downloaded.
-    - Return `utils.NO_DEFAULT` to prompt user.
+    - Return `None` to downloaded.
+    - Return `yt_dlp.utils.NO_DEFAULT` to prompt user.
+    (quitting the playlist can onnly occur in `wrapper_match_filter`)
     """
     return None
 
@@ -122,18 +127,18 @@ def default_path_tmpls() -> CustomOuttmpl:
     """
     return {
         'Playlist': lambda pl_info: (
-            f"{pl_info['title'] or '[no title]'} "
+            f"{pl_info['title'] or "[no title]"} "
             f"[{utils.truncate(pl_info['id'], 11, end_in_max=False, trunc_start=True)}]"
         ),
 
-        'video_file': 'Videos\\%(title)s [%(id)s].%(ext)s',
+        'video_file': "Videos\\%(title)s [%(id)s].%(ext)s",
 
-        'flat_infojson': 'flat\\%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json',   # uses latest   pl epoch
-        'pl_infojson': 'playlist\\%(epoch>%Y-%m-%d %H-%M-%S)s.info.json', # uses latest v/pl epoch
-        'merge_infojson': '%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json',       # uses latest v/pl epoch
+        'flat_infojson': "flat\\%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json",   # uses latest   pl epoch
+        'pl_infojson': "playlist\\%(epoch>%Y-%m-%d %H-%M-%S)s.info.json", # uses latest v/pl epoch
+        'merge_infojson': "%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json",       # uses latest v/pl epoch
 
-        'ytdlp_archive': '_ytdlp_archive.txt',
-        'metadata': '_metadata.json',
+        'ytdlp_archive': "_ytdlp_archive.txt",
+        'metadata': "_metadata.json",
     }
 
 
@@ -145,7 +150,8 @@ def default_filter_normal(pl_info: PL_InfoDict):
 def default_filter_merge(pl_info: PL_InfoDict):
     pass
 def default_filter_common(pl_info: PL_InfoDict):
-    pp_utils.filter_pl_info(pl_info, set(), {'automatic_captions'})
+    from . import post_processing
+    post_processing.filter_pl_info(pl_info, set(), {'automatic_captions'})
 
 
 def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
@@ -165,7 +171,7 @@ def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
 def validate_metdata(metadata: Metadata, config: PlaylistDL_Config):
     for k in yt_types._MetadataFiles.__required_keys__:
         if metadata[k]:
-            utils.assert_file(os.path.join(config.home, metadata['path_tmpls']['Playlist'], metadata[k]), f'{k} (metadata)', min_size=1)
+            utils.assert_file(os.path.join(config.home, metadata['path_tmpls']['Playlist'], metadata[k]), f"{k} (metadata)", min_size=1)
     
     meta_path = os.path.join(config.home, metadata['path_tmpls'].get('Playlist', 'NA'), metadata['path_tmpls'].get('metadata', 'NA'))
     for k in metadata['path_tmpls'].keys() | config.path_tmpls.keys():
@@ -254,10 +260,10 @@ class PlaylistDL_Config:
                 if not yt_utils.get_pl_id(self.ident):
                     raise ValueError(f"{self.ident} wasn't recognized as a playlist id or url")
             case Config_IdentType.PL_INFO_PATH:
-                utils.assert_file(self.ident, 'pl_info_path (ident)', min_size=1)
+                utils.assert_file(self.ident, "pl_info_path (ident)", min_size=1)
                 utils.json_load_typeddict(self.ident, PL_InfoDict)
             case Config_IdentType.METADATA_PATH:
-                utils.assert_file(self.ident, 'metadata_path (ident)', min_size=1)
+                utils.assert_file(self.ident, "metadata_path (ident)", min_size=1)
                 validate_metdata(utils.json_load_typeddict(self.ident, Metadata), self)
 
         # cookies
@@ -281,13 +287,13 @@ class PlaylistDL_Config:
 
 def main():
 
-    from utils import hex
+    from pldl.utils.utils import hex
     import pprint
 
     example = PlaylistDL_Config(
         ident='LL',
         ident_type=Config_IdentType.PL_ID_OR_URL,
-        home='example_home',
+        home="example_home",
     )
     pprint.pprint(example, indent=4, width=20)
     required_fields = [
@@ -301,3 +307,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -1,17 +1,17 @@
+__all__ = [
+    'merge_v_infos', 'merge_pl_infos',
+]
+
 import enum
 from collections import defaultdict
 from typing import Any
 
-from pp_utils import add_pl_info_to_entries, NO_EPOCH
-from merger import merge_ordered_lists
-from yt_types import *
-import utils
-import yt_utils
-
-import display
+from .. import utils
+from .. import yt_utils
+from ..yt_types import *
+from ..config import DEFAULT_EPOCH
 
 
-# Merging info
 
 class MergeStrategies(enum.Enum):
     LATEST       = enum.auto()
@@ -52,7 +52,7 @@ def _apply_field(info: V_InfoDict, k: str, v: Any|type[NO_DEFAULT], is_latest: b
                     info[k] = v
                     return True
             except Exception as e:
-                print(display.exc(e) + "\n\nCheck for malformed `MergeStrategies.MAX` in `FIELD_STRATEGIES`")
+                print(utils.exc(e) + "\n\nCheck for malformed `MergeStrategies.MAX` in `FIELD_STRATEGIES`")
         
         case MergeStrategies.LATEST_OR_FILL_NONE:
             if v is None or v == NO_DEFAULT:
@@ -99,7 +99,7 @@ def _get_info_level_timeline(v_infos: list[V_InfoDict], merge_level: _V_InfoLeve
     for v_info in v_infos:
         level = yt_utils.get_v_info_level(v_info)
         if level > merge_level:
-            epoch = utils.to_readable_epoch(v_info.get('epoch', NO_EPOCH))
+            epoch = yt_utils.to_timeline_epoch(v_info.get('epoch', DEFAULT_EPOCH()))
             timeline[epoch]['better_info'] = f'{merge_level.name} -> {level.name}'
             merge_level = level
     return timeline
@@ -107,7 +107,7 @@ def _get_info_level_timeline(v_infos: list[V_InfoDict], merge_level: _V_InfoLeve
 def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimeline:
     timeline: V_MergeTimeline = defaultdict(dict) # type: ignore - init
     for msg in unavail_msgs:
-        epoch = utils.to_readable_epoch(msg['epoch'] or 0)
+        epoch = yt_utils.to_timeline_epoch(msg['epoch'] or 0)
         timeline[epoch].setdefault('unavailable', []).append(f"{msg['type']}: {msg['msg']}")
     return timeline
 
@@ -142,15 +142,15 @@ def merge_v_infos(
     if not v_infos:
         return _init, {} # type: ignore - ok
     
-    v_infos = sorted(v_infos, key=lambda info: info.get('epoch', NO_EPOCH), reverse=True)
+    v_infos = sorted(v_infos, key=lambda info: info.get('epoch', DEFAULT_EPOCH()), reverse=True)
     _init_level = yt_utils.get_v_info_level(_init)
     merge_info: V_InfoDict = _init or {} # type: ignore - init
     updates = defaultdict(dict)
     for v_info in v_infos:
-        is_latest = v_info is v_infos[0] and (v_info.get('epoch', NO_EPOCH) >= merge_info.get('epoch', NO_EPOCH))
+        is_latest = v_info is v_infos[0] and (v_info.get('epoch', DEFAULT_EPOCH()) >= merge_info.get('epoch', DEFAULT_EPOCH()))
         for k in v_info.keys() | merge_info.keys():
             if _apply_field(merge_info, k, v_info.get(k, NO_DEFAULT), is_latest):
-                epoch = utils.to_readable_epoch(v_info.get('epoch', NO_EPOCH))
+                epoch = yt_utils.to_timeline_epoch(v_info.get('epoch', DEFAULT_EPOCH()))
                 updates[epoch].setdefault('updates', set()).add(k)
     
     new_unavail_msgs = _get_unavailable_msgs(v_infos)
@@ -187,8 +187,8 @@ def merge_pl_infos(pl_infos: list[PL_InfoDict]) -> PL_InfoDict:
         raise ValueError(f"More than one playlist id found: { {pl_info['id'] for pl_info in pl_infos} }")
 
     # most recent pl_info has highest priority
-    pl_infos = sorted(pl_infos, key=lambda info: info.get('epoch', NO_EPOCH), reverse=True)
-    V_ID_ORDER = merge_ordered_lists([[entry['id'] for entry in pl_info['entries']] for pl_info in pl_infos])
+    pl_infos = sorted(pl_infos, key=lambda info: info.get('epoch', DEFAULT_EPOCH()), reverse=True)
+    V_ID_ORDER = utils.merge_ordered_lists([[entry['id'] for entry in pl_info['entries']] for pl_info in pl_infos])
 
     merge_info: PL_InfoDict = utils.dict_without_keys(pl_infos[0], {'entries', 'merge_timeline'}) # type: ignore - init
     merge_info['playlist_count'] = len(V_ID_ORDER)
@@ -226,7 +226,7 @@ def merge_pl_infos(pl_infos: list[PL_InfoDict]) -> PL_InfoDict:
             pl_timeline[entry['id']] = utils.dict_merge(pl_timeline[entry['id']], v_timeline)
     
     merge_info['entries'] = entries
-    add_pl_info_to_entries(merge_info)
+    yt_utils.add_pl_info_to_entries(merge_info)
     
     merge_info['merge_timeline'] = pl_timeline
     return merge_info

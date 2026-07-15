@@ -1,9 +1,4 @@
-from yt_types import *
-from config import Config_IdentType, PlaylistDL_Config
-from playlist_downloader import PlaylistDL
-import utils
-import yt_utils
-import pp_utils
+from pldl import *
 
 """
 TODO:
@@ -19,7 +14,7 @@ def wrapper_match_filter(
     ytdlp: YT_DLP_DownloadArchive,
     ytdlp_ids: YT_DLP_DownloadArchive_IDs,
 ) -> DL_Action:
-    
+        
     # already downloaded - would be skipped by yt-dlp anyway from download_archive
     if pl_v_info['id'] in history_ids['download'] or pl_v_info['id'] in ytdlp_ids:
         return DL_Action.SKIP
@@ -60,9 +55,9 @@ MAX_DOWNLOADS = 1
 MAX_EXTRACTS = 3
 
 config = PlaylistDL_Config(
-    ident=r'',
-    ident_type=Config_IdentType.PL_ID_OR_URL,
-    home='',
+    ident=r'Lists 3/Weird chill [...yvgAK80GYjv]/flat/2026-07-14 08-49-04.flat.json',
+    ident_type=Config_IdentType.PL_INFO_PATH,
+    home='Lists 3',
 
     # cookie_file='secrets/cookie_file.txt',
     # cookies_for_pl=True,

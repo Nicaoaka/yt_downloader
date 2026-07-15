@@ -2,20 +2,16 @@ __all__ = ['PlaylistDL']
 
 import os
 import copy
-from typing import Literal
 
-from yt_dlp import YoutubeDL
-
-from yt_types import *
-import yt_types
-import config
-import utils
-import yt_utils
-import yt_wrapper
-import pp_utils
-import merge_infos
-
-import display
+from . import utils
+from .config import DEFAULT_EPOCH
+from .yt_types import *
+from . import yt_types
+from . import yt_utils
+from . import config
+from . import yt_wrapper
+from . import display
+from . import post_processing
 
 
 
@@ -24,14 +20,13 @@ class PlaylistDL:
         self.config = config
 
         # Get Playlist Info
-
         self.pl_info, self.new_pl_info = self._get_init_info()
         self.pl_outtmpls = self._get_paths()
 
         self.old_metadata: Metadata|None = utils.json_load_typeddict(self.pl_outtmpls['metadata'], Metadata, default=None)
         self.metadata: Metadata = copy.deepcopy(self.old_metadata) or yt_types.empty_Metadata()
         self.metadata['id'] = self.pl_info['id']
-        self.metadata['pl_epoch'] = self.pl_info.get('epoch', 0)
+        self.metadata['pl_epoch'] = self.pl_info.get('epoch', DEFAULT_EPOCH())
         self.metadata['history'] = {} if not self.old_metadata else self.old_metadata['history']
         self.metadata['path_tmpls'] = self.meta_outtmpls(self.config.home, self.pl_outtmpls)
         
@@ -50,7 +45,7 @@ class PlaylistDL:
         self.ytdlp_archive_ids: YT_DLP_DownloadArchive_IDs = yt_utils.ids_from_ytdlp_archive(self.ytdlp_archive)
         PlaylistDL.validate_dl_archive_sync(self.ytdlp_archive, self.metadata)
 
-        # Playlist Video Extraction/Download
+        # Generating opts
         self.opts = (
               self.config.opts
             | PlaylistDL.create_path_opts(self.config.home, self.pl_outtmpls)
@@ -60,12 +55,10 @@ class PlaylistDL:
 
         def wrapper_match_filter(pl_v_info: PL_V_InfoDict, curr_dl_info: PL_DownloadInfo):
             return self.config.wrapper_match_filter(pl_v_info, curr_dl_info,
-                self.history,
-                self.history_ids,
-                self.ytdlp_archive,
-                self.ytdlp_archive_ids,
-            )
+                self.history, self.history_ids,
+                self.ytdlp_archive, self.ytdlp_archive_ids)
 
+        # Playlist Video Extraction/Download
         pl_dl_info = yt_wrapper.download_pl_videos(
             pl_info              = self.pl_info,
             wrapper_match_filter = wrapper_match_filter,
@@ -86,7 +79,8 @@ class PlaylistDL:
         if self.config.write_merge:
             self._write_merge_info()
 
-        utils.json_dump(self.metadata, self.pl_outtmpls['metadata'], 'rm old')
+
+        display.write_path(utils.json_dump(self.metadata, self.pl_outtmpls['metadata'], 'rm old'))
         display.pl_download_info(pl_dl_info, errors=True)
 
 
@@ -121,7 +115,7 @@ class PlaylistDL:
         
         elif self.config.ident_type == Config_IdentType.PL_INFO_PATH:
             info: PL_InfoDict = utils.json_load_typeddict(self.config.ident, PL_InfoDict)
-            if self._need_refresh(info.get('epoch', 0)):
+            if self._need_refresh(info.get('epoch', DEFAULT_EPOCH())):
                 return extract_flat_info(info['id']), True
             return info, False
         
@@ -244,14 +238,17 @@ class PlaylistDL:
         self.metadata['latest_flat_info'] = self._rel_to_Playlist(self.metadata['latest_flat_info'])
 
 
-        json_flat_info = yt_wrapper.sanitize_info(self.pl_info)
+        json_flat_info: PL_InfoDict = yt_wrapper.sanitize_info(self.pl_info, remove_private_keys=False) # type: ignore
         self.config.filter_flat(json_flat_info)
         self.config.filter_common(json_flat_info)
-        utils.json_dump(json_flat_info,
-            dst=self._join_to_Playlist(self.metadata['latest_flat_info']),
+        
+        write_path = utils.json_dump(json_flat_info,
+            _dst=self._join_to_Playlist(self.metadata['latest_flat_info']),
             on_collision='mov old',
             auto_rename=True)
-
+        if write_path:
+            self.metadata['latest_flat_info'] = self._rel_to_Playlist(str(write_path.absolute()))
+            display.write_path(self.metadata['latest_flat_info'])
 
     def _write_pl_info(self):
         if not self.new_pl_info and not self.new_v_info:
@@ -259,17 +256,20 @@ class PlaylistDL:
         
         self.metadata['latest_pl_info'] = yt_utils.eval_with_dif_epoch(
             self.pl_info,
-            pp_utils.get_latest_epoch(self.pl_info),
+            yt_utils.get_latest_epoch(self.pl_info),
             self.pl_outtmpls['pl_infojson'])
         self.metadata['latest_pl_info'] = self._rel_to_Playlist(self.metadata['latest_pl_info'])
         
         json_normal_info: PL_InfoDict = yt_wrapper.sanitize_info(self.pl_info, bool(self.opts.get('clean_infojson'))) # type: ignore
         self.config.filter_normal(json_normal_info)
         self.config.filter_common(json_normal_info)
-        utils.json_dump(json_normal_info,
-            dst=self._join_to_Playlist(self.metadata['latest_pl_info']),
+        write_path = utils.json_dump(json_normal_info,
+            _dst=self._join_to_Playlist(self.metadata['latest_pl_info']),
             on_collision = 'mov old',
             auto_rename=True)
+        if write_path:
+            self.metadata['latest_pl_info'] = self._rel_to_Playlist(str(write_path.absolute()))
+            display.write_path(self.metadata['latest_pl_info'])
 
     def _get_prev_best_info(self) -> PL_InfoDict|None:
         if not self.old_metadata:
@@ -285,24 +285,28 @@ class PlaylistDL:
         if not self.new_pl_info and not self.new_v_info:
             return
         if last_best_info := self._get_prev_best_info():
-            self.pl_info = merge_infos.merge_pl_infos([self.pl_info, last_best_info])
+            self.pl_info = post_processing.merge_pl_infos([self.pl_info, last_best_info])
         self.metadata['latest_merge_info'] = yt_utils.eval_with_dif_epoch(
             self.pl_info,
-            pp_utils.get_latest_epoch(self.pl_info),
+            yt_utils.get_latest_epoch(self.pl_info),
             self.pl_outtmpls['merge_infojson'])
         self.metadata['latest_merge_info'] = self._rel_to_Playlist(self.metadata['latest_merge_info'])
 
         json_merge_info: PL_InfoDict = yt_wrapper.sanitize_info(self.pl_info, bool(self.opts.get('clean_infojson'))) # type: ignore
         self.config.filter_merge(json_merge_info)
         self.config.filter_common(json_merge_info)
-        utils.json_dump(json_merge_info,
-            dst=self._join_to_Playlist(self.metadata['latest_merge_info']),
+        
+        write_path = utils.json_dump(json_merge_info,
+            _dst=self._join_to_Playlist(self.metadata['latest_merge_info']),
             on_collision='rm old' if self.config.merge_keep_one else 'mov old',
             auto_rename=True)
+        if write_path:
+            self.metadata['latest_merge_info'] = self._rel_to_Playlist(str(write_path.absolute()))
+            display.write_path(self.metadata['latest_merge_info'])
         
         if (self.config.merge_keep_one
                 and self.old_metadata
                 and self.old_metadata['latest_merge_info']
-                and self.metadata['latest_merge_info'] != self.old_metadata['latest_merge_info']
+                and self.old_metadata['latest_merge_info'] != self.metadata['latest_merge_info']
                 and os.path.exists(self._join_to_Playlist(self.old_metadata['latest_merge_info']))):
             os.unlink(self._join_to_Playlist(self.old_metadata['latest_merge_info']))

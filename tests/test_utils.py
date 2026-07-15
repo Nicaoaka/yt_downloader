@@ -1,5 +1,5 @@
 import unittest
-from utils import *
+from pldl.utils.utils import *
 
 class Tests(unittest.TestCase):
 

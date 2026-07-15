@@ -1,7 +1,30 @@
 from yt_dlp import YoutubeDL
 from yt_dlp.extractor.youtube import YoutubePlaylistIE
+import re
+import datetime
 
-from yt_types import *
+from .utils import utils
+from .yt_types import *
+from .config import DEFAULT_EPOCH, TIMELINE_EPOCH_FMT
+
+
+
+BAD_EPOCH_FMT = '{} (bad epoch)'
+BAD_EPOCH_RE = '^'+re.escape(BAD_EPOCH_FMT).replace('\\{\\}', '(.+?)')+'$'
+
+def to_timeline_epoch(epoch: int) -> str:
+    if epoch <= 0:
+        return BAD_EPOCH_FMT.replace('{}', str(epoch))
+    # from time since epoch (seconds) to YYYYmmddHHMMSS
+    return datetime.datetime.fromtimestamp(epoch).strftime(TIMELINE_EPOCH_FMT)
+
+def from_timeline_epoch(readable: str) -> int:
+    match = re.match(BAD_EPOCH_RE, readable)
+    if match:
+        return int(match.groups()[0])
+    return int(datetime.datetime.strptime(readable, TIMELINE_EPOCH_FMT).timestamp())
+
+
 
 # YouTube and InternetWebArchive id/url
 
@@ -24,12 +47,12 @@ def is_id_like(id: str, is_video=False) -> bool:
     return all(c in VALID_CHARS for c in id)
 
 def get_yt_video_url(video_id: str) -> str:
-    return f'https://www.youtube.com/watch?v={video_id}'
+    return f"https://www.youtube.com/watch?v={video_id}"
 
 def get_yt_playlist_url(playlist_id: str, video_id: str = '') -> str:
     if not video_id:
-        return f'https://www.youtube.com/playlist?list={playlist_id}'
-    return f'https://www.youtube.com/watch?v={video_id}&list={playlist_id}'
+        return f"https://www.youtube.com/playlist?list={playlist_id}"
+    return f"https://www.youtube.com/watch?v={video_id}&list={playlist_id}"
 
 def get_archiveorg_url(v_id: str, date: int|str|None = None, for_yt_dlp: bool = False) -> str:
     if not date:
@@ -37,8 +60,8 @@ def get_archiveorg_url(v_id: str, date: int|str|None = None, for_yt_dlp: bool = 
             return 'ytarchive:' + v_id
         return f"https://web.archive.org/https://www.youtube.com/watch?v={v_id}"
     if for_yt_dlp:
-        return f'ytarchive:{v_id}:{date}'
-    return f'https://web.archive.org/web/{date}/https://www.youtube.com/watch?v={v_id}'
+        return f"ytarchive:{v_id}:{date}"
+    return f"https://web.archive.org/web/{date}/https://www.youtube.com/watch?v={v_id}"
 
 def get_archiveorg_video_url(video_id: str) -> str:
     return f"https://web.archive.org/web/2oe_/http://wayback-fakeurl.archive.org/yt/{video_id}"
@@ -96,6 +119,8 @@ def get_pl_info_level(pl_info: PL_InfoDict|None) -> _PL_InfoLevel:
         return _PL_InfoLevel.NORMAL
     return _PL_InfoLevel.FLAT
 
+
+
 # Processing archives
 
 def ids_from_ytdlp_archive(l: YT_DLP_DownloadArchive) -> list[V_ID]:
@@ -130,4 +155,41 @@ def ids_from_history(history: PL_DownloadHistory) -> ID_DownloadInfo:
         for k, ids in ids_from_pl_download_info(history[str(epoch)]).items():
             merged[k].extend(ids)
     return merged
+
+
+def get_pl_v_info(pl_info: PL_InfoDict, v_idx: int):
+    return {
+        'playlist_id':                  pl_info['id'],
+        'playlist':                     pl_info['title'] or pl_info['id'],
+        'playlist_count':               pl_info['playlist_count'],
+        'n_entries':                    pl_info['playlist_count'],
+        'playlist_index':               v_idx,
+        'playlist_autonumber':          v_idx,
+        'playlist_title':               pl_info['title'],
+        'playlist_channel':             pl_info['channel'],
+        'playlist_channel_id':          pl_info.get('channel_id'),
+        'playlist_uploader':            pl_info['uploader'],
+        'playlist_uploader_id':         pl_info['uploader_id'],
+        'playlist_webpage_url':         pl_info.get('webpage_url') or pl_info.get('original_url') or pl_info.get('url'),
+
+        # custom
+        'playlist_epoch': pl_info.get('epoch', DEFAULT_EPOCH())
+    }
+
+
+def get_latest_epoch(pl_info: PL_InfoDict) -> int:
+    """ Max 'epoch' in pl_info and its entries.
+
+    A negative epoch means the epoch wasn't found or all were malformed. """
+    latest = max(
+        pl_info.get('epoch', DEFAULT_EPOCH()),
+        *(entry.get('epoch', DEFAULT_EPOCH()) for entry in pl_info['entries']))
+    if latest <= DEFAULT_EPOCH():
+        utils.WARNING(f"All epochs are malformed or missing: {latest}")
+    return latest
+
+
+def add_pl_info_to_entries(pl_info: PL_InfoDict):
+    for i, entry in enumerate(pl_info['entries']):
+        entry.update(get_pl_v_info(pl_info, i)) # type: ignore
 

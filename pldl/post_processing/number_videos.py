@@ -1,54 +1,12 @@
 from pathlib import Path
 import re
 
-import utils
-from yt_types import *
-
-
-
-# Data helpers
-NO_EPOCH = 0 # or less
-
-def get_pl_v_info(pl_info: PL_InfoDict, v_idx: int):
-    return {
-        'playlist_id':                  pl_info['id'],
-        'playlist':                     pl_info['title'] or pl_info['id'],
-        'playlist_count':               pl_info['playlist_count'],
-        'n_entries':                    pl_info['playlist_count'],
-        'playlist_index':               v_idx,
-        'playlist_autonumber':          v_idx,
-        'playlist_title':               pl_info['title'],
-        'playlist_channel':             pl_info['channel'],
-        'playlist_channel_id':          pl_info.get('channel_id'),
-        'playlist_uploader':            pl_info['uploader'],
-        'playlist_uploader_id':         pl_info['uploader_id'],
-        'playlist_webpage_url':         pl_info.get('webpage_url') or pl_info.get('original_url') or pl_info.get('url'),
-
-        # custom
-        'playlist_epoch': pl_info.get('epoch', NO_EPOCH)
-    }
-
-def get_latest_epoch(pl_info: PL_InfoDict) -> int:
-    """ Max 'epoch' in pl_info and its entries.
-    
-    A negative epoch means the epoch wasn't found or all were malformed. """
-    latest = max(
-        pl_info.get('epoch', NO_EPOCH),
-        *(entry.get('epoch', NO_EPOCH) for entry in pl_info['entries']))
-    if latest <= NO_EPOCH:
-        utils.WARNING(f"All epochs are malformed or missing: {latest}")
-    return latest
-
-def add_pl_info_to_entries(pl_info: PL_InfoDict):
-    for i, entry in enumerate(pl_info['entries']):
-        entry.update(get_pl_v_info(pl_info, i)) # type: ignore
-
-
+from ..yt_types import *
 
 # Playlist file helper
 # TODO: Test these 2 functions
 
-def denumber_videos(video_dir: str, video_tmpl: str, digits: int = 0):
+def denumber_videos(video_dir: Path, video_tmpl: str, digits: int = 0):
     """Removes the index number from video files
 
     Args:
@@ -97,7 +55,7 @@ def number_videos(v_dir: Path, pl_info: PL_InfoDict, video_fn_tmpl: str, digits:
     raise NotImplementedError(f"{number_videos.__name__} is not ready")
 
     if denumber_before:
-        denumber_videos(v_dir, digits, number_tmpl)
+        denumber_videos(v_dir, number_tmpl, digits)
     if not v_dir.exists():
         return
     
@@ -121,14 +79,3 @@ def number_videos(v_dir: Path, pl_info: PL_InfoDict, video_fn_tmpl: str, digits:
             case False, False:
                 print(f"[Video {str(i).rjust(digits)} NOT FOUND] {denumbered_path.name}")
 
-def filter_v_info(v_info: V_InfoDict, keys: set) -> None:
-    for k in keys:
-        if k in v_info:
-            v_info.pop(k)
-
-def filter_pl_info(pl_info: PL_InfoDict, pl_keys: set, v_keys: set) -> None:
-    for k in pl_keys:
-        if k in pl_info:
-            pl_info.pop(k)
-    for v_info in pl_info['entries']:
-        filter_v_info(v_info, v_keys)

@@ -1,6 +1,6 @@
 import json
 from yt_dlp import YoutubeDL
-import yt_wrapper
+import pldl.yt_wrapper as yt_wrapper
 
 path = r''
 with open(path, 'r', encoding='utf-8') as f:

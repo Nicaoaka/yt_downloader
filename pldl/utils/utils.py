@@ -1,3 +1,24 @@
+__all__ = [
+    'hex',
+    'exc', 'WARNING',
+    'truncate', 'numbered_list', 'clear',
+    'input_string',
+
+    'dict_without_keys', 'dict_with_keys',
+    'isinstance_typeddict', 'dif_sets', 'dedup', 'dict_merge',
+
+    'json_load', 'json_load_typeddict', 'json_dump',
+    'handle_collision',
+    'sanitize_str', 'safely_resolve_path',
+    'assert_file',
+
+    'epoch_now',
+]
+
+"""
+Only depends on python std lib
+"""
+
 from pathlib import Path
 import os
 import time
@@ -6,13 +27,12 @@ from typing import Iterable, Any, Callable, Literal, Hashable
 import json
 import copy
 import re
+import traceback
 
-class __NO_DEFAULT:
-    """ DO NOT USE outside of `utils.py` """
-    ...
 
 
 # Print format helpers
+
 def _hex_to_rgb(hex_str: str|None) -> tuple[int,int,int]|None:
     if hex_str is None:
         return None
@@ -36,6 +56,8 @@ def _rgb(text, fg: tuple[int, int, int]|None = None, bg: tuple[int, int, int]|No
          + str(text) \
          + reset_cmd
 
+def exc(e: BaseException) -> str:
+    return hex(''.join(traceback.format_exception(e)).rstrip(), fg='#db6a6a')
 
 def WARNING(msg: str) -> None:
     print(hex(" WARNING ", bg="#ffff47"), msg)
@@ -57,12 +79,6 @@ def truncate(s: str, max_len: int, end='...', *, end_in_max: bool = True, trunc_
     if not trunc_start:
         return _truncate(s)
     return _truncate(s[::-1])[::-1]
-
-
-def format_epoch(epoch: float | None):
-    if epoch is None:
-        return "[Epoch Unknown]"
-    return datetime.datetime.strftime(datetime.datetime.fromtimestamp(epoch), '%Y/%m/%d %H:%M:%S')
 
 
 def numbered_list(an_iterable: Iterable[Any], start_number: int = 1, indent: int = 0, sort_elems: bool = False) -> str:
@@ -93,6 +109,7 @@ def clear(one_less_new_line: bool = False):
 
 # Input helpers
 
+class __NO_DEFAULT: ...     
 def input_string(
         options: list[str],
         query_message: str = "",
@@ -119,7 +136,7 @@ def input_string(
         raise ValueError("Limited attempts requires a default.")
     
     if use_default_for and default is __NO_DEFAULT:
-        raise ValueError('Entered use_default_for requires a default')
+        raise ValueError("Entered use_default_for requires a default")
 
     option_map = dict()
     if not case_sensitive:
@@ -141,9 +158,9 @@ def input_string(
             hints.append(hex(f"[ {attempts_left=} ]", HINT_COLOR if attempts_left > 1 else WARN_COLOR))
         if default is not __NO_DEFAULT:
             hints.append(
-                hex('[ default= \'', HINT_COLOR)
+                hex("[ default= '", HINT_COLOR)
                 + hex(default, INPUT_COLOR)
-                + hex('\' ]', HINT_COLOR)
+                + hex("' ]", HINT_COLOR)
             )
         hint_header = ' '.join(hints) + '\n' if hints and show_hints else ''
 
@@ -166,7 +183,7 @@ def input_string(
             hex("Unrecognized: '", WARN_COLOR)
             + hex(inp, INPUT_COLOR)
             + hex("'", WARN_COLOR),
-            end='\n\n')
+            end="\n\n")
         attempts_left -= 1
 
     print(f"Using default: '{hex(default, HINT_COLOR)}'")
@@ -195,32 +212,14 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-class UNSET: ...
-def dict_set_if(d: dict, k, repl, match=[UNSET, None]) -> bool:
-    """ if `d.get(k, NO_DEFAULT)`in `match`: set `d[k] = repl`
-    
-    Does not create a deep copy of `repl`
-
-    Returns:
-        False if no replace, or if repl is the same as the default. True if there was a change.
-    """
-    v = d.get(k, UNSET)
-    if v not in match:
-        return False
-    if repl == v:
-        return False
-    d[k] = repl
-    return True
-
-
 class RAISE_EXC: ...
-def first_non_None[T,U](items: Iterable[T], default: U = RAISE_EXC) -> T|U:
-    for x in items:
-        if x is not None:
-            return x
-    if default is RAISE_EXC:
-        raise RuntimeError("All items were None, and no default was provided")
-    return default
+# def first_non_None[T,U](items: Iterable[T], default: U = RAISE_EXC) -> T|U:
+#     for x in items:
+#         if x is not None:
+#             return x
+#     if default is RAISE_EXC:
+#         raise RuntimeError("All items were None, and no default was provided")
+#     return default
 
 
 def isinstance_typeddict(data, typeddict, raise_exc: bool = False) -> bool:
@@ -231,12 +230,13 @@ def isinstance_typeddict(data, typeddict, raise_exc: bool = False) -> bool:
         return False
     
     for k in typeddict.__required_keys__:
-        if k not in data:
-            if raise_exc:
-                missing = set(typeddict.__required_keys__) - set(data.keys())
-                raise TypeError(
-                    f"Malformed\n"
-                    f"Missing keys: {', '.join(sorted(missing))}\n")
+        if k in data.keys():
+            continue
+
+        if raise_exc:
+            missing = set(typeddict.__required_keys__) - set(data.keys())
+            raise TypeError(f"Expected {typeddict}\nMissing keys: {', '.join(sorted(missing))}\n")
+        else:
             return False
     return True
 
@@ -296,28 +296,30 @@ def json_load(src: str | Path, default: Any = RAISE_EXC) -> Any:
 
 def json_load_typeddict(src: str | Path, typeddict, default: Any = RAISE_EXC) -> Any:
     """
-    Like ``json_load()``, but check typeddict keys wil ``isinstance_typeddict()``
+    ``json_load()``, but check if all typeddict.__required_keys__ keys exist with ``isinstance_typeddict()``
     """
     obj = json_load(src, default)
     try:
         if isinstance_typeddict(obj, typeddict, raise_exc=(default is RAISE_EXC)):
             return obj
     except TypeError as e:
-        raise TypeError(f'{e}\nPath: {src}\nExpected: {typeddict}') from None
+        raise TypeError(f"{e}\nPath: {src}") from None
+    return default
 
 def json_dump(
         obj,
-        dst: str|Path,
+        _dst: str|Path,
         on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
         auto_rename: bool = True,
-):
-    def _json_dump(dst: Path):
-        dst.parent.mkdir(parents=True, exist_ok=True) # type: ignore
-        with open(dst, 'w', encoding='utf-8') as f:
-            # 日本語 and 絵文字 are expected!
-            json.dump(obj, f, ensure_ascii=False, default=str)
-        print(hex(f"[write_json] \"{dst.absolute()}\"", '#c800c8'))
-    handle_collision(Path(dst), _json_dump, on_collision, auto_rename)
+) -> Path|None:
+    """ Writes json based on selected `on_collision` policy. Returns dst Path used, or None if not written """
+    dst = handle_collision(Path(_dst), on_collision, auto_rename)
+    if dst is None:
+        return # policy chose not to write
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with open(dst, 'w', encoding='utf-8') as f:
+        json.dump(obj, f, ensure_ascii=False, default=str)
+    return dst
 
 
 # Writing
@@ -356,7 +358,7 @@ def _get_unused_name(dst: Path, auto_rename: bool = True, msg: str = "") -> Path
                 print(f"{repr(dst_name)} is already in use. Try again.")
             dst_name = input()
         else:
-            dst_name = f'{stem} ({i}){ext}'
+            dst_name = f"{stem} ({i}){ext}"
         
         i += 1
     return dst_dir / dst_name
@@ -423,12 +425,11 @@ def _setup_handle_collision(dst: Path, old: Path|Delete|None):
     if isinstance(old, Path):
         os.rename(dst, old)
 
-def handle_collision[T](
+def handle_collision(
         dst: Path,
-        func: Callable[[Path], T],
         on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
         auto_rename: bool = True,
-) -> type[__NO_DEFAULT] | T:
+) -> Path | None:
     """
     Performs collision resolution given the policy.
     Call and return ``func(path)`` if it should be written,
@@ -437,9 +438,8 @@ def handle_collision[T](
     new, old = _handle_collision(dst, on_collision, auto_rename)
     _setup_handle_collision(dst, old)
     if isinstance(new, Path):
-        return func(new)
-    return __NO_DEFAULT
-
+        return new
+    return None
 
 # Sanitization
 def sanitize_str(s, data: dict, sanitizer: Callable[[str], str]|None = None) -> str:
@@ -495,7 +495,6 @@ def safely_resolve_path(path: Path|str, part_data: list[dict]|dict = {}, part_sa
         sanitized_parts[0] = path.drive + '\\' # isn't added for some reason
     return Path(*sanitized_parts).resolve()
 
-
 # Assertion
 def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = False):
     if p is None:
@@ -512,23 +511,8 @@ def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = False
 
 
 
-# Misc
+# Epoch
 
 def epoch_now():
     return int(time.time())
 
-READABLE_EPOCH_FMT = '%Y_%m_%d__%H_%M_%S'
-BAD_EPOCH_FMT = '{} (bad epoch)' # epoch number is placed at every {}
-BAD_EPOCH_RE = '^'+re.escape(BAD_EPOCH_FMT).replace('\\{\\}', '(.+?)')+'$'
-
-def to_readable_epoch(epoch: int) -> str:
-    if epoch <= 0:
-        return BAD_EPOCH_FMT.replace('{}', str(epoch))
-    # from time since epoch (seconds) to YYYYmmddHHMMSS
-    return datetime.datetime.fromtimestamp(epoch).strftime(READABLE_EPOCH_FMT)
-
-def from_readable_epoch(readable: str) -> int:
-    match = re.match(BAD_EPOCH_RE, readable)
-    if match:
-        return int(match.groups()[0])
-    return int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())

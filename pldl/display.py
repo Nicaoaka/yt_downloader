@@ -1,8 +1,7 @@
-import traceback
+from pathlib import Path
 
-from yt_types import *
-from yt_types import PL_DownloadInfo
-import utils
+from . import utils
+from .yt_types import *
 
 
 
@@ -24,13 +23,6 @@ def pl_v_ids(pl_info: PL_InfoDict) -> None:
     print(f"{len(video_ids)} IDs:")
     for i, id in enumerate(video_ids, 1):
         print(f"{str(i).rjust(_max_index_len)}. {id}")
-
-# ── Display tags ─────────────────────────────────────────────────────────
-# Each tag keeps its raw color alongside its rendered text, since we need to
-# reuse the *color* elsewhere (e.g. tinting the id/title to match).
-# NOTE: utils.hex() always emits a trailing reset. Never nest a hex()'d string
-# inside another hex()'d string — the inner reset clobbers the outer color
-# for everything after it. Every colored segment must be built flat/standalone.
 
 class _Tag:
     __slots__ = ("text", "color", "rendered")
@@ -66,10 +58,6 @@ RESULT_TAG: dict[DL_Result, _Tag] = {
 # Derived/outcome tags (not 1:1 with a DL_Result - depend on action+result combo)
 IMPOSSIBLE = _Tag("IMP!", "#0000ac")
 
-def exc(e: BaseException) -> str:
-    return utils.hex(''.join(traceback.format_exception(e)).rstrip(), fg='#db6a6a')
-
-
 def download_result(dl: DownloadInfo) -> _Tag:
     """Reconcile action + result into the single outcome tag to display."""
     action, result = dl['action'], dl['result']
@@ -104,10 +92,10 @@ def _format_download_info(dl: DownloadInfo, errors: bool) -> str:
     fmt_id = f"[{utils.truncate(dl['id'], 11)}]"
     fmt_title = dl['title'] or ""
 
-    line = f"{action_tag} -> {result_tag} {utils.hex(f'{fmt_id} {fmt_title}', fg=result_tag.color)}"
+    line = f"{action_tag} -> {result_tag} {utils.hex(f"{fmt_id} {fmt_title}", fg=result_tag.color)}"
 
     if errors and 'errors' in dl:
-        line += ''.join(f'\n{exc(e)}' for e in dl['errors'])
+        line += ''.join(f"\n{utils.exc(e)}" for e in dl['errors'])
 
     return line
 
@@ -132,14 +120,26 @@ def _make_pl_dl_info() -> PL_DownloadInfo:
         for i, a in enumerate(DL_Action):
             for j, r in enumerate(DL_Result):
                 infos.append({
-                    'id': f'{i}x{j}',
-                    'title': f'{a}-{r}',
+                    'id': f"{i}x{j}",
+                    'title': f"{a}-{r}",
                     'action': a,
                     'result': r,
                 })
                 if with_errors:
                     infos[-1]['errors'] = errors
     return infos
+
+
+def write_path(path: str|Path|None, msg: tuple[str,str]|str|None = None):
+    msg = msg or utils.hex("Wrote to: \"%(out)s\"", '#c800c8')
+    if path:
+        s = msg[0] if isinstance(msg, tuple) else msg
+        print(s.format(out=path if isinstance(path, str) else path.absolute()))
+    else:
+        if isinstance(msg, tuple):
+            print(msg[1])
+        elif isinstance(msg, str):
+            pass # write nothing
 
 def main():
     pl_dl_info = _make_pl_dl_info()
