@@ -285,7 +285,7 @@ class PlaylistDL:
         if not self.new_pl_info and not self.new_v_info:
             return
         if last_best_info := self._get_prev_best_info():
-            self.pl_info = post_processing.merge_pl_infos([self.pl_info, last_best_info])
+            self.pl_info = post_processing.merge_pl_infos([self.pl_info, last_best_info], self.config.v_timeline_update_filter)
         self.metadata['latest_merge_info'] = yt_utils.eval_with_dif_epoch(
             self.pl_info,
             yt_utils.get_latest_epoch(self.pl_info),

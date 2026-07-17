@@ -4,7 +4,7 @@ __all__ = [
 
 import enum
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable
 
 from .. import utils
 from .. import yt_utils
@@ -124,9 +124,12 @@ def _get_v_timeline(
 
 def merge_v_infos(
         v_infos: list[V_InfoDict],
+        update_filter: Callable[[str], bool] = lambda _: True,
         _init: V_InfoDict|None = None,
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
     """ Will ignore __PL_V_InfoDict information.
+
+        Use `update_filter` to choose what keys should be added to `updates`. Defaults to including all.
 
         Prefer the newest, add any new info.
         - Replace `None` and absent values with previous info
@@ -151,7 +154,8 @@ def merge_v_infos(
         for k in v_info.keys() | merge_info.keys():
             if _apply_field(merge_info, k, v_info.get(k, NO_DEFAULT), is_latest):
                 epoch = yt_utils.to_timeline_epoch(v_info.get('epoch', DEFAULT_EPOCH()))
-                updates[epoch].setdefault('updates', set()).add(k)
+                if update_filter(k):
+                    updates[epoch].setdefault('updates', set()).add(k)
     
     new_unavail_msgs = _get_unavailable_msgs(v_infos)
     merge_info['unavailable_msgs'] = _dedup_and_sort_unavail_msgs(merge_info.get('unavailable_msgs', []) + new_unavail_msgs)
@@ -160,7 +164,7 @@ def merge_v_infos(
     return merge_info, timeline
 
 
-def merge_pl_infos(pl_infos: list[PL_InfoDict]) -> PL_InfoDict:
+def merge_pl_infos(pl_infos: list[PL_InfoDict], v_timeline_update_filter: Callable[[str], bool] = lambda _: True) -> PL_InfoDict:
     """
     Returns a pl_info dict with the newest and most info based on the past in pl_infos.
     
@@ -176,6 +180,7 @@ def merge_pl_infos(pl_infos: list[PL_InfoDict]) -> PL_InfoDict:
 
     Args:
         pl_infos (list[PL_InfoDict]): The source pl_infos. List order does not matter becaduse sorting is done at the start. Should all be the same playlist.
+        v_timeline_update_filter (Callable[[str], bool]): Returns True to add key to timeline, False to omit. Used by ``merge_v_infos()``. Defaults showing all.
 
     Returns:
         PL_InfoDict: The merged playlist info
@@ -203,23 +208,26 @@ def merge_pl_infos(pl_infos: list[PL_InfoDict]) -> PL_InfoDict:
             past_merge_pl_idx = i
 
     id_map = {v_id: i for i, v_id in enumerate(V_ID_ORDER)}
-    path_lists = [list() for _ in range(merge_info['playlist_count'])]
+    v_id_to_paths = [list() for _ in range(merge_info['playlist_count'])]
     for i, _pl in enumerate(pl_infos):
         for j, _v in enumerate(_pl['entries']):
-            path_lists[id_map[_v['id']]].append( (i, j) )
+            v_id_to_paths[id_map[_v['id']]].append( (i, j) )
 
     entries: list[PL_V_InfoDict] = [dict() for _ in range(len(V_ID_ORDER))] # type: ignore - init
     pl_timeline: PL_MergeTimeline = {} if past_merge_pl_idx is None else pl_infos[past_merge_pl_idx].get('merge_timeline', {})
-    for i, pl_v_list in enumerate(path_lists):
-        
+    for i, v_paths in enumerate(v_id_to_paths):
+
         past_merge_pl_v = None
-        for pl_v in pl_v_list:
-            if pl_v[0] == past_merge_pl_idx:
-                past_merge_pl_v = pl_v
+        for pl_v_idx in v_paths:
+            if pl_v_idx[0] == past_merge_pl_idx:
+                past_merge_pl_v = pl_v_idx
                 break
+        
         entry, v_timeline = merge_v_infos(
-            [pl_infos[pl]['entries'][v] for pl, v in pl_v_list if (past_merge_pl_v is None or pl != past_merge_pl_v[0])],
-            _init=pl_infos[past_merge_pl_v[0]]['entries'][past_merge_pl_v[1]] if past_merge_pl_v is not None else None)
+            v_infos       = [pl_infos[pl]['entries'][v] for pl, v in v_paths if (past_merge_pl_v is None or pl != past_merge_pl_v[0])],
+            update_filter = v_timeline_update_filter,
+            _init         = pl_infos[past_merge_pl_v[0]]['entries'][past_merge_pl_v[1]] if past_merge_pl_v is not None else None)
+        
         entries[i] = entry # type: ignore - __pl_v_info is correctly overwritten/set before returning
         if v_timeline:
             pl_timeline.setdefault(entry['id'], {})

@@ -168,6 +168,12 @@ def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
            dl_info['result'] not in (DL_Result.CANCELLED)
 
 
+def default_v_timeline_update_filter(key: str) -> bool:
+    """ Return `True` if key should be added to 'updates' if it was updated in the merge
+    Return `False` to omit it """
+    return True
+
+
 def validate_metdata(metadata: Metadata, config: PlaylistDL_Config):
     for k in yt_types._MetadataFiles.__required_keys__:
         if metadata[k]:
@@ -226,6 +232,7 @@ class PlaylistDL_Config:
     # merge options
     merge_keep_one: bool = True # removes old merges - one json
     merge_fallback_order: list[yt_types._MetadataFiles_Lit] = dataclasses.field(default_factory=default_merge_fallbacks)
+    v_timeline_update_filter: Callable[[str], bool] = default_v_timeline_update_filter
 
     # --- control hooks (override per-instance as needed) ---
     wrapper_match_filter: Callable[[

@@ -2,7 +2,6 @@ from pldl import *
 
 """
 TODO:
-- Figure out how to display `updates` in timeline
 - Ability to mixin downloads from other sources, eg vimeo (see ``yt_wrapper.download_video_alt()``)
 """
 
