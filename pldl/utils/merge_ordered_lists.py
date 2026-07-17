@@ -1,288 +1,422 @@
+"""
+merge_ordered_lists
+===================
+
+PROBLEM
+-------
+You have several lists that each impose a *partial* ordering on some items
+(an item can appear in more than one list). The lists disagree with each
+other about relative order, and disagree about which items even exist in
+common. You want ONE merged ordering that:
+
+And you want one merged ordering that:
+    1.  Respects every "A comes before B" constraint that doesn't
+        contradict a HIGHER priority list.
+    2.  Prefers the orderings of earlier (higher priority) lists over
+        later (lower priority) ones whenever they conflict.
+    3.  For anything not pinned down by a constraint, breaks ties using
+        priority (prefer inserting higher-priority items as early as
+        their constraints allow).
+
+APPROACH (three phases)
+-----------------------
+    1.  Build a DAG. Each list becomes a chain of edges (item[i] -> item[i+1]),
+        but only add an edge if it doesn't create a cycle with edges already
+        added from higher-priority lists. This is where "higher priority
+        wins on conflict" is enforced.
+
+    2.  Group nodes into "islands" (weakly-connected components) and give
+        each island a priority equal to the priority of its most important
+        member. This is what lets independent chunks of the graph be
+        ordered relative to each other by importance, not by some arbitrary
+        property of the algorithm.
+
+    3.  Topologically sort the DAG, using island-priority as the primary
+        tie-break and node-priority as the secondary tie-break, in a way
+        that pulls low-priority "filler" nodes as close as possible to
+        their high-priority anchors (see "ASAP vs ALAP" below -- this is
+        the subtle part).
+"""
+
 __all__ = ['merge_ordered_lists']
 
-from dataclasses import dataclass
 import heapq
 from collections import defaultdict
-from typing import Iterable, Hashable
-from enum import Enum
-
-"""
-Alogirthm made mostly with Claude
-Lower = Higher priority (minheap)
-
-Overview:
-    Process input into graph and priorities
-        `node_meta` - Nodes (each item) with list priority
-        `edges` - Directed edges (from -> to)
-        (store `in_degree` and `node_meta`)
-    Turn graph into a DAG
-        Use repeated DFS removing the lowest priority in the cycle
-    
-"""
-
-@dataclass
-class NodeMeta:
-    own_priority: int          # never mutated after creation; used as tiebreaker
-    effective_priority: int    # starts equal to own_priority, then propagated from successors
-
-@dataclass
-class Edge[T]:
-    _from: T
-    to: T
-    priority: int
-
-def merge_ordered_lists[T: Hashable](lists: Iterable[Iterable[T]]) -> list[T]:
-
-    # --- Build graph ---
-
-    graph: dict[T, set[T]] = defaultdict(set)
-    in_degree: dict[T, int] = defaultdict(int)
-    edges: list[Edge[T]] = []                   # all edges with metadata, for conflict resolution
-    node_meta: dict[T, NodeMeta] = {}
-
-    for priority, _lst in enumerate(lists):
-        LIST = list(_lst)
-        for i, curr in enumerate(LIST):
-
-            if curr not in node_meta:
-                node_meta[curr] = NodeMeta(own_priority=priority, effective_priority=priority)
-            if curr not in graph:
-                graph[curr] = set()
-
-            if i > 0:
-                parent = LIST[i - 1]
-                if curr not in graph[parent]:
-                    graph[parent].add(curr)
-                    in_degree[curr] += 1
-                    edges.append(Edge(parent, curr, priority))
-
-        # print_graph(graph)
-
-    resolve_cycles(graph, in_degree, edges)
-    # print_graph(graph)
-
-    propagate_priorities(graph, node_meta)
-
-    # --- Topological sort (Kahn's algorithm with priority tiebreaker) ---
-
-    # Tiebreak on (effective_priority, own_priority): effective_priority reflects
-    # the best priority reachable through this node's chain; own_priority breaks
-    # ties between roots whose chains happen to bottom out at the same value.
-    available: list[tuple[int, int, T]] = []
-
-    for node in node_meta:
-        if in_degree[node] == 0:
-            meta = node_meta[node]
-            heapq.heappush(available, (meta.effective_priority, meta.own_priority, node))
-
-    result: list[T] = []
-
-    while available:
-        # print(available)
-        (_, _, node) = heapq.heappop(available)
-        result.append(node)
-        for child in graph[node]:
-            in_degree[child] -= 1
-            if in_degree[child] == 0:
-                meta = node_meta[child]
-                heapq.heappush(available, (meta.effective_priority, meta.own_priority, child))
-
-    return result
+from typing import Hashable, Iterable
 
 
-def propagate_priorities[T](graph: dict[T, set[T]], node_meta: dict[T, NodeMeta]):
+class DynamicTopoSort[T: Hashable]:
     """
-    Propagate priority backwards through the DAG: a node's effective_priority
-    becomes the best (lowest) priority of itself or anything reachable from it.
-    Requires graph to already be acyclic (run after resolve_cycles).
-    Processes nodes in reverse topological order so children are finalized
-    before their parents are updated.
-    """
-    order = topological_order(graph)
+    Maintains a topological order of a DAG *incrementally* as edges are
+    added one at a time, rejecting any edge that would create a cycle.
 
-    for node in reversed(order):
-        for child in graph[node]:
-            if node_meta[child].effective_priority < node_meta[node].effective_priority:
-                node_meta[node].effective_priority = node_meta[child].effective_priority
+    Why not just build the whole graph and run one topological sort at the end?
+    Because for each added edge you need to know whether adding it keeps the
+    graph acyclic. Maintaining topological information between runs is much
+    cheaper than re-sorting the entire graph from scratch.
 
+    Internal bookkeeping
+    ---------------------
+    Every node is kept in one canonical topological order at all times.
 
-def topological_order[T](graph: dict[T, set[T]]) -> list[T]:
-    """Plain topological sort (no priority tiebreaking) used internally by propagation."""
-    in_degree: dict[T, int] = defaultdict(int)
-    for node in graph:
-        in_degree[node]  # ensure entry exists
-        for child in graph[node]:
-            in_degree[child] += 1
+        _ord_to_node[pos]  -> the node currently sitting at position `pos`
+        _node_to_ord[node] -> the position `node` currently sits at
 
-    queue = [n for n in graph if in_degree[n] == 0]
-    order: list[T] = []
-
-    while queue:
-        node = queue.pop()
-        order.append(node)
-        for child in graph[node]:
-            in_degree[child] -= 1
-            if in_degree[child] == 0:
-                queue.append(child)
-
-    return order
-
-
-def resolve_cycles[T](
-        graph: dict[T, set[T]],
-        in_degree: dict[T, int],
-        edges: list[Edge[T]]
-):
-    """
-    Turn the graph into a DAG. Repeatedly runs a full DFS pass looking for
-    cycles; whenever one is found, removes the single lowest-priority edge
-    in that cycle, then restarts the DFS pass from scratch.
- 
-    A single DFS pass can only safely report the FIRST cycle it encounters:
-    once a node goes black, later traversals trust that everything reachable
-    from it is acyclic, but cutting an edge elsewhere can leave a different
-    cycle through that same node undetected (it was already marked black
-    before that cycle's defining back edge was reached). Restarting after
-    each cut avoids this — every remaining cycle is guaranteed to be found
-    by some future full pass, since black is only trustworthy when computed
-    against the CURRENT graph, not a graph that's since been mutated.
+    Invariant: for every edge parent -> child,
+        _node_to_ord[parent] < _node_to_ord[child]
+    i.e. parents always sit to the left of children:
     """
 
-    edge_lookup: dict[tuple[T, T], Edge[T]] = {(e._from, e.to): e for e in edges}
-    
-    while True:
-        weakest = find_weakest_cycle_edge(graph, edge_lookup)
-        if weakest is None:
-            return # one full pass found no cycles: graph is a DAG
- 
-        # print(f'Removed {weakest}')
-        graph[weakest._from].discard(weakest.to)
-        in_degree[weakest.to] -= 1
-        edges.remove(weakest)
-        del edge_lookup[(weakest._from, weakest.to)]
- 
+    def __init__(self, vertices: Iterable[T] = []) -> None:
+        self._ord_to_node: list[T] = []
+        self._node_to_ord: dict[T, int] = {}
+        self._out_edges: dict[T, list[T]] = defaultdict(list)  # parent -> [children ...]
+        self._in_edges:  dict[T, list[T]] = defaultdict(list)  #  child <- [parents ...]
 
-class _S(Enum):
-    UNVISITED = 0
-    ON_PATH = 1
-    DONE = 2
+        for v in vertices:
+            self.add_vertex(v)
 
-def find_weakest_cycle_edge[T](
-        graph: dict[T, set[T]],
-        edge_lookup: dict[tuple[T, T], Edge[T]],
-) -> Edge[T] | None:
-    """
-    Run one full iterative DFS over the graph (does not mutate it).
-    Returns the lowest-priority edge belonging to the FIRST cycle found,
-    or None if the graph is currently a DAG.
-    """
-    status: dict[T, _S] = defaultdict(lambda: _S.UNVISITED)
- 
-    for start in graph.keys():
-        if status[start] != _S.UNVISITED:
-            continue
- 
-        # Each frame is [node, iterator over remaining neighbors]. The
-        # sequence of first elements across `stack` IS the current root-to-
-        # leaf path (gray nodes, in order), so no separate `path` list is needed.
-        stack: list[list] = [[start, iter(graph[start])]]
-        status[start] = _S.ON_PATH
- 
+    def add_vertex(self, v: T):
+        if v not in self._node_to_ord:
+            pos = len(self._ord_to_node)  # append to the end of current ordering
+            self._ord_to_node.append(v)
+            self._node_to_ord[v] = pos
+            self._out_edges[v]  # ensure entry exists
+            self._in_edges[v]   # ensure entry exists
+
+    def add_edge(self, parent: T, child: T) -> bool:
+        """
+        Adds edge `parent` -> `child` if it doesn't create a cycle.
+        Returns `True` if the edge was added and `False` if it was not.
+
+        3 cases:
+          1. parent == child               -> self-loop, refuse.
+          2. child already after parent    -> invariant already holds,
+             just record the edge, no reordering needed.
+          3. child currently before parent -> might be a cycle. Search
+             the region between them; if no cycle, splice the two
+             affected regions (parent + ancestors, child + descendants)
+             back-to-back so the invariant holds again.
+        """
+
+        if parent == child:
+            return False
+
+        if child in self._out_edges[parent]:
+            raise Warning("Edge already exists")
+
+        # Case 2: already in the right relative order.
+        #     ... parent ......... child ...
+        #     add edge parent --> child, nothing to reorder.
+        if self._node_to_ord[parent] < self._node_to_ord[child]:
+            self._out_edges[parent].append(child)
+            self._in_edges[child].append(parent)
+            return True
+
+        # Case 3: wrong relative order -- must check for a cycle.
+        #     ... child ......... parent ...
+        #  Only the region between them (inclusive) can possibly be
+        #  involved in a cycle through this new edge, so we only search
+        #  that bounded window.
+        ancestors:   list[T] = []
+        descendants: list[T] = []
+        cycle = self._discover(parent, child, ancestors, descendants)
+        if cycle:
+            return False
+
+        # Safe to add. Now fix the invariant: every node in
+        # `descendants` (reachable from child, within the window) must
+        # come before every node in `ancestors` (can reach parent,
+        # within the window) once the new edge parent -> child exists.
+        # We keep each group's own relative order, just interleave the
+        # two groups back-to-back into the positions they collectively
+        # occupied:
+        #
+        #     before:  [ ... descendants scattered among ancestors ... ]
+        #     after:   [ ... all ancestors ..., all descendants ... ]
+        current_pos     = sorted(self._node_to_ord[v] for v in descendants + ancestors)
+        nodes_reordered = (sorted(ancestors, key=lambda n: self._node_to_ord[n]) +
+                           sorted(descendants, key=lambda n: self._node_to_ord[n]))
+        for pos, v in zip(current_pos, nodes_reordered):
+            self._node_to_ord[v] = pos
+            self._ord_to_node[pos] = v
+
+        self._out_edges[parent].append(child)
+        self._in_edges[child].append(parent)
+        return True
+
+    def _discover(self, parent: T, child: T, ancestors: list[T], descendants: list[T]) -> bool:
+        """
+        Given the *proposed* edge parent -> child (where child currently
+        sits before parent), find:
+          - `descendants`: child and everything reachable forward from
+            it, but only as far as parent's current position (anything
+            further right can't be relevant to a cycle back to parent).
+          - `ancestors`: parent and everything that can reach it
+            backward, but only as far as child's current position.
+
+        Bounded search window:
+            ...  child ................. parent  ...
+                [c_ord .................  p_ord]
+
+        If, while walking forward from child, we ever reach `parent`,
+        adding parent -> child would close a cycle
+        (parent -> ... -> parent), so we report that immediately.
+
+        `ancestors` and `descendants` end up disjoint. A node can't be
+        a descendant of child and an ancestor of parent without
+        forming a cycle.
+        """
+
+        p_ord = self._node_to_ord[parent]
+        c_ord = self._node_to_ord[child]
+
+        # forward search: child -> ? -> ? (bounded to positions <= p_ord)
+        visited: set[T] = set()
+        stack = [child]
         while stack:
-            node, neighbor_iter = stack[-1]
-            neighbor = next(neighbor_iter, None)
- 
-            if neighbor is None:
-                status[node] = _S.DONE
-                stack.pop()
+            curr = stack.pop()
+            visited.add(curr)
+            descendants.append(curr)
+            for desc in self._out_edges[curr]:
+                if desc == parent:
+                    return True  # cycle: parent -> ... -> parent
+                if self._node_to_ord[desc] <= p_ord and desc not in visited:
+                    stack.append(desc)
+                    visited.add(desc)
+
+        # backward search: ? <- ? <- parent (bounded to c_ord <= positions)
+        visited = set()
+        stack = [parent]
+        while stack:
+            curr = stack.pop()
+            visited.add(curr)
+            ancestors.append(curr)
+            for anc in self._in_edges[curr]:
+                if c_ord <= self._node_to_ord[anc] and anc not in visited:
+                    stack.append(anc)
+                    visited.add(anc)
+
+        return False
+
+
+type Node = int
+type NodePriority = int
+type IslandPriority = int
+
+def _create_nodes[T](_lists: Iterable[Iterable[T]]) -> tuple[list[list[Node]], dict[T, Node], list[T]]:
+    """
+    Maps items in `_lists` iterables to ints (Nodes) ranging from `0` to `n-1`
+    where `n` is the number of unique items in all iterables in `_lists`.
+
+    Returns the translated `_lists` and mappings to and from Nodes to the original items.
+
+    All nodes in `lists` can be generated with `range(len(node_to_item))`
+    """
+
+    item_to_node: dict[T, Node] = {}
+    node_to_item: list[T] = []
+
+    lists: list[list[Node]] = []
+    for _lst in _lists:
+        lst: list[Node] = []
+        for item in _lst:
+            if item not in item_to_node:
+                item_to_node[item] = len(node_to_item)
+                node_to_item.append(item)
+            lst.append(item_to_node[item])
+        lists.append(lst)
+    return lists, item_to_node, node_to_item
+
+
+def _create_dag(lists: list[list[Node]], nodes: list[Node]):
+    """
+    Turn each list into a chain of edges (consecutive items), adding
+    them highest-priority-list first. `DynamicTopoSort.add_edge` is what
+    enforces favoring higher-priority orderings.
+
+    To keep a list connected to itself, if one of its edges are rejected,
+    the current parent is kept and an edge to the next child is attempted
+    until a valid edge is found.
+
+    Also computes, per node:
+      - `priority[node]`: how important the *most* important list that
+        mentions this node is. Priorities are encoded as negative list
+        index (-1 = appeared in the highest priority list, more
+        negative = only in lower priority lists), so that "bigger
+        (closer to 0) is more important" and a plain max-heap / sort
+        works without extra sign-flipping later.
+    """
+
+    UNSET = 0
+    dts = DynamicTopoSort[Node](vertices=nodes)
+    priority:  list[NodePriority] = [UNSET for _ in range(len(nodes))]
+
+    for lst_priority, lst in enumerate(lists, start=1):  # start is arbitrary
+        parent: Node | None = None
+        for child in lst:
+            if priority[child] == UNSET:
+                priority[child] = -lst_priority
+
+            if parent is None:  # first item in this list
+                parent = child
                 continue
- 
-            if status[neighbor] == _S.UNVISITED:
-                status[neighbor] = _S.ON_PATH
-                stack.append([neighbor, iter(graph[neighbor])])
- 
-            elif status[neighbor] == _S.ON_PATH:
-                # Back edge: `neighbor` is an ancestor on the current path.
-                # Find its position in `stack` to recover the full cycle.
-                cycle_start = next(i for i, frame in enumerate(stack) if frame[0] == neighbor)
-                cycle_nodes = [frame[0] for frame in stack[cycle_start:]] + [neighbor]
-                weakest: Edge[T] | None = None
-                for a, b in reversed(list(zip(cycle_nodes, cycle_nodes[1:]))):
-                    edge = edge_lookup[(a, b)]
-                    if weakest is None or edge.priority > weakest.priority:
-                        weakest = edge
- 
-                return weakest
 
-            elif status[neighbor] == _S.DONE:
-                # already fully explored, nothing to do.
-                pass
- 
-    return None  # full pass completed, no cycles found
+            if child in dts._out_edges[parent]:  # edge already exists
+                parent = child
+                continue
+
+            if not dts.add_edge(parent, child):  # would create a cycle -> skip
+                continue
+
+            parent = child
+
+    return dts, priority
 
 
-def print_graph[T](graph: dict[T, set[T]]):
-    for k, v in graph.items():
-        print(f'{k:>4}: {v}')
-    print()
+def _get_islands_priorities(dts: DynamicTopoSort[Node], priority: list[NodePriority]) -> list[IslandPriority]:
+    """
+    Splits the DAG into weakly-connected components ("islands" -- ignore
+    edge direction, just look at what's connected to what) and gives
+    every node in an island the priority of that island's *most*
+    important member.
 
+    Islands matter because two nodes with no path between them (in either
+    direction) have no constraint telling us their relative order at
+    all. Left purely to per-node priority, a low-priority node sitting
+    in an otherwise-unconstrained corner of the graph could end up
+    interleaved oddly with a high-priority chain it has nothing to do
+    with. Tagging every node with its island's priority means an entire
+    unrelated cluster of nodes is treated as a single unit of importance
+    when the final sort is deciding what to schedule, rather
+    than every node globally competing at the same time.
 
-def tests():
-    test_cases = [
-        # ('W AB BC CD ZY YX XW'.split(), 'ZYXWABCD'),
-        # ('A Z AB'.split(), 'AZB'),
-        # ('AFG BC BCEF CDEF'.split(), 'ABCDEFG'),
-        # ('A B C'.split(), 'ABC'),
-        # ('AC BC CA'.split(), 'ABC'),
-        # ('CA BC AB'.split(), 'BCA'),
-        # ('BC CA AB CDA'.split(), 'BCDA'),
-        # ('BC CA CDA AB'.split(), 'BCDA'),
-        # ('1234567890 0987654321'.split(), '1234567890'),
-        # ('AB 12B34A56'.split(), 'A12B3456'),
-        # ('AB BCA'.split(), 'ABC'),
-        
-        # set iteration leads to different results based on inputs
-        # ('AB B_-A'.split(), 'AB_-'),
-        # ('AB B_A-'.split(), 'AB-_'),
-
-        # ('AB BCDA'.split(), 'ABCD'),
-        # ('AB BCAD'.split(), 'ABCD'),
-
-        ([
-            '1256890ABDE',
-            '3456890ABDE',
-            '7890ABCDEFG',
-        ], '1234567890ABCDEFG'),
-    ]
-
-    for lists, expected in test_cases:
-        result = merge_ordered_lists(lists)
-        joined = ''.join(result)
-        if joined != expected:
-            print(f'Result: {joined}  Expected: {expected}  Match: {joined == expected}')
-
-def main():
-    tests()
-    # import random
-    # import json
-
-    # m, M = 1, 25
-    # SIZES = [17,14,12,10]
-    # WRITE = True
-
-    # nums = list(range(m, M+1))
-    # lists = [random.sample(nums, s) for s in SIZES]
-    # for l in lists: random.shuffle(l)
-
-    # if WRITE:
-    #     with open(f'test/mereger-{len(SIZES)}.in.json', 'w') as f:
-    #         json.dump(lists, f)
+    Example:
+        ab
+        xyz
+        bc
     
-    # out = merge_ordered_lists(lists)
+        island A (priority -1):   a -- b -- c
+        island B (priority -2):   x -- y -- z
+            (even though `c` has priority -3, its island priority
+             of -1 (from `a` or `b`) causes `c` to appear before `xyz`)
+    """
+    UNSET = 0 # valid priorities are negative
+    islands: list[IslandPriority] = [UNSET for _ in range(len(dts._ord_to_node))]
 
-    # if WRITE:
-    #     with open(f'test/mereger-{len(SIZES)}.out.json', 'w') as f:
-    #         json.dump(out, f)
+    for node in dts._ord_to_node: # starting order of traversal isn't important
+        if islands[node] != UNSET: # already assigned to an island
+            continue
 
-if __name__ == "__main__":
-    main()
+        p_island: IslandPriority = min(priority)
+        curr_island: set[Node] = {node}
+        stack: list[Node] = [node]
+        while stack:
+            curr = stack.pop()
+            p_island = max(priority[curr], p_island)
+            for next_ in dts._in_edges[curr] + dts._out_edges[curr]: # ignore direction
+                if next_ not in curr_island:
+                    curr_island.add(next_)
+                    stack.append(next_)
+
+        for member in curr_island:
+            islands[member] = p_island
+
+    return islands
+
+def _reversed_kahns(dts: DynamicTopoSort[Node], priority: list[NodePriority], islands: list[IslandPriority]) -> list[Node]:
+    r"""
+    Kahn's algorithm but you focus on nodes with no children,
+    (and in this case) while always choosing the lowest priority node.
+    Internally, nodes accumulate in reverse (since we walk backward from
+    sinks), it is corrected (reversed again to undo that) before returning.
+
+    Why reversed Kahn's?
+
+    Regular Kahn's gives unintuitive results when a low priority node
+    blocks a high priority node while there are other medium priority nodes available.
+    
+    Example:
+
+        list[0] (highest): `a` b  c d e
+        list[1]:           `1` d  2
+        list[2] (lowest):  `3` b  4
+
+        3   4            3   4           [3]  4                4    
+         \ /              \ /              \ /                /     
+      [a]=b=c=d=e   ->    (b)=c=d=e  ->    (b)=c=d=e   ->     b=c=d=e
+             ∕ ∖               ∕ ∖                ∖                ∖ 
+            1   2            [1]  2                2                2
+
+        Result:  a`1`3bc   de24
+        Expect:  a   3bc`1`de24
+
+    `a`, `1`, and `3` all have an `in_degree` of 0, so regular Kahn's
+    considers them "ready". After `a`, `b` has a dependency so it
+    isn't ready. So, then its `1` or `3`. Since `1` has higher priority
+    it is chosen and causing it to be emitted early. This is why
+    it looks like `1` is dragged up to the front of the output.
+
+    To fix this, we can go bottom-up. Instead of picking nodes as soon
+    as they are available, we can always pick the one which is last.
+    This favors cleaning up descendants as soon as possible.
+    This means medium priority nodes like `1` are handled before
+    continuing with higher priority nodes.
+
+        3   [4]                 3                3             3                3           [3]
+         \ /                     \                \             \                \
+        a=b=c=d=e   -> ... ->   a=b=c=[d]   ->   a=b=c   ->    a=b=[c]   ->    a=[b]   ->    a   ->   [a]
+             ∕ ∖                      ∕
+            1   2                    1              [1]
+        
+        (42ed1cb3a) -> a3bc1de24 which is expected
+
+    Note:
+    There are may be edge cases where even this setup doesn't
+    give intuitive results. In most cases, this algorithm will suffice.
+    """
+    out_degree = [len(dts._out_edges[node]) for node in range(len(dts._ord_to_node))]
+
+    res_rev: list[Node] = []
+    minheap: list[tuple[IslandPriority, NodePriority, Node]] = []
+    for node, deg in enumerate(out_degree):
+        if deg == 0:
+            heapq.heappush(minheap, (islands[node], priority[node], node))
+
+    remaining_out_degree = out_degree[:]
+    while minheap:
+        _, _, curr = heapq.heappop(minheap)
+        res_rev.append(curr)
+        for parent in dts._in_edges[curr]:
+            remaining_out_degree[parent] -= 1
+            if remaining_out_degree[parent] == 0:
+                heapq.heappush(minheap, (islands[parent], priority[parent], parent))
+
+    return list(reversed(res_rev))
+
+def merge_ordered_lists[T: Hashable](_lists: Iterable[Iterable[T]]) -> list[T]:
+    """
+    Priority is highest to lowest from first to last element in `lists`.
+    (eg. lists[0] is highest priority, lists[-1] is lowest priority).
+
+    Higher priority lists have their orderings favored over ALL
+    conflicting orderings in lower priority lists.
+
+    Phases:
+    1.  Preprocess items into ints
+    2.  Build DAG (`_create_dag`)
+    3.  Tag islands with priority (`_get_islands_priorities`)
+    4.  Topologically sort the DAG to get ordering
+    5.  Map ints back to original items
+    """
+
+    lists, item_to_node, node_to_item = _create_nodes(_lists)
+    if len(node_to_item) == 0:
+        return []
+    if len(node_to_item) == 1:
+        return [node_to_item[0]]
+    dts, priority = _create_dag(lists, list(range(len(node_to_item))))
+    islands = _get_islands_priorities(dts, priority)
+    ordering = _reversed_kahns(dts, priority, islands)
+
+    return [node_to_item[node] for node in ordering]

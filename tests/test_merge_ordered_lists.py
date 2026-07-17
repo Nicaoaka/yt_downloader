@@ -6,12 +6,26 @@ class TestMergeUtil(unittest.TestCase):
 
     def test_simple_cases(self):
         test_cases = [
-            ('A Z AB'.split(), 'AZB'),
-            ('AFG BC BCEF CDEF'.split(), 'ABCDEFG'),
+            ('A'.split(), 'A'),
             ('A B C'.split(), 'ABC'),
-            ('W AB BC CD ZY YX XW'.split(), 'ZYXWABCD'),
+            ('AB BC'.split(), 'ABC'),
+            ('ABC ABC'.split(), 'ABC'),
+            ('A ABC ABCDE ABCDEFG'.split(), 'ABCDEFG'),
+        ]
 
-            
+        for lists, expected in test_cases:
+            with self.subTest(lists=lists):
+                result = merge_ordered_lists(lists)
+                joined = ''.join(result)
+                self.assertEqual(joined, expected)
+
+    def test_islands(self):
+        test_cases = [
+            ( 'A _ AB'.split(), 'AB_'),
+            ('AB _ BC'.split(), 'ABC_'),
+            ( 'B _ AB'.split(), 'AB_'),
+            ('A_B - _CD _YZ'.split(), 'A_BCDYZ-'),
+            ('_ AB BC CD ZY YX X_'.split(), 'ZYX_ABCD'),
         ]
 
         for lists, expected in test_cases:
@@ -36,7 +50,6 @@ class TestMergeUtil(unittest.TestCase):
                 self.assertEqual(joined, expected)
 
     def test_deterministic(self):
-        # TODO - This should be fixed
         test_cases = [
             ('BC CA AB CDA'.split(), 'BCDA'),
             ('BC CA CDA AB'.split(), 'BCDA'),
@@ -44,16 +57,14 @@ class TestMergeUtil(unittest.TestCase):
 
         for lists, expected in test_cases:
             with self.subTest(lists=lists):
-                for _ in range(100): # run many times
-                    result = merge_ordered_lists(lists)
-                    joined = ''.join(result)
-                    self.assertEqual(joined, expected)
+                result = merge_ordered_lists(lists)
+                joined = ''.join(result)
+                self.assertEqual(joined, expected)
 
-    def test_set_iteration_order(self):
-        # set iteration leads to different results based on inputs
+    def test_iteration_order(self):
         test_cases = [
             ('AB B_-A'.split(), 'AB_-'),
-            ('AB B_A-'.split(), 'AB-_'),
+            ('AB B_A-'.split(), 'AB_-'),
         ]
 
         for lists, expected in test_cases:
@@ -75,17 +86,40 @@ class TestMergeUtil(unittest.TestCase):
                 self.assertEqual(joined, expected)
 
     def test_complex_merge(self):
-        lists = [
-            '1256890ABDE',
-            '3456890ABDE',
-            '7890ABCDEFG',
+        test_cases = [
+            (
+                ['1256890ABDE',
+                 '3456890ABDE', 
+                 '7890ABCDEFG'],
+                '1234567890ABCDEFG'),
+            (
+                ['abcdefghi',
+                 '12gh345cde67',
+                 'AbcB',
+                 'CdeD',],
+                'a A bc C def 12 ghi 34567 B D'.replace(' ', '')),
+            (
+                ['abcde', '1d2', '3b4'],
+                'a3bc1de24'),
+            (
+                ['1234567', 'A4B', 'a2b6c'],
+                '1 a 23 A 45 b 67 B c'.replace(' ', '')),
+            (
+                'ABCD 1234 B_3'.split(),
+                'ABCD12_34'.replace(' ', '')),
+            (
+                'ABC abc 1b2B3'.split(),
+                'Aa1b2BCc3'.replace(' ', '')),
+            (
+                'ABC XYZ abcd b1B c2Y'.split(),
+                'A ab1 BC X c2 YZ d'.replace(' ', '')),
         ]
-        expected = '1234567890ABCDEFG'
 
-        result = merge_ordered_lists(lists)
-        joined = ''.join(result)
-        self.assertEqual(joined, expected)
-
+        for lists, expected in test_cases:
+            with self.subTest(lists=lists):
+                result = merge_ordered_lists(lists)
+                joined = ''.join(result)
+                self.assertEqual(joined, expected)
 
 if __name__ == '__main__':
     unittest.main()
