@@ -13,54 +13,78 @@ from ..config import DEFAULT_EPOCH
 
 
 
-class MergeStrategies(enum.Enum):
-    LATEST       = enum.auto()
-    MAX          = enum.auto()
-    LATEST_OR_FILL_NONE = enum.auto()
-
-FIELD_STRATEGIES: dict[str, MergeStrategies] = {
-    'yt_unavailable_msg': MergeStrategies.LATEST,
-    'wa_unavailable_msg': MergeStrategies.LATEST,
-    'view_count':         MergeStrategies.MAX,
-}
-assert all(k in V_InfoDict.__required_keys__ | V_InfoDict.__optional_keys__ for k in FIELD_STRATEGIES.keys())
-
-class NO_DEFAULT:
+class NO_VALUE:
     def __bool__(self):
         return False
 
-def _apply_field(info: V_InfoDict, k: str, v: Any|type[NO_DEFAULT], is_latest: bool) -> bool:
-    """ in-place on `info`, returns if a change occurred """
-    # skip if they are the same. Nothing to update
-    if info.get(k, NO_DEFAULT) == v:
-        return False
+class Updater:
+    """
+    Make changes to `info` in-place.
+    Returns True if it was an `update`-worthy change.
     
-    match FIELD_STRATEGIES.get(k, MergeStrategies.LATEST_OR_FILL_NONE):
-        case MergeStrategies.LATEST:
-            if is_latest:
-                if v == NO_DEFAULT:
-                    info.pop(k)
-                else:
-                    info[k] = v
-                return True
-            
-        case MergeStrategies.MAX:
-            try:
-                if v is None or v == NO_DEFAULT:
-                    return False
-                if (v or 0) > (info.get(k) or 0): # type: ignore - v may not support __gt__ 
-                    info[k] = v
-                    return True
-            except Exception as e:
-                print(utils.exc(e) + "\n\nCheck for malformed `MergeStrategies.MAX` in `FIELD_STRATEGIES`")
+    (config.v_timeline_update_filter `should not` be called here)
+    """
+
+    @staticmethod
+    def latest(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+        if is_latest and v != NO_VALUE:
+            info[k] = v
+            return True
+        return False
+
+    @staticmethod
+    def latest_not_None(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+        if v is None:
+            return False
+        return Updater.latest(info, k, v, is_latest)
+
+    @staticmethod
+    def latest_only(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+        if not is_latest:
+            return False
+        if v == NO_VALUE:
+            info.pop(k)
+        else:
+            info[k] = v
+        return True
+    
+    @staticmethod
+    def _unsafe_maximizer(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+        if v is None or v == NO_VALUE:
+            return False
+        if (v or 0) > (info.get(k) or 0): # type: ignore - values may not define __gt__
+            info[k] = v
+            return True
+        return False
+
+    @staticmethod
+    def maximizer(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+        try:
+            return Updater._unsafe_maximizer(info, k, v, is_latest)
+        except Exception: # not sure what errors may appear
+            return Updater.fill_empty(info, k, v, is_latest)
+
+    @staticmethod
+    def fill_empty(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+        if v is None or v == NO_VALUE:
+            return False
+        if is_latest or (k not in info or info[k] is None):
+            info[k] = v
+            return True
+        return False
+
+    @staticmethod
+    def latest_not_none_and_latest_unavail(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+        if info.get(k, NO_VALUE) == v:
+            return False
         
-        case MergeStrategies.LATEST_OR_FILL_NONE:
-            if v is None or v == NO_DEFAULT:
-                return False
-            if is_latest or k not in info or info[k] is None:
-                info[k] = v
-                return True
-    return False
+        match k:
+            case 'yt_unavailable_msg' | 'wa_unavailable_msg':
+                return Updater.latest_only(info, k, v, is_latest)
+            case _:
+                return Updater.latest_not_None(info, k, v, is_latest)
+
+
 
 def _get_unavailable_msgs(v_infos: list[V_InfoDict]) -> list[UnavailableMsg]:
     res: list[UnavailableMsg] = []
@@ -125,34 +149,46 @@ def _get_v_timeline(
 def merge_v_infos(
         v_infos: list[V_InfoDict],
         update_filter: Callable[[str], bool] = lambda _: True,
+        field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool] = Updater.latest_not_none_and_latest_unavail,
         _init: V_InfoDict|None = None,
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
-    """ Will ignore __PL_V_InfoDict information.
+    """
+    Does not copy v_info objects. Some input object references will be the same in the output!
+    Args:
+        v_infos: list of a single video id's info dicts. (Raise ValueError if not)
+        update_filter: Choose what keys should be added to `updates` in the video's
+            merge timeline. Defaults to no filtering.
+        field_updater (Callable[[Merged_V_InfoDict, key, value, is_latest], did_update]):
+            Specify the policy for how fields should be
+            updated (see `Updater` for examples). Defaults to updating keys
+            to latest non-None values, with unavailable messages always
+            reflecting the latest info.
+        _init (V_InfoDict): Initial v_info. Can be in `v_infos`. Defaults to None.
+    """
 
-        Use `update_filter` to choose what keys should be added to `updates`. Defaults to including all.
+    ids = {info['id'] for info in v_infos}
+    if _init is not None:
+        ids.add(_init['id'])
+    if len(ids) != 1 or ids == {None}: # don't allow None
+        raise ValueError(f"Multiple ids found: {ids}")
+    
+    skip = [i for i, x in enumerate(v_infos) if x is _init]
 
-        Prefer the newest, add any new info.
-        - Replace `None` and absent values with previous info
-            - May lead to impossible yt_dlp info_dict state - this limitation is ok
-        - Add `unavailable_msgs` for past 
-        - `yt_unavailable_msg` and `wa_unavailable_msg`
-
-        `_init` should not be in `v_infos` to prevent duplicate unavailable messages
-
-        Does not copy v_info objects. Some input object references will be the same in the output! """
     if not v_infos and _init is None:
         raise ValueError("Provide at least 1 v_info")
     if not v_infos:
         return _init, {} # type: ignore - ok
-    
+
     v_infos = sorted(v_infos, key=lambda info: info.get('epoch', DEFAULT_EPOCH()), reverse=True)
     _init_level = yt_utils.get_v_info_level(_init)
     merge_info: V_InfoDict = _init or {} # type: ignore - init
     updates = defaultdict(dict)
-    for v_info in v_infos:
+    for i, v_info in enumerate(v_infos):
+        if i in skip:
+            continue
         is_latest = v_info is v_infos[0] and (v_info.get('epoch', DEFAULT_EPOCH()) >= merge_info.get('epoch', DEFAULT_EPOCH()))
         for k in v_info.keys() | merge_info.keys():
-            if _apply_field(merge_info, k, v_info.get(k, NO_DEFAULT), is_latest):
+            if field_updater(merge_info, k, v_info.get(k, NO_VALUE), is_latest):
                 epoch = yt_utils.to_timeline_epoch(v_info.get('epoch', DEFAULT_EPOCH()))
                 if update_filter(k):
                     updates[epoch].setdefault('updates', set()).add(k)

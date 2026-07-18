@@ -363,6 +363,8 @@ def _reversed_kahns(dts: DynamicTopoSort[Node], priority: list[NodePriority], is
     This means medium priority nodes like `1` are handled before
     continuing with higher priority nodes.
 
+    Example (cont.):
+
         3   [4]                 3                3             3                3           [3]
          \ /                     \                \             \                \
         a=b=c=d=e   -> ... ->   a=b=c=[d]   ->   a=b=c   ->    a=b=[c]   ->    a=[b]   ->    a   ->   [a]
