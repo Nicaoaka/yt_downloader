@@ -161,13 +161,15 @@ class _CustomOuttmpl(TypedDict):
     link:       NotRequired[str]
 
     # Custom names
-    flat_infojson: str
     pl_infojson: str
     merge_infojson: str
+    raw_flat_infojson: str
+    raw_video_infojson: str
+    _merged_flat_infojson: str
     
     # Meta
     metadata: str
-    ytdlp_archive: str
+    yt_dlp_archive: str
 
 class CustomOuttmpl(_CustomOuttmpl):
     Playlist: str|Callable[[PL_InfoDict], str]
@@ -220,33 +222,24 @@ class ID_DownloadInfo(TypedDict):
     error: list[str]
 
 
-_MetadataFiles_Lit = Literal['latest_flat_info', 'latest_pl_info', 'latest_merge_info']
-class _MetadataFiles(TypedDict):
-    latest_flat_info:  str|None
-    latest_pl_info:    str|None
-    latest_merge_info: str|None
-assert set(get_args(_MetadataFiles_Lit)) == set(_MetadataFiles.__required_keys__), "Must have same key names"
+_MetadataFiles_Lit = Literal['latest_flat_info', 'latest_pl_info', 'latest_merge_info', '_merge_flat']
+class _MetadataPointers(TypedDict):
+    """
+    ### will be lists instead of tuples!
+    Tuples are used for better type checking, and values should be handled *immutably* anyway.
+    """
+    latest_flat_info:  tuple[str, int]|None
+    latest_pl_info:    tuple[str, int]|None
+    latest_merge_info: tuple[str, int]|None
+    _merge_flat: tuple[str, int]|None
+assert set(get_args(_MetadataFiles_Lit)) == set(_MetadataPointers.__required_keys__), "Must have same key names"
 
-class Metadata(_MetadataFiles):
+class Metadata(TypedDict):
     id: str
     path_tmpls: PL_Resolved_CustomOuttmpl
     history: PL_DownloadHistory
-    pl_epoch: int # for latest pl extraction
-    v_epoch:  int # for latest video extraction
 
-def empty_Metadata() -> Metadata:
-    """ `id`, `path_tmpls`, `pl_epoch`, and `v_epoch` must be set """
-    return {
-        'id': '',
-        'history':    {},
-        'path_tmpls': {},
-        'pl_epoch':   -1,
-        'v_epoch':    -1,
-        
-        'latest_flat_info':  None,
-        'latest_pl_info':    None,
-        'latest_merge_info': None,
-    } # type: ignore
+    pointers: _MetadataPointers
 
 
 
@@ -260,13 +253,6 @@ class _V_InfoLevel(IntEnum):
 class _PL_InfoLevel(IntEnum):
     NONE = 0
     FLAT = 1
-    NORMAL = 2
-    MERGED = 3
-
-
-
-def main():
-    pass
-
-if __name__ == "__main__":
-    main()
+    MERGE_FLAT = 2
+    NORMAL = 3
+    MERGE = 4

@@ -130,16 +130,17 @@ def _make_pl_dl_info() -> PL_DownloadInfo:
     return infos
 
 
-def write_path(path: str|Path|None, msg: tuple[str,str]|str|None = None):
-    msg = msg or utils.hex("Wrote to: \"%(out)s\"", '#c800c8')
-    if path:
-        s = msg[0] if isinstance(msg, tuple) else msg
-        print(s.format(out=path if isinstance(path, str) else path.absolute()))
+def write_path(path: str|Path|None, name: str):
+    if not name:
+        name = '\b'
+    
+    if not path:
+        msg = f"No write {name}"
+    elif isinstance(path, str):
+        msg = f"[ Wrote {name}: \"{path}\" ]"
     else:
-        if isinstance(msg, tuple):
-            print(msg[1])
-        elif isinstance(msg, str):
-            pass # write nothing
+        msg = f"[ Wrote {name}: \"{path.absolute()}\" ]"
+    return utils.hex(msg, '#c800c8')
 
 def main():
     pl_dl_info = _make_pl_dl_info()

@@ -9,10 +9,11 @@ See `config.py` and `playlist_downloader.py`
 
 from . import utils
 
-from . import yt_utils
 from .yt_types import *
-from . import display
-from .playlist_downloader import PlaylistDL
+from . import yt_types
+from . import yt_utils
+from .playlist_dl import PlaylistDL
 from .config import PlaylistDL_Config
 
+from . import display
 from . import post_processing

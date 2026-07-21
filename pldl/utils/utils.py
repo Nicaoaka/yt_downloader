@@ -1,18 +1,19 @@
 __all__ = [
     'hex',
-    'exc', 'WARNING',
+    'exc', 'WARNING', 'ERROR',
     'truncate', 'numbered_list', 'clear',
     'input_string',
 
     'dict_without_keys', 'dict_with_keys',
-    'isinstance_typeddict', 'dif_sets', 'dedup', 'dict_merge',
+    'get_missing_typeddict_keys', 'dedup', 'dict_merge',
 
-    'json_load', 'json_load_typeddict', 'json_dump',
+    'json_load', 'json_dump',
     'handle_collision',
     'sanitize_str', 'safely_resolve_path',
     'assert_file',
 
     'epoch_now',
+    'get_domain',
 ]
 
 """
@@ -61,6 +62,8 @@ def exc(e: BaseException) -> str:
 
 def WARNING(msg: str) -> None:
     print(hex(" WARNING ", bg="#ffff47"), msg)
+def ERROR(msg: str) -> None:
+    print(hex("  ERROR  ", bg="#ff4747"), msg)
 
 
 def truncate(s: str, max_len: int, end='...', *, end_in_max: bool = True, trunc_start: bool = False):
@@ -109,7 +112,7 @@ def clear(one_less_new_line: bool = False):
 
 # Input helpers
 
-class __NO_DEFAULT: ...     
+class __NO_DEFAULT: ...
 def input_string(
         options: list[str],
         query_message: str = "",
@@ -212,37 +215,16 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
+class PRINT_WARNING: ...
 class RAISE_EXC: ...
-# def first_non_None[T,U](items: Iterable[T], default: U = RAISE_EXC) -> T|U:
-#     for x in items:
-#         if x is not None:
-#             return x
-#     if default is RAISE_EXC:
-#         raise RuntimeError("All items were None, and no default was provided")
-#     return default
 
 
-def isinstance_typeddict(data, typeddict, raise_exc: bool = False) -> bool:
+def get_missing_typeddict_keys(data: dict, typeddict) -> list[str]:
     """ data may contain extra keys """
     if not isinstance(data, dict):
-        if raise_exc:
-            raise TypeError(f"Expected dict, got {type(data)}")
-        return False
-    
-    for k in typeddict.__required_keys__:
-        if k in data.keys():
-            continue
+        raise ValueError("data wasn't of type dict")
+    return sorted(set(typeddict.__required_keys__) - set(data.keys()))
 
-        if raise_exc:
-            missing = set(typeddict.__required_keys__) - set(data.keys())
-            raise TypeError(f"Expected {typeddict}\nMissing keys: {', '.join(sorted(missing))}\n")
-        else:
-            return False
-    return True
-
-
-def dif_sets(a: set, b: set) -> tuple[set, set]:
-    return a - b, b - a
 
 
 def dedup[T](items: Iterable[T], hash: Callable[[T], Hashable]=hash) -> list[T]:
@@ -274,37 +256,41 @@ def dict_merge(dict1: dict, dict2: dict) -> dict:
 
 # Json
 def json_load(src: str | Path, default: Any = RAISE_EXC) -> Any:
-    """
-    What the function does:
-    ```
-    if exist and no json error
-        return loaded json
-    if doesn't exist or json error:
-        RAISE_EXC or default
-    ```
-    """
+    """ Try to load src. On failure return default or raise Exception """
     if not os.path.exists(src) and default is not RAISE_EXC:
         return default
     try:
         with open(src, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except json.JSONDecodeError as e:
+    except Exception as e:
         if default is RAISE_EXC:
             raise e from None
-        WARNING(e.msg)
+        WARNING(f"Error in json_load(). Returning default\n{exc(e)}")
         return default
 
-def json_load_typeddict(src: str | Path, typeddict, default: Any = RAISE_EXC) -> Any:
-    """
-    ``json_load()``, but check if all typeddict.__required_keys__ keys exist with ``isinstance_typeddict()``
-    """
-    obj = json_load(src, default)
-    try:
-        if isinstance_typeddict(obj, typeddict, raise_exc=(default is RAISE_EXC)):
-            return obj
-    except TypeError as e:
-        raise TypeError(f"{e}\nPath: {src}") from None
-    return default
+# def json_load_typeddict(src: str | Path, typeddict, default: Any|type[RAISE_EXC] = RAISE_EXC) -> Any:
+#     """
+#     Load json and check if required keys are present. Extra keys are ok.
+#     Or follow default: return default or raise Exception.
+#     """
+#     obj = json_load(src, default)
+#     try:
+#         missing_keys = get_missing_typeddict_keys(obj, typeddict)
+#         if not missing_keys:
+#             return obj
+#     except Exception as e:
+#         msg = f"Error in get_missing_typeddict_keys(). Returning default.\nPath: {src}\nExpected {typeddict}\n{e}"
+#         if default is RAISE_EXC:
+#             raise TypeError(msg) from None
+#         WARNING(msg)
+#         return default
+
+#     if missing_keys:
+#         msg = f"Path: {src}\nExpected {typeddict}\nMissing keys: {missing_keys}"
+#         if default is RAISE_EXC:
+#             raise TypeError(msg)
+#         WARNING(msg)
+#     return default
 
 def json_dump(
         obj,
@@ -364,9 +350,10 @@ def _get_unused_name(dst: Path, auto_rename: bool = True, msg: str = "") -> Path
     return dst_dir / dst_name
 
 class Delete: ...
+CollisionPolicies = Literal['rm new', 'rm old', 'mov new', 'mov old']
 def _handle_collision(
         dst: Path,
-        on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
+        on_collision: CollisionPolicies = 'mov new',
         auto_rename: bool = True
 ) -> tuple[Path|Delete, Path|Delete|None]:
     """ Returns changes based on arguments.
@@ -496,11 +483,11 @@ def safely_resolve_path(path: Path|str, part_data: list[dict]|dict = {}, part_sa
     return Path(*sanitized_parts).resolve()
 
 # Assertion
-def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = False):
+def assert_file(p: str|None, name: str, min_size: int = 0, None_is_ok: bool = False):
     if p is None:
-        if not or_None:
-            raise ValueError(f"{name} can not be None. Expected str path.\nPath: {p}")
-        return
+        if None_is_ok:
+            return
+        raise FileNotFoundError(f"{name} can not be None. Expected str path.\nPath: {p}")
     if not os.path.exists(p):
         raise FileNotFoundError(f"{name} does not exist.\nPath: {p}")
     if min_size <= 0:
@@ -516,3 +503,16 @@ def assert_file(p: str|None, name: str, min_size: int = 0, or_None: bool = False
 def epoch_now():
     return int(time.time())
 
+
+
+# urls
+
+def get_domain(url: str) -> str|None:
+    """ If the url is malformed, the result may be weird """
+    
+    # Source - https://stackoverflow.com/a/25703406
+    # Posted by anubhava, modified by community. See post 'Timeline' for change history
+    # Retrieved 2026-07-20, License - CC BY-SA 4.0
+    pattern = r'^(?:(?:https?:)?\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:\/\n?]+)'
+    match = re.match(pattern, url)
+    return match.groups()[0] if match else None

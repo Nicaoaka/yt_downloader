@@ -1,10 +1,5 @@
 from pldl import *
 
-"""
-TODO:
-- Ability to mixin downloads from other sources, eg vimeo (see ``yt_wrapper.download_video_alt()``)
-"""
-
 def wrapper_match_filter(
     pl_v_info: PL_V_InfoDict,
     curr_dl_info: PL_DownloadInfo,

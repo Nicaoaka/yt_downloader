@@ -6,23 +6,30 @@ __all__ = [
 
 import os
 import dataclasses
-from typing import Callable
+from typing import Callable, Literal
+import copy
 
 from .utils import utils
 from .yt_types import *
 from . import yt_types
 from . import yt_utils
+from .post_processing import merge_infos
 
 # Do these need to be configurable?
-DEFAULT_EPOCH: Callable[[],int] = lambda: -1
-TIMELINE_EPOCH_FMT = '%Y_%m_%d__%H_%M_%S' # For formats, see datetime.strftime()
-
+DEFAULT_EPOCH: Callable[[],int] = lambda: -utils.epoch_now()
+READABLE_EPOCH_FMT = '%Y-%m-%d__%H-%M-%S' # For formats, see datetime.strftime()
+MALFORMED_EPOCH_FMT = '{} (malformed)'
 
 def default_merge_fallbacks() -> list[yt_types._MetadataFiles_Lit]:
+    """
+    The single other playlist to merge current generated pl_info with.
+    Goes to next if pointer is None or the infodict is invalid.
+    """
     return [
         'latest_merge_info', # checked/used first
         'latest_pl_info',    # second
-        'latest_flat_info',  # last
+        'latest_flat_info',  
+        '_merge_flat',       # last
     ]
 
 
@@ -84,9 +91,6 @@ def default_yt_dlp_match_filter(v_info: V_InfoDict, *, incomplete: bool) -> str 
     return None
 
 
-def default_edit_final_opts_in_place(opts: YT_DLP_Params) -> None:
-    return None
-
 
 def default_opts() -> YT_DLP_Params:
     return {
@@ -133,11 +137,14 @@ def default_path_tmpls() -> CustomOuttmpl:
 
         'video_file': "Videos\\%(title)s [%(id)s].%(ext)s",
 
-        'flat_infojson': "flat\\%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json",   # uses latest   pl epoch
-        'pl_infojson': "playlist\\%(epoch>%Y-%m-%d %H-%M-%S)s.info.json", # uses latest v/pl epoch
-        'merge_infojson': "%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json",       # uses latest v/pl epoch
+        'raw_flat_infojson': "_flat\\%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json",
+        'raw_video_infojson': "_v_infos\\%(epoch>%Y-%m-%d %H-%M-%S)s.v_infos.json", # uses latest v epoch within
 
-        'ytdlp_archive': "_ytdlp_archive.txt",
+        '_merged_flat_infojson': "%(epoch>%Y-%m-%d %H-%M-%S)s.merge.flat.json",
+        'pl_infojson': "playlist\\%(epoch>%Y-%m-%d %H-%M-%S)s.info.json",
+        'merge_infojson': "%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json",
+
+        'yt_dlp_archive': "_yt_dlp_archive.txt",
         'metadata': "_metadata.json",
     }
 
@@ -169,35 +176,11 @@ def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
 
 
 def default_v_timeline_update_filter(key: str) -> bool:
-    """ Return `True` if key should be added to 'updates' if it was updated in the merge
-    Return `False` to omit it """
+    """
+    Return `True` if key should be added to 'updates' if it was updated in the merge
+    Return `False` to omit it
+    """
     return True
-
-
-def validate_metdata(metadata: Metadata, config: PlaylistDL_Config):
-    for k in yt_types._MetadataFiles.__required_keys__:
-        if metadata[k]:
-            utils.assert_file(os.path.join(config.home, metadata['path_tmpls']['Playlist'], metadata[k]), f"{k} (metadata)", min_size=1)
-    
-    meta_path = os.path.join(config.home, metadata['path_tmpls'].get('Playlist', 'NA'), metadata['path_tmpls'].get('metadata', 'NA'))
-    for k in metadata['path_tmpls'].keys() | config.path_tmpls.keys():
-        if k == 'Playlist':
-            continue # can't be checked without info
-        if k not in metadata['path_tmpls']:
-            raise ValueError(
-                f"Missing key in metadata: {{{k!r}: {config.path_tmpls[k]!r}}}\n"
-                f"Path: {meta_path}")
-        if k not in config.path_tmpls:
-            raise ValueError(
-                f"Extra key in metdata: {{{k!r}: {metadata['path_tmpls'][k]!r}}}\n"
-                f"Path: {meta_path}")
-        if metadata['path_tmpls'][k] != config.path_tmpls[k]:
-            raise ValueError(
-                f"Changed `path_tmpls`: {repr(k)}:\n"
-                f"metadata: {metadata['path_tmpls'][k]}\n"
-                f"config:   {config.path_tmpls[k]}\n"
-                f"Path: {meta_path}")
-
 
 @dataclasses.dataclass
 class PlaylistDL_Config:
@@ -208,30 +191,31 @@ class PlaylistDL_Config:
 
     # --- refresh ---
     refresh_after: int = 7 * 24 * 3600  # seconds; if ident_type is Playlist_ID, it will extract
+    base_info_type: Literal['any', 'latest_flat', 'merge_flat'] = 'merge_flat'
     
     # --- cookies ---
     cookie_file: str | None = None
     cookies_for_pl:    bool = True
-    cookies_for_v:  bool = False
+    cookies_for_vids:  bool = False
     empty_cookies:     bool = False
 
-
     # --- what to persist ---
-    write_flat:    bool = False
-    write_pl_info: bool = False
-    write_merge:   bool = True
+    write_flat:        bool = True
+    write_raw_v_infos: bool = True
+    write_pl_info:     bool = True
+    write_merge:       bool = True
     
     # filters
-    filter_flat:   Callable[[PL_InfoDict]] = default_filter_flat
-    filter_normal: Callable[[PL_InfoDict]] = default_filter_normal
-    filter_merge:  Callable[[PL_InfoDict]] = default_filter_merge
-    filter_common: Callable[[PL_InfoDict]] = default_filter_common # used after filter_flat, filter_normal, and filter_merge
+    filter_flat:   Callable[[PL_InfoDict], None] = default_filter_flat
+    filter_normal: Callable[[PL_InfoDict], None] = default_filter_normal
+    filter_merge:  Callable[[PL_InfoDict], None] = default_filter_merge
+    filter_common: Callable[[PL_InfoDict], None] = default_filter_common # used after filter_flat, filter_normal, and filter_merge
 
     meta_dl_history_filter: Callable[[DownloadInfo], bool] = default_dl_info_filter
 
     # merge options
-    merge_keep_one: bool = True # removes old merges - one json
     merge_fallback_order: list[yt_types._MetadataFiles_Lit] = dataclasses.field(default_factory=default_merge_fallbacks)
+    v_merge_field_updater = merge_infos.Updater.latest_not_none_and_latest_unavail
     v_timeline_update_filter: Callable[[str], bool] = default_v_timeline_update_filter
 
     # --- control hooks (override per-instance as needed) ---
@@ -249,7 +233,6 @@ class PlaylistDL_Config:
     
     # --- yt-dlp params ---
     opts: YT_DLP_Params = dataclasses.field(default_factory=default_opts)
-    edit_final_opts_in_place: Callable[[YT_DLP_Params], None] = default_edit_final_opts_in_place
 
     def __post_init__(self):
         """
@@ -265,16 +248,21 @@ class PlaylistDL_Config:
         match self.ident_type:
             case Config_IdentType.PL_ID_OR_URL:
                 if not yt_utils.get_pl_id(self.ident):
-                    raise ValueError(f"{self.ident} wasn't recognized as a playlist id or url")
+                    raise ValueError(f"{self.ident} wasn't recognized as a youtube playlist id or url")
+                
             case Config_IdentType.PL_INFO_PATH:
-                utils.assert_file(self.ident, "pl_info_path (ident)", min_size=1)
-                utils.json_load_typeddict(self.ident, PL_InfoDict)
+                utils.assert_file(self.ident, "Playlist info path (ident)", min_size=1)
+                pl_info = utils.json_load(self.ident)
+                if missing := utils.get_missing_typeddict_keys(pl_info, PL_InfoDict):
+                    raise ValueError(f"Playlist info path (ident) leads to malformed PL_InfoDict.\nMissing kvals: {missing}")
+                
             case Config_IdentType.METADATA_PATH:
-                utils.assert_file(self.ident, "metadata_path (ident)", min_size=1)
-                validate_metdata(utils.json_load_typeddict(self.ident, Metadata), self)
+                if not os.path.exists(self.ident):
+                    raise FileNotFoundError("Metadata path (ident) not found")
+                yt_utils.validate_metdata_config_sync(utils.json_load(self.ident), self)
 
         # cookies
-        utils.assert_file(self.cookie_file, 'cookie_file', min_size=1, or_None=True)
+        utils.assert_file(self.cookie_file, 'cookie_file', min_size=1, None_is_ok=True)
 
         # opts
         if 'cookiefile' in self.opts:

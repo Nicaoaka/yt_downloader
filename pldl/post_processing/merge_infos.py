@@ -1,16 +1,13 @@
 __all__ = [
-    'merge_v_infos', 'merge_pl_infos',
+    'merge_v_infos', 'merge_pl_infos', 'Updater',
 ]
 
-import enum
 from collections import defaultdict
 from typing import Any, Callable
 
+from ..yt_types import *
 from .. import utils
 from .. import yt_utils
-from ..yt_types import *
-from ..config import DEFAULT_EPOCH
-
 
 
 class NO_VALUE:
@@ -19,10 +16,9 @@ class NO_VALUE:
 
 class Updater:
     """
-    Make changes to `info` in-place.
-    Returns True if it was an `update`-worthy change.
-    
-    (config.v_timeline_update_filter `should not` be called here)
+    Callable[[Merged_V_InfoDict, key, value, is_latest], did_update]
+
+    Make changes to `info` in-place. Return True if it was an `update`-worthy change.
     """
 
     @staticmethod
@@ -123,7 +119,7 @@ def _get_info_level_timeline(v_infos: list[V_InfoDict], merge_level: _V_InfoLeve
     for v_info in v_infos:
         level = yt_utils.get_v_info_level(v_info)
         if level > merge_level:
-            epoch = yt_utils.to_timeline_epoch(v_info.get('epoch', DEFAULT_EPOCH()))
+            epoch = yt_utils.to_readable_epoch(yt_utils.get_epoch(v_info))
             timeline[epoch]['better_info'] = f'{merge_level.name} -> {level.name}'
             merge_level = level
     return timeline
@@ -131,7 +127,7 @@ def _get_info_level_timeline(v_infos: list[V_InfoDict], merge_level: _V_InfoLeve
 def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimeline:
     timeline: V_MergeTimeline = defaultdict(dict) # type: ignore - init
     for msg in unavail_msgs:
-        epoch = yt_utils.to_timeline_epoch(msg['epoch'] or 0)
+        epoch = yt_utils.to_readable_epoch(msg['epoch'] or 0)
         timeline[epoch].setdefault('unavailable', []).append(f"{msg['type']}: {msg['msg']}")
     return timeline
 
@@ -148,22 +144,22 @@ def _get_v_timeline(
 
 def merge_v_infos(
         v_infos: list[V_InfoDict],
+        field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool],
         update_filter: Callable[[str], bool] = lambda _: True,
-        field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool] = Updater.latest_not_none_and_latest_unavail,
         _init: V_InfoDict|None = None,
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
     """
     Does not copy v_info objects. Some input object references will be the same in the output!
     Args:
         v_infos: list of a single video id's info dicts. (Raise ValueError if not)
-        update_filter: Choose what keys should be added to `updates` in the video's
-            merge timeline. Defaults to no filtering.
         field_updater (Callable[[Merged_V_InfoDict, key, value, is_latest], did_update]):
             Specify the policy for how fields should be
             updated (see `Updater` for examples). Defaults to updating keys
             to latest non-None values, with unavailable messages always
             reflecting the latest info.
-        _init (V_InfoDict): Initial v_info. Can be in `v_infos`. Defaults to None.
+        update_filter (Callable[[str], bool]): Choose what keys should be added to `updates` in the video's
+            merge timeline. Defaults to no filtering.
+        _init (V_InfoDict|None): Initial v_info. Can be in `v_infos`. Defaults to None.
     """
 
     ids = {info['id'] for info in v_infos}
@@ -179,17 +175,17 @@ def merge_v_infos(
     if not v_infos:
         return _init, {} # type: ignore - ok
 
-    v_infos = sorted(v_infos, key=lambda info: info.get('epoch', DEFAULT_EPOCH()), reverse=True)
+    v_infos = sorted(v_infos, key=yt_utils.get_epoch, reverse=True)
     _init_level = yt_utils.get_v_info_level(_init)
     merge_info: V_InfoDict = _init or {} # type: ignore - init
     updates = defaultdict(dict)
     for i, v_info in enumerate(v_infos):
         if i in skip:
             continue
-        is_latest = v_info is v_infos[0] and (v_info.get('epoch', DEFAULT_EPOCH()) >= merge_info.get('epoch', DEFAULT_EPOCH()))
+        is_latest = v_info is v_infos[0] and (yt_utils.get_epoch(v_info) >= yt_utils.get_epoch(merge_info))
         for k in v_info.keys() | merge_info.keys():
             if field_updater(merge_info, k, v_info.get(k, NO_VALUE), is_latest):
-                epoch = yt_utils.to_timeline_epoch(v_info.get('epoch', DEFAULT_EPOCH()))
+                epoch = yt_utils.to_readable_epoch(yt_utils.get_epoch(v_info))
                 if update_filter(k):
                     updates[epoch].setdefault('updates', set()).add(k)
     
@@ -199,75 +195,70 @@ def merge_v_infos(
     timeline = utils.dict_merge(timeline, updates)
     return merge_info, timeline
 
-
-def merge_pl_infos(pl_infos: list[PL_InfoDict], v_timeline_update_filter: Callable[[str], bool] = lambda _: True) -> PL_InfoDict:
+type V_Path = tuple[int, int]
+def merge_pl_infos(
+        pl_infos: list[PL_InfoDict],
+        field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool],
+        update_filter: Callable[[str], bool] = lambda _: True,
+        _init: PL_InfoDict|None = None,
+) -> PL_InfoDict:
     """
-    Returns a pl_info dict with the newest and most info based on the past in pl_infos.
-    
-    Assumes newer pl_info is more accurate.
-    Newer orderings always have priority over old orderings. (In conflict, older is placed after new)
-    Merges videoes using ``merge_v_infos()``
-
-    Updates the following to represent the combined version
-    - playlist_count
-    - entries
-    - merge_timeline (dict[V_ID, V_MergeInfo]): What changed and from when.
-        - (Limitation) Can only store the current and one of the pl_infos meta. Storing more than one is exponential and complex.
-
     Args:
-        pl_infos (list[PL_InfoDict]): The source pl_infos. List order does not matter becaduse sorting is done at the start. Should all be the same playlist.
-        v_timeline_update_filter (Callable[[str], bool]): Returns True to add key to timeline, False to omit. Used by ``merge_v_infos()``. Defaults showing all.
+        pl_infos (list[PL_InfoDict]): The source pl_infos. List input order does not matter becaduse sorting is done at the start.
+            All pl_infos should have the same playlist id.
+        field_updater (Callable[[Merged_V_InfoDict, key, value, is_latest], did_update]):
+            Specify the policy for how fields should be updated (see `Updater` for examples).
+        update_filter (Callable[[str], bool]): Returns True to add key to timeline, False to omit.
+            Used by ``merge_v_infos()``. Defaults showing all.
+        _init (PL_InfoDict|None): Initial merge info. Its timeline will be preserved.
 
     Returns:
         PL_InfoDict: The merged playlist info
-    """
+    
+    Playlist video ordering:
+    - Assumes newer pl_info is more accurate.
+    - Newer orderings always have priority over old orderings. (In conflict, older is placed after new)
 
+    Updates the following to represent the combined version
+    - playlist_count (int):
+    - entries (list[PL_V_InfoDict]):
+    - merge_timeline (dict[V_ID, V_MergeInfo]): Preserves _init's and adds current merge operation's timeline.
+    """
+    pl_infos = sorted(pl_infos, key=yt_utils.get_epoch, reverse=True)
+    if _init and _init not in pl_infos:
+        pl_infos.append(_init)
     if len(pl_infos) == 0:
         raise ValueError("Provide at least 1")
     if len({pl_info['id'] for pl_info in pl_infos}) > 1:
         raise ValueError(f"More than one playlist id found: { {pl_info['id'] for pl_info in pl_infos} }")
 
     # most recent pl_info has highest priority
-    pl_infos = sorted(pl_infos, key=lambda info: info.get('epoch', DEFAULT_EPOCH()), reverse=True)
+    _init_pl_idx: int|None = None if not _init else pl_infos.index(_init)
     V_ID_ORDER = utils.merge_ordered_lists([[entry['id'] for entry in pl_info['entries']] for pl_info in pl_infos])
 
     merge_info: PL_InfoDict = utils.dict_without_keys(pl_infos[0], {'entries', 'merge_timeline'}) # type: ignore - init
     merge_info['playlist_count'] = len(V_ID_ORDER)
     
-    past_merge_pl_idx: int|None = None
-    for i, pl_info in enumerate(pl_infos):
-        if yt_utils.get_pl_info_level(pl_info) == _PL_InfoLevel.MERGED:
-            if past_merge_pl_idx is not None:
-                utils.WARNING(f"Found more than 1 merge info. Will only include current operation")
-                past_merge_pl_idx = None
-                break
-            past_merge_pl_idx = i
 
     id_map = {v_id: i for i, v_id in enumerate(V_ID_ORDER)}
-    v_id_to_paths = [list() for _ in range(merge_info['playlist_count'])]
+    v_id_to_paths: list[list[V_Path]] = [list() for _ in range(merge_info['playlist_count'])]
     for i, _pl in enumerate(pl_infos):
         for j, _v in enumerate(_pl['entries']):
             v_id_to_paths[id_map[_v['id']]].append( (i, j) )
 
     entries: list[PL_V_InfoDict] = [dict() for _ in range(len(V_ID_ORDER))] # type: ignore - init
-    pl_timeline: PL_MergeTimeline = {} if past_merge_pl_idx is None else pl_infos[past_merge_pl_idx].get('merge_timeline', {})
+    pl_timeline: PL_MergeTimeline = {} if _init_pl_idx is None else pl_infos[_init_pl_idx].get('merge_timeline', {})
     for i, v_paths in enumerate(v_id_to_paths):
-
-        past_merge_pl_v = None
-        for pl_v_idx in v_paths:
-            if pl_v_idx[0] == past_merge_pl_idx:
-                past_merge_pl_v = pl_v_idx
-                break
+        merge_entry, v_timeline = merge_v_infos(
+            v_infos       = [pl_infos[pl]['entries'][v] for pl, v in v_paths if pl != _init_pl_idx],
+            update_filter = update_filter,
+            field_updater = field_updater,
+            _init         = next((pl_infos[pl]['entries'][v] for pl, v in v_paths if pl == _init_pl_idx), None))
         
-        entry, v_timeline = merge_v_infos(
-            v_infos       = [pl_infos[pl]['entries'][v] for pl, v in v_paths if (past_merge_pl_v is None or pl != past_merge_pl_v[0])],
-            update_filter = v_timeline_update_filter,
-            _init         = pl_infos[past_merge_pl_v[0]]['entries'][past_merge_pl_v[1]] if past_merge_pl_v is not None else None)
-        
-        entries[i] = entry # type: ignore - __pl_v_info is correctly overwritten/set before returning
+        entries[i] = merge_entry # type: ignore - __pl_v_info is correctly overwritten/set before returning
         if v_timeline:
-            pl_timeline.setdefault(entry['id'], {})
-            pl_timeline[entry['id']] = utils.dict_merge(pl_timeline[entry['id']], v_timeline)
+            pl_timeline.setdefault(merge_entry['id'], {})
+            pl_timeline[merge_entry['id']] = utils.dict_merge(pl_timeline[merge_entry['id']], v_timeline)
     
     merge_info['entries'] = entries
     yt_utils.add_pl_info_to_entries(merge_info)
