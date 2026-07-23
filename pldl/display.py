@@ -1,4 +1,4 @@
-from pathlib import Path
+from yt_dlp.utils import DownloadError
 
 from . import utils
 from ._types import *
@@ -91,13 +91,18 @@ def download_info(dl: DownloadInfo, errors: bool) -> str:
     action_tag = ACTION_TAG[dl['action']]
     result_tag = download_result(dl)
 
-    fmt_id = f"[{utils.truncate(dl['id'], 11)}]"
-    fmt_title = dl['title'] or ""
+    # only have id and title so don't use yt_utils.get_v_dispaly()
+    v_display = f"[{dl['id']}] {dl['title'] if dl['title'] else '???'}"
 
-    line = f"{action_tag} -> {result_tag} {utils.hex(f"{fmt_id} {fmt_title}", fg=result_tag.color)}"
+    line = f"{action_tag} -> {result_tag} {utils.hex(v_display, fg=result_tag.color)}"
 
     if errors and 'errors' in dl:
-        line += ''.join(f"\n{utils.exc(e)}" for e in dl['errors'])
+        for e in dl['errors']:
+            if isinstance(e, DownloadError):
+                # This is an expected error, so print focusing on the error msg.
+                line += ''.join(f"\n{utils.hex(f"yt_dlp.utils.DownloadError: {e.msg}", utils.EXC_COLOR)}")
+            else:
+                line += ''.join(f"\n{utils.format_exception(e)}" for e in dl['errors'])
 
     return line
 

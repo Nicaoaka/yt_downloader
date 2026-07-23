@@ -2,13 +2,15 @@ __all__ = [
     'FalsySentinel',
 
     'hex',
-    'exc', 'WARNING', 'ERROR',
+    'EXC_COLOR', 'format_exception',
+    'WARN_COLOR', 'WARNING',
+    'ERR_COLOR', 'ERROR',
     'truncate', 'numbered_list', 'clear',
     'input_string',
 
     'dict_without_keys', 'dict_with_keys',
     'get_missing_typeddict_keys', 'dedup', 'dict_merge',
-    'has_content',
+    'has_content', 'first_non_default',
 
     'json_load', 'json_dump',
     'handle_collision',
@@ -26,7 +28,7 @@ Only depends on python std lib
 from pathlib import Path
 import os
 import time
-from typing import Iterable, Any, Callable, Literal, Hashable
+from typing import Iterable, Any, Callable, Literal, Hashable, overload
 import json
 import copy
 import re
@@ -44,6 +46,9 @@ class FalsySentinelMeta(type):
         return False
 class FalsySentinel(metaclass=FalsySentinelMeta): pass
 
+class __NO_DEFAULT(FalsySentinel): ...
+class RAISE_EXC(FalsySentinel): ...
+class Delete(FalsySentinel): ...
 
 
 # Print format helpers
@@ -71,13 +76,15 @@ def _rgb(text, fg: tuple[int, int, int]|None = None, bg: tuple[int, int, int]|No
          + str(text) \
          + reset_cmd
 
-def exc(e: BaseException) -> str:
-    return hex(''.join(traceback.format_exception(e)).rstrip(), fg='#db6a6a')
-
+EXC_COLOR = '#db6a6a'
+WARN_COLOR = '#ffff47'
+ERR_COLOR = '#ff4747'
+def format_exception(e: BaseException) -> str:
+    return hex(''.join(traceback.format_exception(e)).rstrip(), fg=EXC_COLOR)
 def WARNING(msg: str) -> None:
-    print(hex(" WARNING ", bg="#ffff47"), msg)
+    print(hex(" WARNING ", bg=WARN_COLOR), msg)
 def ERROR(msg: str) -> None:
-    print(hex("  ERROR  ", bg="#ff4747"), msg)
+    print(hex("  ERROR  ", bg=ERR_COLOR), msg)
 
 
 def truncate(s: str, max_len: int, end='...', *, end_in_max: bool = True, trunc_start: bool = False):
@@ -126,7 +133,6 @@ def clear(one_less_new_line: bool = False):
 
 # Input helpers
 
-class __NO_DEFAULT(FalsySentinel): ...
 def input_string(
         options: list[str],
         query_message: str = "",
@@ -268,13 +274,28 @@ def has_content(obj: Any) -> bool:
         return any(has_content(item) for item in obj)
     return True
 
+def first_non_default(
+        d: dict, 
+        keys: list,
+        /, *,
+        default_values: list,
+        default_return: Any|type[RAISE_EXC] = RAISE_EXC,
+) -> Any:
+    for k in keys:
+        if k not in d:
+            continue
+        val = d[k]
+        if val not in default_values:
+            return val
+    if default_return is RAISE_EXC:
+        raise KeyError(keys)
+    return default_return # type: ignore - type V
 
 
 
 # File helpers
 
 # Json
-class RAISE_EXC(FalsySentinel): ...
 def json_load(src: str | Path, default: Any = RAISE_EXC) -> Any:
     """ Try to load src. On failure return default or raise Exception """
     if not os.path.exists(src) and default is not RAISE_EXC:
@@ -285,7 +306,7 @@ def json_load(src: str | Path, default: Any = RAISE_EXC) -> Any:
     except Exception as e:
         if default is RAISE_EXC:
             raise e from None
-        WARNING(f"Error in json_load(). Returning default\n{exc(e)}")
+        WARNING(f"Error in json_load(). Returning default\n{format_exception(e)}")
         return default
 
 def json_dump(
@@ -345,7 +366,6 @@ def _get_unused_name(dst: Path, auto_rename: bool = True, msg: str = "") -> Path
         i += 1
     return dst_dir / dst_name
 
-class Delete(FalsySentinel): ...
 CollisionPolicies = Literal['rm new', 'rm old', 'mov new', 'mov old']
 def _handle_collision(
         dst: Path,

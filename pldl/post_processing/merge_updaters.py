@@ -7,13 +7,14 @@ Args:
     is_latest (bool): Is from the latest v_info in the merge operation
 Return:
     report_update (bool): Return True if there was a notable update. ``update_filter()`` will then be called with the key.
+
+'info_level' and 'unavailable_msgs' should not be written to.
 """
 
 from typing import Any
 
 from .._types import *
-from .merge_infos import NO_VALUE
-    
+
 def latest(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
     if is_latest and v != NO_VALUE:
         info[k] = v
@@ -65,4 +66,3 @@ def latest_not_none_and_latest_unavail(info: V_InfoDict|dict, k: str, v: Any|typ
             return latest_only(info, k, v, is_latest)
         case _:
             return latest_not_None(info, k, v, is_latest)
-

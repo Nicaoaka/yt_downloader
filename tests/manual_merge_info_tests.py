@@ -267,7 +267,7 @@ def main():
             reset()
             t()
         except Exception as e:
-            print(utils.exc(e))
+            print(utils.format_exception(e))
             print()
 
 if __name__ == "__main__":

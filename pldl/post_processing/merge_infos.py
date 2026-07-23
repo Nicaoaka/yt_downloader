@@ -8,12 +8,13 @@ from typing import Any, Callable
 from .._types import *
 from .. import utils
 from .. import yt_utils
+from .merge_updaters import latest_not_none_and_latest_unavail
 
-class NO_VALUE(utils.FalsySentinel): ...
     
 def _dedup_and_sort_unavail_msgs(msgs: list[UnavailableMsg]):
     return sorted(
-        utils.dedup(msgs, hash=lambda x: x.values()),
+        # Use tuple() to focus on the values themselves instead of the dict_value object
+        utils.dedup(msgs, hash=lambda x: tuple(x.values())),
         key=lambda info: (info['epoch'] or 0) \
                         +(0.2 if info['type'] == 'yt' else 0.1 if info['type'] == 'wa' else 0),
         reverse=True)
@@ -32,7 +33,7 @@ def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimel
 
 def merge_v_infos(
         v_infos: list[V_InfoDict],
-        field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool],
+        field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool] = latest_not_none_and_latest_unavail,
         update_filter: Callable[[str], bool] = lambda _: True,
         _init: V_InfoDict|None = None,
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
@@ -68,7 +69,7 @@ def merge_v_infos(
     merge_info: V_InfoDict = _init or {} # type: ignore - init
 
     curr_info_level = yt_utils.get_v_info_level(merge_info)
-    all_unavailable_msgs = merge_info.get('unavailable_msgs', [])
+    unavailable_msgs = merge_info.get('unavailable_msgs', [])
 
     v_timeline: V_MergeTimeline = {}
     for v_info in v_infos:
@@ -84,12 +85,13 @@ def merge_v_infos(
         # updating v_info
         is_latest = v_info is v_infos[0] and (yt_utils.get_epoch(v_info) >= yt_utils.get_epoch(merge_info))
         for k in v_info.keys() | merge_info.keys():
-            report_update = field_updater(merge_info, k, (v_info.get(k, NO_VALUE)), is_latest)
+            v = v_info.get(k, NO_VALUE)
+            report_update = field_updater(merge_info, k, v, is_latest)
             if report_update and update_filter(k):
                 if not 'updates' in _timeline:
                     _timeline['updates'] = list()
                 if k not in _timeline['updates']:
-                    _timeline['updates'].append(k)
+                    _timeline['updates'].append(f'{k!r} -> {utils.truncate(repr(v), 750, end='... (see info dict)')}')
 
         # better_info
         new_info_level = yt_utils.get_v_info_level(v_info)
@@ -101,18 +103,19 @@ def merge_v_infos(
             curr_info_level = new_info_level
 
         # unavailable_msgs
-        all_unavailable_msgs.extend(v_info.get('unavailable_msgs', []))
+        unavailable_msgs.extend(v_info.get('unavailable_msgs', []))
         for k in ('yt_unavailable_msg', 'wa_unavailable_msg', ):
             if k not in v_info:
                 continue
-            all_unavailable_msgs.append({
+            unavailable_msgs.append({
                 'epoch': v_info.get('epoch'), # None is more expressive
                 'msg': v_info.get(k),
                 'type': k.removesuffix('_unavailable_msg'),
             })
-    
-    merge_info['unavailable_msgs'] = _dedup_and_sort_unavail_msgs(all_unavailable_msgs)
-    utils.dict_merge(v_timeline, _get_unavailabe_timeline(merge_info['unavailable_msgs']))
+
+    if unavailable_msgs:
+        merge_info['unavailable_msgs'] = _dedup_and_sort_unavail_msgs(unavailable_msgs)
+        utils.dict_merge(v_timeline, _get_unavailabe_timeline(merge_info['unavailable_msgs']))
     return merge_info, v_timeline
 
 

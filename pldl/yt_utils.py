@@ -81,31 +81,19 @@ def get_archiveorg_video_url(video_id: str) -> str:
     return f"https://web.archive.org/web/2oe_/http://wayback-fakeurl.archive.org/yt/{video_id}"
 
 def get_v_display(v_info: V_InfoDict|dict) -> str:
-    res = ""
+    # some titles and channel names are empty strings
+    title = utils.first_non_default(v_info, ['title', 'alt_title'], default_values=[None], default_return='???') # type: ignore
+    creator = utils.first_non_default(v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=['', None], default_return='???') # type: ignore
 
-    if 'id' in v_info:
-        res += f'[{v_info['id']}] '
-    if 'title' in v_info and v_info['title']:
-        res += f'{v_info['title']} '
-    if 'channel' in v_info and v_info['channel']:
-        res += f'by {v_info['channel']} '
-    
-    res = res.strip()
-
-    if not res:
-        return "< No Video display >"
-    return res
-
-
+    return f"[{v_info['id']}] {title} by {creator}"
 
 # Extractors
 
 class V_InfoLevel(IntEnum):
     NONE = 0
-    UNAVAIL_YT = 1
-    FLAT = 2
-    EXTRACT = 3
-    DOWNLOAD = 4
+    FLAT = 1
+    EXTRACT = 2
+    DOWNLOAD = 3
     
 class PL_InfoLevel(IntEnum):
     NONE = 0
@@ -163,7 +151,7 @@ def download_video(
         - list of Exception objects
         - if extraction was successful
     """
-    info: V_InfoDict = {} # type: ignore - init
+    info: V_InfoDict = {'info_level': V_InfoLevel.NONE} # type: ignore - init
     errors: list[Exception] = []
     if yt:
         try:
@@ -203,14 +191,15 @@ def download_video_alt(url: str, opts: YT_DLP_Params, download: bool) -> V_InfoD
     try:
         with YoutubeDL(opts) as ydl:
             info: V_InfoDict = ydl.extract_info(url, download=download) # type: ignore
-            if not info:
-                return None
-            info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
-
     except DownloadError as dl_err:
         return dl_err.msg
     except Exception as e:
         return e
+    
+    if not info:
+        return None
+    info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
+    return info
 
 
 
@@ -243,7 +232,7 @@ def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
     if _has_download_info(v_info):     return V_InfoLevel.DOWNLOAD
     if _has_extracted_info(v_info):    return V_InfoLevel.EXTRACT
     if _maybe_available_on_yt(v_info): return V_InfoLevel.FLAT
-    return V_InfoLevel.UNAVAIL_YT
+    return V_InfoLevel.NONE
 
 def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
     if not pl_info:

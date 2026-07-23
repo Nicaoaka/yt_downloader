@@ -5,15 +5,16 @@ __all__ = [
 
     'YT_DLP_DownloadArchive', 'YT_DLP_DownloadArchive_IDs',
 
-    'Config_IdentType',
     'CustomOuttmpl', 'PL_Resolved_CustomOuttmpl',
+    'Metadata',
     
-    'UnavailableMsg',
-    'V_MergeTimeline', 'PL_MergeTimeline',
     'DL_Action', 'DL_Result',
     'DownloadInfo', 'PL_DownloadInfo', 'PL_DownloadHistory',
     'ID_DownloadInfo',
-    'Metadata',
+
+    'UnavailableMsg',
+    'V_MergeTimeline', 'PL_MergeTimeline',
+    'NO_VALUE',
 ]
 
 from enum import StrEnum, auto
@@ -23,13 +24,18 @@ if TYPE_CHECKING:
     from yt_dlp import _Params
     # from yt_dlp.utils import PagedList
 
+from .utils.utils import FalsySentinel
+
+
+
 type V_ID = str
 type PL_ID = str
 type EPOCH_STR = str
 type YT_DLP_Params = _Params
 
 
-# `_InfoDict` copied from
+
+# YT_DLP_InfoDict is `_InfoDict` copied from
 # .../.vscode/extensions/ms-python.vscode-pylance-XXXX.XX.XX/dist/typeshed-fallback/stubs/yt-dlp/yt_dlp/extractpr/common.pyi
 # yt_dlp version 2026.07.01.235203
 class YT_DLP_InfoDict[ENTRY=YT_DLP_InfoDict](TypedDict, total=False):
@@ -169,23 +175,10 @@ class PL_InfoDict[ENTRY=V_InfoDict](YT_DLP_InfoDict[ENTRY], _PL_InfoDict_Addons)
 type ANY_InfoDict = V_InfoDict | PL_InfoDict | dict
 
 
-# custom Types
 
+# custom Types
 type YT_DLP_DownloadArchive = tuple[tuple[str, str], ...]
 type YT_DLP_DownloadArchive_IDs = list[V_ID]
-
-class Config_IdentType(StrEnum):
-    """
-    On the first run you must use `PL_ID_OR_URL`
-
-    Otherwise, the preferred type is
-    1. METADATA_PATH
-    2. PL_INFO_PATH
-    3. PL_ID_OR_URL
-    """
-    PL_ID_OR_URL   = auto()
-    PL_INFO_PATH  = auto()
-    METADATA_PATH = auto()
 
 # outtmpl doesn't include Home,
 # so that the Home folder can be moved without edits
@@ -215,52 +208,6 @@ class CustomOuttmpl(_CustomOuttmpl):
 class PL_Resolved_CustomOuttmpl(_CustomOuttmpl):
     Playlist: str
 
-class UnavailableMsg(TypedDict):
-    epoch: int|None
-    msg:   str|None
-    type:  str
-
-class _V_MergeTimeline(TypedDict):
-    better_info: NotRequired[list[str]] # "{merge_V_InfoLevel.name} -> {new_V_InfoLevel.name}"
-    unavailable: NotRequired[list[str]]
-    updates:     NotRequired[list[str]]
-type V_MergeTimeline = dict[EPOCH_STR, _V_MergeTimeline]
-type PL_MergeTimeline = dict[V_ID, V_MergeTimeline]
-
-class DL_Action(StrEnum):
-    USER     = auto()
-    QUIT     = auto()
-    SKIP     = auto()
-    EXTRACT  = auto()
-    DOWNLOAD = auto()
-
-class DL_Result(StrEnum):
-    CANCELLED    = auto()
-    FAIL         = auto()
-    UNRECOGNIZED = auto()
-    CACHED      = auto()
-    EXTRACT      = auto()
-    DOWNLOAD     = auto()
-
-
-class DownloadInfo(TypedDict):
-    id: str
-    title: str | None
-    action: DL_Action
-    result: DL_Result
-    errors: NotRequired[list[Exception]]
-
-type PL_DownloadInfo = list[DownloadInfo]
-type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
-
-class ID_DownloadInfo(TypedDict):
-    # skip: list[str]
-    fail: list[str]
-    extract: list[str]
-    download: list[str]
-    error: list[str]
-
-
 _MetadataFiles_Lit = Literal['latest_flat_info', 'latest_pl_info', 'latest_merge_info', '_merge_flat']
 class _MetadataPointers(TypedDict, total=False):
     """
@@ -281,3 +228,53 @@ class Metadata(TypedDict):
     history: PL_DownloadHistory
 
 
+
+# Download control types
+class DL_Action(StrEnum):
+    USER     = auto()
+    QUIT     = auto()
+    SKIP     = auto()
+    EXTRACT  = auto()
+    DOWNLOAD = auto()
+
+class DL_Result(StrEnum):
+    CANCELLED    = auto()
+    FAIL         = auto()
+    UNRECOGNIZED = auto()
+    CACHED      = auto()
+    EXTRACT      = auto()
+    DOWNLOAD     = auto()
+
+class DownloadInfo(TypedDict):
+    id: str
+    title: str | None
+    action: DL_Action
+    result: DL_Result
+    errors: NotRequired[list[Exception]]
+
+type PL_DownloadInfo = list[DownloadInfo]
+type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
+
+class ID_DownloadInfo(TypedDict):
+    # skip: list[str]
+    fail: list[str]
+    extract: list[str]
+    download: list[str]
+    error: list[str]
+
+
+
+# used by postprocessing.merge_infos
+class UnavailableMsg(TypedDict):
+    epoch: int|None
+    msg:   str|None
+    type:  str
+
+class _V_MergeTimeline(TypedDict):
+    better_info: NotRequired[list[str]] # "{merge_V_InfoLevel.name} -> {new_V_InfoLevel.name}"
+    unavailable: NotRequired[list[str]]
+    updates:     NotRequired[list[str]]
+type V_MergeTimeline = dict[EPOCH_STR, _V_MergeTimeline]
+type PL_MergeTimeline = dict[V_ID, V_MergeTimeline]
+
+class NO_VALUE(FalsySentinel): ...

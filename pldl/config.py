@@ -7,11 +7,26 @@ __all__ = [
 import os
 import dataclasses
 from typing import Callable, Literal, Any
+from enum import StrEnum, auto
 
 from .utils import utils
 from ._types import *
 from . import yt_utils
 from .post_processing import filters
+
+class Config_IdentType(StrEnum):
+    """
+    On the first run you must use `PL_ID_OR_URL`
+
+    Otherwise, the preferred type is
+    1. METADATA_PATH
+    2. PL_INFO_PATH
+    3. PL_ID_OR_URL
+    """
+    PL_ID_OR_URL  = auto()
+    PL_INFO_PATH  = auto() # abs/rel path, is not effected by home
+    METADATA_PATH = auto() # abs/rel path, is not effected by home 
+
 
 def default_wrapper_match_filter(
     pl_v_info: V_InfoDict|dict,
@@ -66,7 +81,7 @@ def default_yt_dlp_match_filter(v_info: V_InfoDict, *, incomplete: bool) -> str 
     - Return a message to skip.
     - Return `None` to downloaded.
     - Return `yt_dlp.utils.NO_DEFAULT` to prompt user.
-    (quitting the playlist can onnly occur in `wrapper_match_filter`)
+    (quitting the playlist can only occur in `wrapper_match_filter`)
     """
     return None
 
@@ -80,7 +95,6 @@ def default_opts() -> YT_DLP_Params:
         'max_sleep_interval': 10,
         'ratelimit': 3_000_000,
         'remote_components': {'ejs:npm'},
-        'match_filter': default_yt_dlp_match_filter, # type: ignore
 
         'format': 'ba+bv/b',
         'format_sort': ['abr', 'res:1080', 'vbr', '+size', ],
@@ -140,7 +154,7 @@ def default_filter_all_info(info: PL_InfoDict|Any) -> None:
     """ Filter used by raw_flat, raw_v_infos, _merge_flat, pl_info, and merge_info """
     if not isinstance(info, dict):
         return
-    filters.filter_pl_info(info, set(), {'automatic_captions'}) #
+    filters.filter_pl_info(info, set(), {'automatic_captions'})
 
 
 def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
@@ -236,6 +250,10 @@ class PlaylistDL_Config:
         utils.assert_file(self.cookie_file, 'cookie_file', min_size=1, None_is_ok=True)
 
         # opts
+        if 'match_filter' in self.opts:
+            raise ValueError(
+                f"'match_filter' can not be set in `config.opts`.\n"
+                f"Set `config.yt_dlp_match_filter` instead.")
         if 'cookiefile' in self.opts:
             raise ValueError(
                 f"'cookiefile' can not be set in `config.opts`.\n"

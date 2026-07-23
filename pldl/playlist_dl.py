@@ -2,12 +2,12 @@ __all__ = ['PlaylistDL']
 
 import os
 import copy
-from typing import Callable, Final, Any
+from typing import Callable, Any, overload
 import pprint
 import dataclasses
 
 from .utils import utils
-from .config import PlaylistDL_Config, DEFAULT_EPOCH
+from .config import PlaylistDL_Config, Config_IdentType
 from ._types import *
 from . import _types
 from . import yt_utils
@@ -31,8 +31,7 @@ class _Infos:
     base_info:   _InfosEntry[PL_InfoDict] = None # type: ignore - temporary
     raw_flat:    _InfosEntry[PL_InfoDict] | None = None
     raw_v_infos: _InfosEntry[list[list[V_InfoDict]]] | None = None
-    # external list has no enforced order, internally oldest to newest
-    # pl_dl_info is in self._metadata['history']
+    # No enforced order. Associatted pl_dl_info is in self._metadata['history']
 
     _merge_flat: _InfosEntry[PL_InfoDict] | None = None
     pl_info:     _InfosEntry[PL_InfoDict] | None = None
@@ -240,10 +239,10 @@ class PlaylistDL:
         self.session_start_epoch = utils.epoch_now()
         self._config = config
 
-        self._infos = _Infos()
+        self._infos = _Infos() # type: ignore - base_info None assignment is known and temporary
         init_info = self.__get_init_info() # may set self._infos.raw_flat
         
-        self.id: Final[str] = init_info['id']
+        self.id: str = init_info['id']
         self._pl_outtmpls = PlaylistDL.get_pl_outtmpls(self._config.home, self._config.path_tmpls, init_info)
         self.opts = self._config.opts | self.create_path_opts(self._config.home, self._pl_outtmpls)
 
@@ -272,6 +271,24 @@ class PlaylistDL:
     # 
     # API functions
     # 
+    @overload
+    def get_filtered_data[T](self, info: _InfosEntry[T]) -> T: ...
+    @overload
+    def get_filtered_data(self, info: None) -> None: ...
+    def get_filtered_data[T](self, info: _InfosEntry[T]|None) -> T|None:
+        if not info:
+            return None
+        filtered_data = yt_utils.copy_and_sanitize_info(info.data)
+        self._config.filter_all_info(filtered_data)
+        match info.metadata_key:
+            case 'latest_flat_info' | '_merge_flat':
+                self._config.filter_flat_info(filtered_data) # type: ignore
+            case 'latest_pl_info':
+                self._config.filter_pl_info(filtered_data) # type: ignore
+            case 'latest_merge_info':
+                self._config.filter_merge_info(filtered_data) # type: ignore
+        return filtered_data
+
 
     def write_info(
             self,
@@ -300,7 +317,11 @@ class PlaylistDL:
 
         if not utils.has_content(info.data):
             utils.WARNING(f"{info.metadata_key or name} has no content. Writing anyway.")
-            
+
+        if delete_prev:
+            match collision_policy:
+                case 'mov new': collision_policy = 'rm new'
+                case 'mov old': collision_policy = 'rm old'
         
         if isinstance(info.data, dict):
             epoch = yt_utils.get_epoch(info.data)
@@ -312,22 +333,7 @@ class PlaylistDL:
             epoch = yt_utils.get_epoch(alt_info)
             _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, alt_info) # can't use info.data to make path
         
-        data_to_write = yt_utils.copy_and_sanitize_info(info.data)
-        self._config.filter_all_info(data_to_write)
-        match info.metadata_key:
-            case 'latest_flat_info' | '_merge_flat':
-                self._config.filter_flat_info(data_to_write) # type: ignore
-            case 'latest_pl_info':
-                self._config.filter_pl_info(data_to_write) # type: ignore
-            case 'latest_merge_info':
-                self._config.filter_merge_info(data_to_write) # type: ignore
-
-        if delete_prev:
-            match collision_policy:
-                case 'mov new': collision_policy = 'rm new'
-                case 'mov old': collision_policy = 'rm old'
-        
-        dst = utils.json_dump(info.data, _dst, collision_policy)
+        dst = utils.json_dump(self.get_filtered_data(info), _dst, collision_policy)
         if dst is None:
             # don't update because no write occurred
             return None
@@ -460,7 +466,7 @@ class PlaylistDL:
                     action = wrapper_match_filter(entry, pl_dl_info)
                 
                 i_of_N = f"{i+1:{len(str(N))}}/{N}"
-                pl_v_display = f"[{i_of_N}] [{entry['id']}] {entry.get('title') or "???"} - {entry.get('channel') or "???"}"
+                pl_v_display = f"[{i_of_N}] {yt_utils.get_v_display(entry)}"
 
                 if action == DL_Action.USER:
                     action = PlaylistDL._get_action_from_user(entry)
@@ -512,7 +518,7 @@ class PlaylistDL:
         except KeyboardInterrupt:
             print(utils.hex("    KEYBOARD INTERRUPT    ", bg='#ffffff'))
         except Exception as e:
-            print(utils.exc(e))
+            print(utils.format_exception(e))
         
         return extracted_v_infos, pl_dl_info
 
@@ -520,6 +526,11 @@ class PlaylistDL:
         """ Returns the newly downloaded portion of the raw v_infos """
         history_ids = yt_utils.ids_from_history(self._metadata['history'])
         yt_dlp_archive_ids = yt_utils.ids_from_yt_dlp_archive(self._yt_dlp_archive)
+
+        print("\n ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n"
+                "  Downloading Playlist Videos \n"
+                " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n")
+        
         v_infos, pl_dl_info = PlaylistDL._download_v_infos(
             self._infos.base_info.data,
             lambda pl_v_info, pl_dl_info: self._config.wrapper_match_filter(
@@ -538,11 +549,15 @@ class PlaylistDL:
             self._infos.raw_v_infos = _InfosEntry([v_infos], self._pl_outtmpls['raw_video_infojson'], is_written=False) # type: ignore - V_InfoDict
         
         epoch: int = max((yt_utils.get_epoch(info) for info in v_infos), default=None) or utils.epoch_now()
-        
+
+        print("\n ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
+                "  Playlist Videos Download Info  \n"
+                " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n")
         print(display.pl_download_info(pl_dl_info, errors=True))
+        print()
+        
         if write or (write is USE_CONFIG and self._config.write_raw_v_infos):
             self.write_info(self._infos.raw_v_infos, collision_policy='rm old', name='raw_v_infos', alt_info={'epoch': self.session_start_epoch})
-        print()
         
         # special metadata
         self._metadata['history'][str(epoch)] = list(filter(self._config.meta_dl_history_filter, pl_dl_info))
@@ -590,7 +605,7 @@ class PlaylistDL:
         if result is None:
             return
         elif isinstance(result, Exception):
-            print(utils.exc(result))
+            print(utils.format_exception(result))
             return result
         
         if not self._infos.raw_v_infos:
@@ -636,7 +651,7 @@ class PlaylistDL:
             i = vid_to_index[v_info['id']]
             pl_info['entries'][i], _v_merge_timeline = merge_infos.merge_v_infos( # type: ignore - pl_v_info added later
                 [pl_info['entries'][i], yt_utils.copy_and_sanitize_info(v_info, clean_info_json)],
-                field_updater=merge_updaters.latest)
+                field_updater=merge_updaters.latest, update_filter=lambda _: False)
 
         yt_utils.add_pl_info_to_entries(pl_info)
         return pl_info
@@ -677,7 +692,14 @@ class PlaylistDL:
             delete_prev: bool = False,
             init_ident: PL_InfoDict | list[_types._MetadataFiles_Lit] = ['latest_merge_info', 'latest_pl_info', 'latest_flat_info', '_merge_flat'],
             field_updater: Callable[[V_InfoDict, str, Any|type[merge_infos.NO_VALUE], bool],bool] = merge_updaters.latest_not_none_and_latest_unavail,
-            update_filter: Callable[[str], bool] = lambda _: True,
+            update_filter: Callable[[str], bool]|list = [
+                'title',
+                'description', 'categories', 'tags',
+                'uploader', 'uploader_id', 'channel', 'creators', 'creator',
+                'release_year', 'modified_date', 'availability',
+                'duration',
+                'extractor'
+            ],
     ) -> PL_InfoDict:
         """
         Creates merge info using `init_ident` and the current run's pl_info.
@@ -698,10 +720,16 @@ class PlaylistDL:
             print("No pl_info found. Creating pl_info using self.make_pl_info()")
             self.make_pl_info()
             if not self._infos.pl_info: raise RuntimeError("Failed to make pl_info")
-        
+
+        if isinstance(update_filter, list):
+            # need to put in a different variable
+            __update_filter = lambda k: k in update_filter
+        else:
+            __update_filter = update_filter
+
         merge_info = merge_infos.merge_pl_infos(
             [yt_utils.copy_and_sanitize_info(self._infos.pl_info.data)],
-            field_updater, update_filter, _init=init)
+            field_updater, __update_filter, _init=init)
         self._infos.merge_info = _InfosEntry(merge_info, self._pl_outtmpls['merge_infojson'], is_written=False, metadata_key='latest_merge_info')
 
         if write or (write is USE_CONFIG and self._config.write_merge):
@@ -720,6 +748,7 @@ class PlaylistDL:
             self.make_pl_info()
         if self._config.write_merge:
             self.make_merge_info()
+
 
 
     def write_metadata_file(self):

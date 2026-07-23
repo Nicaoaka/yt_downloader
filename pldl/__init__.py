@@ -16,4 +16,4 @@ from . import (
     post_processing
 )
 from .playlist_dl import PlaylistDL
-from .config import PlaylistDL_Config
+from .config import PlaylistDL_Config, Config_IdentType
