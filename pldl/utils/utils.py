@@ -1,4 +1,6 @@
 __all__ = [
+    'FalsySentinel',
+
     'hex',
     'exc', 'WARNING', 'ERROR',
     'truncate', 'numbered_list', 'clear',
@@ -6,6 +8,7 @@ __all__ = [
 
     'dict_without_keys', 'dict_with_keys',
     'get_missing_typeddict_keys', 'dedup', 'dict_merge',
+    'has_content',
 
     'json_load', 'json_dump',
     'handle_collision',
@@ -23,12 +26,23 @@ Only depends on python std lib
 from pathlib import Path
 import os
 import time
-import datetime
 from typing import Iterable, Any, Callable, Literal, Hashable
 import json
 import copy
 import re
 import traceback
+
+
+
+# Source - https://stackoverflow.com/a/69243488
+# Posted by Alex Waygood, modified by community. See post 'Timeline' for change history
+# Retrieved 2026-07-22, License - CC BY-SA 4.0
+class FalsySentinelMeta(type):
+    def __repr__(cls) -> str:
+        return f'<{cls.__name__}>'
+    def __bool__(cls) -> Literal[False]:
+        return False
+class FalsySentinel(metaclass=FalsySentinelMeta): pass
 
 
 
@@ -112,7 +126,7 @@ def clear(one_less_new_line: bool = False):
 
 # Input helpers
 
-class __NO_DEFAULT: ...
+class __NO_DEFAULT(FalsySentinel): ...
 def input_string(
         options: list[str],
         query_message: str = "",
@@ -215,8 +229,17 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-class PRINT_WARNING: ...
-class RAISE_EXC: ...
+def dict_merge(dict1: dict, dict2: dict) -> dict:
+    """ Recursive dict merge. `dict2` is prioritized in collisions. """
+    res = dict1.copy()
+    for key, value in dict2.items():
+        # dict collision
+        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
+            res[key] = dict_merge(res[key], value)
+        else:
+            # dict2 overwrites non-dict collisions
+            res[key] = value
+    return res
 
 
 def get_missing_typeddict_keys(data: dict, typeddict) -> list[str]:
@@ -224,7 +247,6 @@ def get_missing_typeddict_keys(data: dict, typeddict) -> list[str]:
     if not isinstance(data, dict):
         raise ValueError("data wasn't of type dict")
     return sorted(set(typeddict.__required_keys__) - set(data.keys()))
-
 
 
 def dedup[T](items: Iterable[T], hash: Callable[[T], Hashable]=hash) -> list[T]:
@@ -239,22 +261,20 @@ def dedup[T](items: Iterable[T], hash: Callable[[T], Hashable]=hash) -> list[T]:
     return res
 
 
-def dict_merge(dict1: dict, dict2: dict) -> dict:
-    """ Recursive dict merge. `dict2` is prioritized in collisions. """
-    res = dict1.copy()
-    for key, value in dict2.items():
-        # dict collision
-        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
-            res[key] = dict_merge(res[key], value)
-        else:
-            # dict2 overwrites non-dict collisions
-            res[key] = value
-    return res
+def has_content(obj: Any) -> bool:
+    if not obj:
+        return False
+    if isinstance(obj, (dict, list, set, tuple)):
+        return any(has_content(item) for item in obj)
+    return True
+
+
 
 
 # File helpers
 
 # Json
+class RAISE_EXC(FalsySentinel): ...
 def json_load(src: str | Path, default: Any = RAISE_EXC) -> Any:
     """ Try to load src. On failure return default or raise Exception """
     if not os.path.exists(src) and default is not RAISE_EXC:
@@ -267,30 +287,6 @@ def json_load(src: str | Path, default: Any = RAISE_EXC) -> Any:
             raise e from None
         WARNING(f"Error in json_load(). Returning default\n{exc(e)}")
         return default
-
-# def json_load_typeddict(src: str | Path, typeddict, default: Any|type[RAISE_EXC] = RAISE_EXC) -> Any:
-#     """
-#     Load json and check if required keys are present. Extra keys are ok.
-#     Or follow default: return default or raise Exception.
-#     """
-#     obj = json_load(src, default)
-#     try:
-#         missing_keys = get_missing_typeddict_keys(obj, typeddict)
-#         if not missing_keys:
-#             return obj
-#     except Exception as e:
-#         msg = f"Error in get_missing_typeddict_keys(). Returning default.\nPath: {src}\nExpected {typeddict}\n{e}"
-#         if default is RAISE_EXC:
-#             raise TypeError(msg) from None
-#         WARNING(msg)
-#         return default
-
-#     if missing_keys:
-#         msg = f"Path: {src}\nExpected {typeddict}\nMissing keys: {missing_keys}"
-#         if default is RAISE_EXC:
-#             raise TypeError(msg)
-#         WARNING(msg)
-#     return default
 
 def json_dump(
         obj,
@@ -349,68 +345,35 @@ def _get_unused_name(dst: Path, auto_rename: bool = True, msg: str = "") -> Path
         i += 1
     return dst_dir / dst_name
 
-class Delete: ...
+class Delete(FalsySentinel): ...
 CollisionPolicies = Literal['rm new', 'rm old', 'mov new', 'mov old']
 def _handle_collision(
         dst: Path,
         on_collision: CollisionPolicies = 'mov new',
         auto_rename: bool = True
-) -> tuple[Path|Delete, Path|Delete|None]:
-    """ Returns changes based on arguments.
-
-        Returns:
-        ```
-            tuple[
-                new: Path|Delete, 
-                old: Path|Delete|None
-            ]
-        ```
-        - `Path` is the Path to write or move it to
-        - `Delete` means don't write or unlink
-        - `None` means it wasn't found
-        
-        All Branches:
-        ```
-            NO Collision:
-                (new, None)
-            Collision:
-                'rm new'  -> (`Delete`, None)
-                'rm old'  -> (new, `Delete`)
-                'mov new'  -> (new_renamed, None)
-                'mov old'  -> (new, old_renamed)
-        ```
+) -> tuple[Path|type[Delete], Path|type[Delete]|None]:
     """
-    if not dst.exists():
-        return (dst, None)
+    Returns changes based on arguments.
+    - `Path`   = Write or move to that Path
+    - `Delete` = Don't write new info or unlink old info
+    - `None`   = No action needed
+    
+    The old action must happen before the new action
+    """
 
-    # names_in_dst = os.listdir(dst_dir)
-    # collision = any(name == desired_filename for name in names_in_dst)
-    # if not collision:
-    #     return None, [dst_path, dst_path]
-
-    if on_collision == 'rm new':
-        return (Delete(), None)
-
-    if on_collision == 'rm old':
-        return (dst, Delete())
-
-    renamed = _get_unused_name(
+    renamed = lambda: _get_unused_name(
         dst, auto_rename,
         msg="Rename new file...\n" if on_collision=='mov new' else
             "Rename existing flle...\n")
-    if on_collision == 'mov new':
-        return (renamed, None)
     
-    if on_collision == 'mov old':
-        return (dst, renamed)
+    match dst.exists(), on_collision:
+        case False,  _:         return (dst,        None)
+        case True,  'rm new':   return (Delete,     None)
+        case True,  'rm old':   return (dst,        Delete)
+        case True,  'mov new':  return (renamed(),  None)
+        case True,  'mov old':  return (dst,        renamed())
     
     raise ValueError(f"Unkonwn on_collision option: {on_collision}")
-
-def _setup_handle_collision(dst: Path, old: Path|Delete|None):
-    if isinstance(old, Delete):
-        os.unlink(dst)
-    if isinstance(old, Path):
-        os.rename(dst, old)
 
 def handle_collision(
         dst: Path,
@@ -423,7 +386,12 @@ def handle_collision(
     otherwise just return `NO_DEFALT`.
     """
     new, old = _handle_collision(dst, on_collision, auto_rename)
-    _setup_handle_collision(dst, old)
+
+    if old is Delete:
+        os.unlink(dst)
+    if isinstance(old, Path):
+        os.rename(dst, old)
+
     if isinstance(new, Path):
         return new
     return None

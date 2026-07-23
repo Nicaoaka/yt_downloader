@@ -1,7 +1,7 @@
 from pathlib import Path
 import re
 
-from ..yt_types import *
+from .._types import *
 
 # Playlist file helper
 # TODO: Test these 2 functions

@@ -1,5 +1,6 @@
 import unittest
 from pldl.utils.utils import *
+from pldl.yt_utils import *
 
 class Tests(unittest.TestCase):
 
@@ -24,6 +25,23 @@ class Tests(unittest.TestCase):
         self.assertDictEqual(
             dict_merge({'a': 1}, {'a': {'a': 2}}),
             {'a': {'a': 2}})
+
+    def test_has_content(self):
+        self.assertEqual(has_content(""), False)
+        self.assertEqual(has_content([]), False)
+        self.assertEqual(has_content(set()), False)
+        self.assertEqual(has_content(dict()), False)
+        self.assertEqual(has_content([set()]), False)
+        self.assertEqual(has_content([dict()]), False)
+        self.assertEqual(has_content([[[[[[[]]]]]]]), False)
+        self.assertEqual(has_content([[], [dict()], [], set()]), False)
+
+        # any dict
+        self.assertEqual(has_content('x'), True)
+        self.assertEqual(has_content({'x': None}), True)
+        self.assertEqual(has_content(['x']), True)
+        self.assertEqual(has_content([['x']]), True)
+        self.assertEqual(has_content([[], [[], 'x']]), True)
 
     def test_epoch(self):
         now = epoch_now()

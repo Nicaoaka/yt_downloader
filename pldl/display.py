@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from . import utils
-from .yt_types import *
+from ._types import *
 
 
 
@@ -77,7 +77,9 @@ def download_result(dl: DownloadInfo) -> _Tag:
         case DL_Action.DOWNLOAD:
             if result == DL_Result.DOWNLOAD:
                 return RESULT_TAG[DL_Result.DOWNLOAD]
-            if result in (DL_Result.EXTRACT, DL_Result.CACHED):
+            if result == DL_Result.CACHED:
+                return RESULT_TAG[DL_Result.CACHED]
+            if result == DL_Result.EXTRACT:
                 return RESULT_TAG[DL_Result.FAIL]
             return RESULT_TAG[result]
 
@@ -85,7 +87,7 @@ def download_result(dl: DownloadInfo) -> _Tag:
             return IMPOSSIBLE
 
 
-def _format_download_info(dl: DownloadInfo, errors: bool) -> str:
+def download_info(dl: DownloadInfo, errors: bool) -> str:
     action_tag = ACTION_TAG[dl['action']]
     result_tag = download_result(dl)
 
@@ -100,16 +102,16 @@ def _format_download_info(dl: DownloadInfo, errors: bool) -> str:
     return line
 
 
-def download_info(dl_info: DownloadInfo, errors: bool) -> None:
-    print(_format_download_info(dl_info, errors))
-
-
-def pl_download_info(pl_dl_info: PL_DownloadInfo, errors: bool) -> None:
+def pl_download_info(pl_dl_info: PL_DownloadInfo, errors: bool) -> str:
     idx_width = len(str(len(pl_dl_info)))
+    lines = []
     for i, dl_info in enumerate(pl_dl_info, start=1):
-        print(f"{i:>{idx_width}}. {_format_download_info(dl_info, errors)}")
+        lines.append(f"{i:>{idx_width}}. {download_info(dl_info, errors)}")
+    return '\n'.join(lines)
 
-def _make_pl_dl_info() -> PL_DownloadInfo:
+
+
+def _make_pl_dl_info_combos() -> PL_DownloadInfo:
     errors = []
     try:
         raise ValueError("Hello")
@@ -129,22 +131,9 @@ def _make_pl_dl_info() -> PL_DownloadInfo:
                     infos[-1]['errors'] = errors
     return infos
 
-
-def write_path(path: str|Path|None, name: str):
-    if not name:
-        name = '\b'
-    
-    if not path:
-        msg = f"No write {name}"
-    elif isinstance(path, str):
-        msg = f"[ Wrote {name}: \"{path}\" ]"
-    else:
-        msg = f"[ Wrote {name}: \"{path.absolute()}\" ]"
-    return utils.hex(msg, '#c800c8')
-
 def main():
-    pl_dl_info = _make_pl_dl_info()
-    pl_download_info(pl_dl_info, True)
+    pl_dl_info = _make_pl_dl_info_combos()
+    print(pl_download_info(pl_dl_info, True))
     pass
 
 if __name__ == "__main__":

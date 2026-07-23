@@ -12,7 +12,7 @@ I want to merge all historical info with the newly extracted info
   - Use postprocessing.merge_pl_infos()
 
 I want to download the playlist with ALL videos from past extracted flat_infos
-  - TODO Do a merge to always overwrite to newest while maintaining videos removed from the list
+  - Do a merge to always overwrite to newest while maintaining videos removed from the list
     If refresh timer is up, extract a new flat_info then merge with maintained
     MID_PRIORITY
 

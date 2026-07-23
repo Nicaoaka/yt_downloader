@@ -4,7 +4,7 @@ import sys
 import random
 
 import pldl.utils.utils as utils
-from pldl.yt_types import *
+from pldl._types import *
 from pldl.post_processing import merge_pl_infos, merge_v_infos
 
 def rand(chance: float) -> bool:

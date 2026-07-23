@@ -1,14 +1,36 @@
+__all__ = [
+    'get_pl_id', 'is_id_like',
+    'get_yt_video_url', 'get_yt_playlist_url',
+    'get_archiveorg_url', 'get_archiveorg_video_url', 
+    'get_v_display',
+
+    'V_InfoLevel', 'PL_InfoLevel',
+    'extract_flat_info', 'download_video', 'download_video_alt',
+    'get_v_info_level', 'get_pl_info_level',
+
+    'ytdlp_eval_tmpl', 'eval_tmpl_with_alt_data',
+
+    'copy_and_sanitize_info', 'load_yt_archive',
+    'ids_from_yt_dlp_archive', 'ids_from_pl_download_info', 'ids_from_history',
+    'get_pl_v_info', 'add_pl_info_to_entries',
+
+    'get_epoch', 'get_latest_epoch', 'to_readable_epoch', 'from_readable_epoch',
+
+    'validate_metdata_config_sync',
+]
+
 import re
 import datetime
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from enum import IntEnum
 
 from yt_dlp import YoutubeDL
-from yt_dlp.extractor.youtube import YoutubePlaylistIE
+from yt_dlp.utils import DownloadError
 
 from .utils import utils
-from .yt_types import *
-from . import yt_types
+from ._types import *
+from . import _types
 if TYPE_CHECKING:
     from .config import PlaylistDL_Config
 
@@ -17,6 +39,7 @@ if TYPE_CHECKING:
 # YouTube and InternetWebArchive id/url
 
 def get_pl_id(url_or_id: str) -> str|None:
+    from yt_dlp.extractor.youtube import YoutubePlaylistIE
     try:
         return YoutubePlaylistIE._match_id(url_or_id)
     except:
@@ -29,9 +52,12 @@ def is_id_like(id: str, is_video=False) -> bool:
         return False
     
     # playlist id lengths can vary dramatically
-
-    VALID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890-_"
-    # [a-zA-Z0-9-_]
+    VALID_CHARS = ( # [a-zA-Z0-9-_]
+        'abcdefghijklmnopqrstuvwxyz'
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        '1234567890'
+        '-_'
+    )
     return all(c in VALID_CHARS for c in id)
 
 def get_yt_video_url(video_id: str) -> str:
@@ -72,30 +98,125 @@ def get_v_display(v_info: V_InfoDict|dict) -> str:
 
 
 
-# Path helpers
+# Extractors
 
-def ytdlp_eval_tmpl(tmpl: str, info: InfoDict|dict):
-    return YoutubeDL().evaluate_outtmpl(tmpl, info, True) # type: ignore
+class V_InfoLevel(IntEnum):
+    NONE = 0
+    UNAVAIL_YT = 1
+    FLAT = 2
+    EXTRACT = 3
+    DOWNLOAD = 4
+    
+class PL_InfoLevel(IntEnum):
+    NONE = 0
+    FLAT = 1
+    MERGE_FLAT = 2
+    NORMAL = 3
+    MERGE = 4
 
-def eval_tmpl_with_alt_data(tmpl: str, info: InfoDict|dict, alt_data: InfoDict|dict):
-    """ Temporarily swap keys of `info` to `alt_data` to call ``ytdlp_eval_tmpl`` """
-    original = {k: info.get(k, utils.__NO_DEFAULT) for k in alt_data}
-    info |= alt_data
+def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDict[V_InfoDict]:
+    """ Get basic info from a youtube playlist, it must be available on youtube.
 
-    path = ytdlp_eval_tmpl(tmpl, info)
+    Args:
+        pl_url_or_id (str): Playlist url or id to extract
+        opts (YT_DLP_Params, optional): Options to pass into YoutubeDL. Defaults to {}.
+            Note 'skip_download', 'extract_flat', 'ignoreerrors' are forced.
 
-    for k, v in original:
-        if v is utils.__NO_DEFAULT:
-            info.pop(k)
-        else:
-            info[k] = v
-    return path
+    Returns:
+        PL_InfoDict: Flat playlist info
+    """
+    with YoutubeDL(opts | {
+        'skip_download': 'True',
+        'extract_flat': 'in_playlist',
+        'ignoreerrors': True,
+    }) as ydl:
+        flat_info: PL_InfoDict[V_InfoDict] = ydl.extract_info(pl_url_or_id, download=False) # type: ignore
+
+    flat_info['info_level'] = PL_InfoLevel.FLAT.name
+    
+    now = utils.epoch_now()
+    for entry in flat_info['entries']:
+        entry.setdefault('epoch', flat_info.get('epoch', now))
+        entry.setdefault('playlist_epoch', flat_info.get('epoch', now))
+        entry['info_level'] = V_InfoLevel.FLAT.name
+    return flat_info
+
+def download_video(
+        v_url_or_id: str,
+        opts: YT_DLP_Params = {},
+        yt: bool = True,
+        wa: bool = True,
+        download: bool = True,
+) -> tuple[V_InfoDict|None, list[Exception], bool]:
+    """ Downloads a video, using Youtube and/or WebArchive extractors
+
+    Args:
+        v_url_or_id (str): the url or id of the video
+        opts (YT_DLP_Params, optional): any additional opts for the download. Defaults to {}.
+        yt (bool, optional): Use `YoutubeIE`. Should be False if it is known to be unavailable. Defaults to True.
+        wa (bool, optional): Use `YoutubeWebArchiveIE` fallback. Defaults to True.
+        download (bool, optional): Whether to download the video. Defaults to True.
+
+    Returns:
+        tuple[V_InfoDict | dict | None, list[Exception], bool]:
+        - video info, `None` if the vid is already in the archive
+        - list of Exception objects
+        - if extraction was successful
+    """
+    info: V_InfoDict = {} # type: ignore - init
+    errors: list[Exception] = []
+    if yt:
+        try:
+            with YoutubeDL(opts) as ydl:
+                _info = ydl.extract_info(v_url_or_id, download=download)
+                if _info is None:
+                    return None, errors, True # already downloaded
+                info.update(_info) # type: ignore
+                info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
+                return info, errors, True
+        except DownloadError as yt_err:
+            info['yt_unavailable_msg'] = yt_err.msg
+            errors.append(yt_err)
+        except Exception as e:
+            errors.append(e)
+    if wa:
+        try:
+            with YoutubeDL(opts) as ydl:
+                _info = ydl.extract_info(get_archiveorg_url(v_url_or_id, for_yt_dlp=True), download=download)
+                if _info is None:
+                    return None, errors, True # already downloaded
+                info.update(_info) # type: ignore
+                info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
+                return info, errors, True
+        except DownloadError as wa_err:
+            info['wa_unavailable_msg'] = wa_err.msg
+            errors.append(wa_err)
+        except Exception as e:
+            errors.append(e)
+    return info, errors, False
+
+def download_video_alt(url: str, opts: YT_DLP_Params, download: bool) -> V_InfoDict | str|None | Exception:
+    """
+    Tries to downlaod the video given the url using yt_dlp
+    Returns the resulting data
+    """
+    try:
+        with YoutubeDL(opts) as ydl:
+            info: V_InfoDict = ydl.extract_info(url, download=download) # type: ignore
+            if not info:
+                return None
+            info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
+
+    except DownloadError as dl_err:
+        return dl_err.msg
+    except Exception as e:
+        return e
 
 
 
-# Availability
+# Extraction Availability
 
-def maybe_available_on_yt(info: V_InfoDict | dict) -> bool:
+def _maybe_available_on_yt(info: V_InfoDict | dict) -> bool:
     """ Returns True if unsure """
     # 'ie_key' occurs in flat info, but flat will only use youtube - OK.
     if info.get('extractor_key') == 'YoutubeWebArchive':
@@ -103,34 +224,117 @@ def maybe_available_on_yt(info: V_InfoDict | dict) -> bool:
     # incomplete extract (many other stats could be used like `duration`)
     return info.get('channel') is not None
 
-def has_extracted_info(info: V_InfoDict | dict) -> bool:
+def _has_extracted_info(info: V_InfoDict | dict) -> bool:
     return bool(info.get('extractor'))
 
-def has_download_info(info: V_InfoDict | dict) -> bool:
+def _has_download_info(info: V_InfoDict | dict) -> bool:
     return bool(info.get("requested_downloads"))
 
-
-
-def get_v_info_level(v_info: V_InfoDict|dict|None) -> _V_InfoLevel:
+def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
     """ Webarchive could appear at Download or Extract """
-    if not v_info:                    return _V_InfoLevel.NONE
-    if has_download_info(v_info):     return _V_InfoLevel.DOWNLOAD
-    if has_extracted_info(v_info):    return _V_InfoLevel.EXTRACT
-    if maybe_available_on_yt(v_info): return _V_InfoLevel.FLAT
-    return _V_InfoLevel.UNAVAIL_YT
+    if not v_info:
+        return V_InfoLevel.NONE
+    
+    info_level_name: str = v_info.get('info_level') or ''
+    if info_level_name in V_InfoLevel.__members__:
+        return V_InfoLevel[info_level_name]
+    
+    utils.WARNING(f"No 'info_level' key found for video id={v_info.get('id')}. Using heuristics . . .")
+    if _has_download_info(v_info):     return V_InfoLevel.DOWNLOAD
+    if _has_extracted_info(v_info):    return V_InfoLevel.EXTRACT
+    if _maybe_available_on_yt(v_info): return V_InfoLevel.FLAT
+    return V_InfoLevel.UNAVAIL_YT
 
-def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> _PL_InfoLevel:
-    if not pl_info or not pl_info.get('entries'): return _PL_InfoLevel.NONE
-    has_extracts = any(get_v_info_level(entry) >= _V_InfoLevel.EXTRACT for entry in pl_info.get('entries', []))
+def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
+    if not pl_info:
+        return PL_InfoLevel.NONE
+    
+    info_level_name: str = pl_info.get('info_level') or ''
+    if info_level_name in PL_InfoLevel.__members__:
+        return PL_InfoLevel[info_level_name]
+    
+    utils.WARNING(f"No 'info_level' key found for playlist id={pl_info.get('id')}. Using heuristics . . .")
+    has_extracts = any(get_v_info_level(entry) >= V_InfoLevel.EXTRACT for entry in pl_info.get('entries', []))
     has_merge_timeline = 'merge_timeline' in pl_info
     match has_extracts, has_merge_timeline:
-        case  True,  True: return _PL_InfoLevel.MERGE
-        case  True, False: return _PL_InfoLevel.NORMAL
-        case False,  True: return _PL_InfoLevel.MERGE_FLAT
-        case False, False: return _PL_InfoLevel.FLAT
+        case  True,  True: return PL_InfoLevel.MERGE
+        case  True, False: return PL_InfoLevel.NORMAL
+        case False,  True: return PL_InfoLevel.MERGE_FLAT
+        case False, False: return PL_InfoLevel.FLAT
+
+
+
+# Path helpers
+
+def ytdlp_eval_tmpl(tmpl: str, info: ANY_InfoDict):
+    return YoutubeDL().evaluate_outtmpl(tmpl, info, sanitize=True) # type: ignore
+
+def eval_tmpl_with_alt_data(tmpl: str, info: ANY_InfoDict, alt_data: ANY_InfoDict):
+    """ Temporarily swap keys of `info` to `alt_data` to call ``ytdlp_eval_tmpl`` """
+    path = ytdlp_eval_tmpl(tmpl, copy_and_sanitize_info(info | alt_data)) # type: ignore - both are dicts, tmp isn't important
+    return path
+
 
 
 # Processing archives
+
+def copy_and_sanitize_info[T](_info_dict: T, remove_private_keys=False) -> T|Any:
+    """
+    Creates a json-dumpable deepcopy of the info_dict.
+    
+    Keeps: dict, list, tuple, set, LazyList, str, int, float, bool.
+    Everything else is turned to str using repr().
+
+    Never removes 'entries' kval.
+    """
+    KEY = None
+    if isinstance(_info_dict, dict):
+        info_dict = _info_dict
+    else:
+        KEY = '__copy_and_sanitize_info__'
+        info_dict = {KEY: _info_dict}
+    
+    info_dict = YoutubeDL.sanitize_info(info_dict, False) # type: ignore
+    if KEY:
+        info_dict = info_dict[KEY] # type: ignore
+
+    if remove_private_keys is False:
+        return info_dict
+    
+    reject = lambda k, v: v is None or k.startswith('__') or k in {
+        'requested_downloads', 'requested_formats', 'requested_subtitles', 'requested_entries',
+        'filepath', '_filename', 'filename', 'infojson_filename', 'original_url',
+        'playlist_autonumber',
+    }
+    
+    def filter_fn(obj):
+        if isinstance(obj, dict):
+            return {k: filter_fn(v) for k, v in obj.items() if not reject(k, v)}
+        elif isinstance(obj, list):
+            return [filter_fn(x) for x in obj] # get entries
+        # other cases are handled in YoutubeDL
+        return obj
+    
+    return filter_fn(info_dict)
+
+def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
+    if not p or not os.path.exists(p):
+        return ()
+    res = []
+    with open(p, 'r', encoding='utf-8') as f:
+        for line_no, line in enumerate(f, start=1):
+            if not line:
+                continue
+            items = line.split()
+            if len(items) != 2:
+                utils.WARNING(f"[yt_dlp archive] Unrecognized @ L{line_no}: {line}")
+                continue
+            ie_key, v_id = items
+            if not is_id_like(v_id, is_video=True):
+                utils.WARNING(f"[yt_dlp archive] Bad video id @ L{line_no}: {line}")
+                continue
+            res.append( (ie_key, v_id) )
+    return tuple(res)
 
 def ids_from_yt_dlp_archive(l: YT_DLP_DownloadArchive) -> list[V_ID]:
     return [tup[1] for tup in l]
@@ -165,20 +369,19 @@ def ids_from_history(history: PL_DownloadHistory) -> ID_DownloadInfo:
             merged[k].extend(ids)
     return merged
 
-
 def get_pl_v_info(pl_info: PL_InfoDict, v_idx: int):
     return {
         'playlist_id':                  pl_info['id'],
-        'playlist':                     pl_info['title'] or pl_info['id'],
-        'playlist_count':               pl_info['playlist_count'],
-        'n_entries':                    pl_info['playlist_count'],
+        'playlist':                     pl_info.get('title') or pl_info['id'],
+        'playlist_count':               pl_info.get('playlist_count'),
+        'n_entries':                    pl_info.get('playlist_count'),
         'playlist_index':               v_idx,
         'playlist_autonumber':          v_idx,
-        'playlist_title':               pl_info['title'],
-        'playlist_channel':             pl_info['channel'],
+        'playlist_title':               pl_info.get('title'),
+        'playlist_channel':             pl_info.get('channel'),
         'playlist_channel_id':          pl_info.get('channel_id'),
-        'playlist_uploader':            pl_info['uploader'],
-        'playlist_uploader_id':         pl_info['uploader_id'],
+        'playlist_uploader':            pl_info.get('uploader'),
+        'playlist_uploader_id':         pl_info.get('uploader_id'),
         'playlist_webpage_url':         pl_info.get('webpage_url') or pl_info.get('original_url') or pl_info.get('url'),
 
         # custom
@@ -193,7 +396,7 @@ def add_pl_info_to_entries(pl_info: PL_InfoDict):
 
 # epoch stuff
 
-def get_epoch(info: InfoDict|dict) -> int:
+def get_epoch(info: V_InfoDict|PL_InfoDict|dict) -> int:
     from .config import DEFAULT_EPOCH
     return info.get('epoch', DEFAULT_EPOCH())
 
@@ -210,7 +413,6 @@ def get_latest_epoch(pl_info: PL_InfoDict) -> int:
     return latest
 
 
-
 def to_readable_epoch(epoch: int) -> str:
     # low epochs can be invalid because of timezones.
     # So, exclue the first 24 hours from the start of the epoch
@@ -225,7 +427,6 @@ def to_readable_epoch(epoch: int) -> str:
     if is_malformed:
         return MALFORMED_EPOCH_FMT.replace('{}', formatted)
     return formatted
-
 
 def from_readable_epoch(readable: str) -> int:
     from .config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
@@ -245,12 +446,8 @@ def from_readable_epoch(readable: str) -> int:
     return int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())
 
 
-# basic validations
 
-def validate_pl_info(pl_info: PL_InfoDict):
-    # TODO - is this necessary?
-    if missing := utils.get_missing_typeddict_keys(pl_info, PL_InfoDict): # type: ignore - Metadata is a TypedDict
-        raise KeyError(f"Missing kvals: {missing}")
+# basic validations
 
 def validate_metdata_config_sync(metadata: Metadata, config: PlaylistDL_Config):
     """ May raise KeyError, RuntimeError, or FileNotFoundError """
@@ -258,13 +455,13 @@ def validate_metdata_config_sync(metadata: Metadata, config: PlaylistDL_Config):
     if missing := utils.get_missing_typeddict_keys(metadata, Metadata): # type: ignore - Metadata is a TypedDict
         raise KeyError(f"Missing kvals: {missing}")
 
-    for k in yt_types._MetadataPointers.__required_keys__:
-        if metadata['pointers'][k] is None:
+    for p_key in _types._MetadataPointers.__optional_keys__:
+        if metadata['pointers'].get(p_key) is None:
             continue
 
-        rel_path, _epoch = metadata['pointers'][k]
+        rel_path, _epoch = metadata['pointers'][p_key]
         real_path = os.path.join(config.home, rel_path)
-        utils.assert_file(real_path, f"{k} (metadata)", min_size=1)
+        utils.assert_file(real_path, f"{p_key} (metadata)", min_size=1)
     
     meta_path = os.path.join(config.home, metadata['path_tmpls'].get('Playlist', 'NA'), metadata['path_tmpls'].get('metadata', 'NA'))
     for k in metadata['path_tmpls'].keys() | config.path_tmpls.keys():

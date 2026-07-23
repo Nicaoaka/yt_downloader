@@ -1,145 +1,33 @@
 __all__ = [
-    'merge_v_infos', 'merge_pl_infos', 'Updater',
+    'merge_v_infos', 'merge_pl_infos',
 ]
 
 from collections import defaultdict
 from typing import Any, Callable
 
-from ..yt_types import *
+from .._types import *
 from .. import utils
 from .. import yt_utils
 
-
-class NO_VALUE:
-    def __bool__(self):
-        return False
-
-class Updater:
-    """
-    Callable[[Merged_V_InfoDict, key, value, is_latest], did_update]
-
-    Make changes to `info` in-place. Return True if it was an `update`-worthy change.
-    """
-
-    @staticmethod
-    def latest(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-        if is_latest and v != NO_VALUE:
-            info[k] = v
-            return True
-        return False
-
-    @staticmethod
-    def latest_not_None(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-        if v is None:
-            return False
-        return Updater.latest(info, k, v, is_latest)
-
-    @staticmethod
-    def latest_only(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-        if not is_latest:
-            return False
-        if v == NO_VALUE:
-            info.pop(k)
-        else:
-            info[k] = v
-        return True
+class NO_VALUE(utils.FalsySentinel): ...
     
-    @staticmethod
-    def _unsafe_maximizer(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-        if v is None or v == NO_VALUE:
-            return False
-        if (v or 0) > (info.get(k) or 0): # type: ignore - values may not define __gt__
-            info[k] = v
-            return True
-        return False
-
-    @staticmethod
-    def maximizer(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-        try:
-            return Updater._unsafe_maximizer(info, k, v, is_latest)
-        except Exception: # not sure what errors may appear
-            return Updater.fill_empty(info, k, v, is_latest)
-
-    @staticmethod
-    def fill_empty(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-        if v is None or v == NO_VALUE:
-            return False
-        if is_latest or (k not in info or info[k] is None):
-            info[k] = v
-            return True
-        return False
-
-    @staticmethod
-    def latest_not_none_and_latest_unavail(info: V_InfoDict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-        if info.get(k, NO_VALUE) == v:
-            return False
-        
-        match k:
-            case 'yt_unavailable_msg' | 'wa_unavailable_msg':
-                return Updater.latest_only(info, k, v, is_latest)
-            case _:
-                return Updater.latest_not_None(info, k, v, is_latest)
-
-
-
-def _get_unavailable_msgs(v_infos: list[V_InfoDict]) -> list[UnavailableMsg]:
-    res: list[UnavailableMsg] = []
-    for v_info in v_infos:
-        if not v_info:
-            continue
-        for k in ('yt_unavailable_msg', 'wa_unavailable_msg'):
-            if k not in v_info:
-                continue
-            res.append({
-                'epoch': v_info.get('epoch'), # None is more expressive
-                'msg': v_info.get(k),
-                'type': k.removesuffix('_unavailable_msg')
-            })
-        res.extend(v_info.get('unavailable_msgs', []))
-    return _dedup_and_sort_unavail_msgs(res)
-
 def _dedup_and_sort_unavail_msgs(msgs: list[UnavailableMsg]):
     return sorted(
-        utils.dedup(msgs, hash=lambda x: str(x['epoch']) + str(x['type'])),
-        key=lambda um: (um['epoch'] or 0) + (0.5 if um['type'] == 'yt' else 0),
+        utils.dedup(msgs, hash=lambda x: x.values()),
+        key=lambda info: (info['epoch'] or 0) \
+                        +(0.2 if info['type'] == 'yt' else 0.1 if info['type'] == 'wa' else 0),
         reverse=True)
 
 
-def _get_info_level_timeline(v_infos: list[V_InfoDict], merge_level: _V_InfoLevel) -> V_MergeTimeline:
-    """
-    Returns V_MergeTimeline relative to _init.
-        such that: `full v timeline = {..., **return}`
-
-    Note: If better info is found by going back in time,
-    it is possible that the output will go forward and backwards in time.
-    This is okay because info levels have a defined order
-    and there will not be duplicate transitions.
-    """
-    timeline: V_MergeTimeline = defaultdict(dict) # type: ignore - init
-    for v_info in v_infos:
-        level = yt_utils.get_v_info_level(v_info)
-        if level > merge_level:
-            epoch = yt_utils.to_readable_epoch(yt_utils.get_epoch(v_info))
-            timeline[epoch]['better_info'] = f'{merge_level.name} -> {level.name}'
-            merge_level = level
-    return timeline
 
 def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimeline:
+    from ..config import DEFAULT_EPOCH
     timeline: V_MergeTimeline = defaultdict(dict) # type: ignore - init
     for msg in unavail_msgs:
-        epoch = yt_utils.to_readable_epoch(msg['epoch'] or 0)
+        epoch = yt_utils.to_readable_epoch(msg['epoch'] if msg['epoch'] is not None else DEFAULT_EPOCH())
         timeline[epoch].setdefault('unavailable', []).append(f"{msg['type']}: {msg['msg']}")
     return timeline
 
-def _get_v_timeline(
-        v_infos: list[V_InfoDict],
-        merge_level: _V_InfoLevel,
-        unavail_msgs: list[UnavailableMsg],
-) -> V_MergeTimeline:
-    return utils.dict_merge(
-        _get_info_level_timeline(v_infos, merge_level),
-        _get_unavailabe_timeline(unavail_msgs)
-    )
 
 
 def merge_v_infos(
@@ -150,6 +38,9 @@ def merge_v_infos(
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
     """
     Does not copy v_info objects. Some input object references will be the same in the output!
+
+    `info_level` and `unavailable_msgs` will be updated without concern for callbacks.
+
     Args:
         v_infos: list of a single video id's info dicts. (Raise ValueError if not)
         field_updater (Callable[[Merged_V_InfoDict, key, value, is_latest], did_update]):
@@ -168,32 +59,72 @@ def merge_v_infos(
     if len(ids) != 1 or ids == {None}: # don't allow None
         raise ValueError(f"Multiple ids found: {ids}")
     
-    skip = [i for i, x in enumerate(v_infos) if x is _init]
-
     if not v_infos and _init is None:
         raise ValueError("Provide at least 1 v_info")
     if not v_infos:
         return _init, {} # type: ignore - ok
 
     v_infos = sorted(v_infos, key=yt_utils.get_epoch, reverse=True)
-    _init_level = yt_utils.get_v_info_level(_init)
     merge_info: V_InfoDict = _init or {} # type: ignore - init
-    updates = defaultdict(dict)
-    for i, v_info in enumerate(v_infos):
-        if i in skip:
+
+    curr_info_level = yt_utils.get_v_info_level(merge_info)
+    all_unavailable_msgs = merge_info.get('unavailable_msgs', [])
+
+    v_timeline: V_MergeTimeline = {}
+    for v_info in v_infos:
+        if v_info is _init:
             continue
+
+        # setup
+        epoch = yt_utils.to_readable_epoch(yt_utils.get_epoch(v_info))
+        if epoch not in v_timeline:
+            v_timeline[epoch] = {}
+        _timeline = v_timeline[epoch]
+        
+        # updating v_info
         is_latest = v_info is v_infos[0] and (yt_utils.get_epoch(v_info) >= yt_utils.get_epoch(merge_info))
         for k in v_info.keys() | merge_info.keys():
-            if field_updater(merge_info, k, v_info.get(k, NO_VALUE), is_latest):
-                epoch = yt_utils.to_readable_epoch(yt_utils.get_epoch(v_info))
-                if update_filter(k):
-                    updates[epoch].setdefault('updates', set()).add(k)
+            report_update = field_updater(merge_info, k, (v_info.get(k, NO_VALUE)), is_latest)
+            if report_update and update_filter(k):
+                if not 'updates' in _timeline:
+                    _timeline['updates'] = list()
+                if k not in _timeline['updates']:
+                    _timeline['updates'].append(k)
+
+        # better_info
+        new_info_level = yt_utils.get_v_info_level(v_info)
+        if curr_info_level < new_info_level:
+            merge_info['info_level'] = new_info_level.name
+            if 'better_info' not in _timeline:
+                _timeline['better_info'] = []
+            _timeline['better_info'].append(f'{curr_info_level.name} -> {new_info_level.name}')
+            curr_info_level = new_info_level
+
+        # unavailable_msgs
+        all_unavailable_msgs.extend(v_info.get('unavailable_msgs', []))
+        for k in ('yt_unavailable_msg', 'wa_unavailable_msg', ):
+            if k not in v_info:
+                continue
+            all_unavailable_msgs.append({
+                'epoch': v_info.get('epoch'), # None is more expressive
+                'msg': v_info.get(k),
+                'type': k.removesuffix('_unavailable_msg'),
+            })
     
-    new_unavail_msgs = _get_unavailable_msgs(v_infos)
-    merge_info['unavailable_msgs'] = _dedup_and_sort_unavail_msgs(merge_info.get('unavailable_msgs', []) + new_unavail_msgs)
-    timeline = _get_v_timeline(v_infos, _init_level, merge_info['unavailable_msgs'])
-    timeline = utils.dict_merge(timeline, updates)
-    return merge_info, timeline
+    merge_info['unavailable_msgs'] = _dedup_and_sort_unavail_msgs(all_unavailable_msgs)
+    utils.dict_merge(v_timeline, _get_unavailabe_timeline(merge_info['unavailable_msgs']))
+    return merge_info, v_timeline
+
+
+
+
+def _get_v_paths(pl_v_ids, pl_infos):
+    id_map = {v_id: i for i, v_id in enumerate(pl_v_ids)}
+    v_id_to_paths: list[list[V_Path]] = [list() for _ in range(len(pl_v_ids))]
+    for i, _pl in enumerate(pl_infos):
+        for j, _v in enumerate(_pl['entries']):
+            v_id_to_paths[id_map[_v['id']]].append( (i, j) )
+    return v_id_to_paths
 
 type V_Path = tuple[int, int]
 def merge_pl_infos(
@@ -239,14 +170,9 @@ def merge_pl_infos(
     merge_info: PL_InfoDict = utils.dict_without_keys(pl_infos[0], {'entries', 'merge_timeline'}) # type: ignore - init
     merge_info['playlist_count'] = len(V_ID_ORDER)
     
+    v_id_to_paths = _get_v_paths(V_ID_ORDER, pl_infos)
 
-    id_map = {v_id: i for i, v_id in enumerate(V_ID_ORDER)}
-    v_id_to_paths: list[list[V_Path]] = [list() for _ in range(merge_info['playlist_count'])]
-    for i, _pl in enumerate(pl_infos):
-        for j, _v in enumerate(_pl['entries']):
-            v_id_to_paths[id_map[_v['id']]].append( (i, j) )
-
-    entries: list[PL_V_InfoDict] = [dict() for _ in range(len(V_ID_ORDER))] # type: ignore - init
+    entries: list[V_InfoDict] = [{'id': id} for id in range(len(V_ID_ORDER))] # type: ignore - correct type
     pl_timeline: PL_MergeTimeline = {} if _init_pl_idx is None else pl_infos[_init_pl_idx].get('merge_timeline', {})
     for i, v_paths in enumerate(v_id_to_paths):
         merge_entry, v_timeline = merge_v_infos(
@@ -260,7 +186,9 @@ def merge_pl_infos(
             pl_timeline.setdefault(merge_entry['id'], {})
             pl_timeline[merge_entry['id']] = utils.dict_merge(pl_timeline[merge_entry['id']], v_timeline)
     
+    all_flat_entries = all(yt_utils.get_v_info_level(entry) == yt_utils.V_InfoLevel.FLAT for entry in entries)
     merge_info['entries'] = entries
+    merge_info['info_level'] = (yt_utils.PL_InfoLevel.MERGE_FLAT if all_flat_entries else yt_utils.PL_InfoLevel.MERGE).name
     yt_utils.add_pl_info_to_entries(merge_info)
     
     merge_info['merge_timeline'] = pl_timeline

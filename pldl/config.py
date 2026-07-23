@@ -6,35 +6,15 @@ __all__ = [
 
 import os
 import dataclasses
-from typing import Callable, Literal
-import copy
+from typing import Callable, Literal, Any
 
 from .utils import utils
-from .yt_types import *
-from . import yt_types
+from ._types import *
 from . import yt_utils
-from .post_processing import merge_infos
-
-# Do these need to be configurable?
-DEFAULT_EPOCH: Callable[[],int] = lambda: -utils.epoch_now()
-READABLE_EPOCH_FMT = '%Y-%m-%d__%H-%M-%S' # For formats, see datetime.strftime()
-MALFORMED_EPOCH_FMT = '{} (malformed)'
-
-def default_merge_fallbacks() -> list[yt_types._MetadataFiles_Lit]:
-    """
-    The single other playlist to merge current generated pl_info with.
-    Goes to next if pointer is None or the infodict is invalid.
-    """
-    return [
-        'latest_merge_info', # checked/used first
-        'latest_pl_info',    # second
-        'latest_flat_info',  
-        '_merge_flat',       # last
-    ]
-
+from .post_processing import filters
 
 def default_wrapper_match_filter(
-    pl_v_info: PL_V_InfoDict,
+    pl_v_info: V_InfoDict|dict,
     curr_dl_info: PL_DownloadInfo,
     history: PL_DownloadHistory,
     history_ids: ID_DownloadInfo,
@@ -131,7 +111,7 @@ def default_path_tmpls() -> CustomOuttmpl:
     """
     return {
         'Playlist': lambda pl_info: (
-            f"{pl_info['title'] or "[no title]"} "
+            f"{pl_info.get('title') or "[no title]"} "
             f"[{utils.truncate(pl_info['id'], 11, end_in_max=False, trunc_start=True)}]"
         ),
 
@@ -150,40 +130,36 @@ def default_path_tmpls() -> CustomOuttmpl:
 
 
 # all filters are in-place
-def default_filter_flat(pl_info: PL_InfoDict):
+def default_filter_flat_info(flat_info: PL_InfoDict) -> None:
     pass
-def default_filter_normal(pl_info: PL_InfoDict):
+def default_filter_pl_info(pl_info: PL_InfoDict) -> None:
     pass
-def default_filter_merge(pl_info: PL_InfoDict):
+def default_filter_merge_info(merge_info: PL_InfoDict) -> None:
     pass
-def default_filter_common(pl_info: PL_InfoDict):
-    from . import post_processing
-    post_processing.filter_pl_info(pl_info, set(), {'automatic_captions'})
+def default_filter_all_info(info: PL_InfoDict|Any) -> None:
+    """ Filter used by raw_flat, raw_v_infos, _merge_flat, pl_info, and merge_info """
+    if not isinstance(info, dict):
+        return
+    filters.filter_pl_info(info, set(), {'automatic_captions'}) #
 
 
 def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
     """
-    Return True to keep, False to filter out
+    Return True to add to history
 
-    These skip when nothing happens, while still being a successful operation
-    
-    DL_Result.CACHED being in this category is debatable because
-    the user-defined match filter chose to download even though it was already
-    downloaded in the metadata history.
+    The default will return False for operations that were intentionally skipped:
+    - `SKIP -> CANCELLED`
+    - `QUIT -> CANCELLED`
     """
-    return dl_info['action'] not in (DL_Action.SKIP, DL_Action.QUIT) and \
-           dl_info['result'] not in (DL_Result.CANCELLED)
+    return not (
+        dl_info['action'] in (DL_Action.SKIP, DL_Action.QUIT, ) and \
+        dl_info['result'] in (DL_Result.CANCELLED, ))
 
-
-def default_v_timeline_update_filter(key: str) -> bool:
-    """
-    Return `True` if key should be added to 'updates' if it was updated in the merge
-    Return `False` to omit it
-    """
-    return True
 
 @dataclasses.dataclass
 class PlaylistDL_Config:
+
+    
     # --- playlist identity / location (PICK ONLY ONE) ---
     ident: str
     ident_type: Config_IdentType
@@ -200,33 +176,28 @@ class PlaylistDL_Config:
     empty_cookies:     bool = False
 
     # --- what to persist ---
-    write_flat:        bool = True
-    write_raw_v_infos: bool = True
-    write_pl_info:     bool = True
+    write_flat:        bool = False
+    write_raw_v_infos: bool = False
+    write_pl_info:     bool = False
     write_merge:       bool = True
     
     # filters
-    filter_flat:   Callable[[PL_InfoDict], None] = default_filter_flat
-    filter_normal: Callable[[PL_InfoDict], None] = default_filter_normal
-    filter_merge:  Callable[[PL_InfoDict], None] = default_filter_merge
-    filter_common: Callable[[PL_InfoDict], None] = default_filter_common # used after filter_flat, filter_normal, and filter_merge
+    filter_flat_info:   Callable[[PL_InfoDict], None] = dataclasses.field(default=default_filter_flat_info)
+    filter_pl_info: Callable[[PL_InfoDict], None] = dataclasses.field(default=default_filter_pl_info)
+    filter_merge_info:  Callable[[PL_InfoDict], None] = dataclasses.field(default=default_filter_merge_info)
+    filter_all_info: Callable[[PL_InfoDict|Any], None] = dataclasses.field(default=default_filter_all_info) # used after filter_flat, filter_normal, and filter_merge
 
-    meta_dl_history_filter: Callable[[DownloadInfo], bool] = default_dl_info_filter
-
-    # merge options
-    merge_fallback_order: list[yt_types._MetadataFiles_Lit] = dataclasses.field(default_factory=default_merge_fallbacks)
-    v_merge_field_updater = merge_infos.Updater.latest_not_none_and_latest_unavail
-    v_timeline_update_filter: Callable[[str], bool] = default_v_timeline_update_filter
+    meta_dl_history_filter: Callable[[DownloadInfo], bool] = dataclasses.field(default=default_dl_info_filter)
 
     # --- control hooks (override per-instance as needed) ---
     wrapper_match_filter: Callable[[
-            PL_V_InfoDict,
+            V_InfoDict,
             PL_DownloadInfo,
             PL_DownloadHistory,     ID_DownloadInfo,
             YT_DLP_DownloadArchive, YT_DLP_DownloadArchive_IDs,
         ], DL_Action,
     ] = default_wrapper_match_filter
-    yt_dlp_match_filter: Callable[..., str | None] = default_yt_dlp_match_filter
+    yt_dlp_match_filter: Callable[..., str | None] = dataclasses.field(default=default_yt_dlp_match_filter)
 
     # --- path templates ---
     path_tmpls: CustomOuttmpl = dataclasses.field(default_factory=default_path_tmpls)
@@ -268,17 +239,21 @@ class PlaylistDL_Config:
         if 'cookiefile' in self.opts:
             raise ValueError(
                 f"'cookiefile' can not be set in `config.opts`.\n"
-                f"Set `config.cookie_file` instead.")
+                f"Set `config.cookie_file` or set the cookiefile in API args instead.")
         for k in ('outtmpl', 'download_archive'):
             if k in self.opts:
                 raise ValueError(
                     f"'{k}' can not be set in `config.opts`.\n"
                     f"Set `config.path_tmpls` instead.")
-        if 'paths' in self.opts:
+        if 'paths' in self.opts and self.opts['paths'] and 'home' in self.opts['paths']:
             raise ValueError(
-                f"'paths' can not be set in `config.opts`.\n"
+                f"'home' can not be set in `config.opts['paths']`.\n"
                 f"Set `config.home` instead.")
 
+# Do these need to be configurable?
+DEFAULT_EPOCH: Callable[[],int] = lambda: -utils.epoch_now()
+READABLE_EPOCH_FMT = '%Y-%m-%d__%H-%M-%S' # For formats, see datetime.strftime()
+MALFORMED_EPOCH_FMT = '{} (malformed)'
 
 def main():
 
