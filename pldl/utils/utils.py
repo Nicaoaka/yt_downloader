@@ -9,7 +9,7 @@ __all__ = [
     'input_string',
 
     'dict_without_keys', 'dict_with_keys',
-    'get_missing_typeddict_keys', 'dedup', 'dict_merge',
+    'get_missing_typeddict_keys', 'dedup', 'merge_objs',
     'has_content', 'first_non_default',
 
     'json_load', 'json_dump',
@@ -28,7 +28,7 @@ Only depends on python std lib
 from pathlib import Path
 import os
 import time
-from typing import Iterable, Any, Callable, Literal, Hashable, overload
+from typing import Iterable, Any, Callable, Literal, Hashable, Mapping
 import json
 import copy
 import re
@@ -235,18 +235,37 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-def dict_merge(dict1: dict, dict2: dict) -> dict:
-    """ Recursive dict merge. `dict2` is prioritized in collisions. """
-    res = dict1.copy()
-    for key, value in dict2.items():
-        # dict collision
-        if key in dict1 and isinstance(dict1[key], dict) and isinstance(value, dict):
-            res[key] = dict_merge(res[key], value)
-        else:
-            # dict2 overwrites non-dict collisions
-            res[key] = value
-    return res
+def merge_objs(obj1: Any, obj2: Any, copy_fallback: Callable[[Any], Any] = str) -> Any:
+    """
+    Recursive deep merger.
+    Tries to create a deepcopy of values, on exception calls default with the value.
 
+    If obj types mismatch obj2 is chosen (even if obj2 is None/falsy).
+    Merges elements of dict, list, tuple, and set.
+    """
+    def _make_copy(o):
+        try:
+            return copy.deepcopy(o)
+        except:
+            return copy_fallback(o)
+
+    def _merge_objs(a, b):
+        if isinstance(a, dict) and isinstance(b, dict):
+            return {
+                k: (_merge_objs(a[k], b[k]) if k in a and k in b else
+                    _make_copy(a[k]) if k in a else
+                    _make_copy(b[k])) 
+                        for k in a.keys() | b.keys()
+            }
+        elif isinstance(a, list) and isinstance(b, (list)):
+            return _make_copy(a + b) # duplicates are not removed
+        elif isinstance(a, set) and isinstance(b, set):
+            return _make_copy(a.union(b))
+        elif isinstance(a, tuple) and isinstance(b, tuple):
+            return _make_copy(a + b)
+        return _make_copy(b)
+
+    return _merge_objs(obj1, obj2)
 
 def get_missing_typeddict_keys(data: dict, typeddict) -> list[str]:
     """ data may contain extra keys """
@@ -290,6 +309,15 @@ def first_non_default(
     if default_return is RAISE_EXC:
         raise KeyError(keys)
     return default_return # type: ignore - type V
+
+def insert_index_clamp(i: int, len_: int) -> int:
+    m = -len_ - 1
+    M = len_
+    if i < m:
+        return m
+    if i > M:
+        return M
+    return i
 
 
 

@@ -232,7 +232,7 @@ class PlaylistDL_Config:
         # ident
         match self.ident_type:
             case Config_IdentType.PL_ID_OR_URL:
-                if not yt_utils.get_pl_id(self.ident):
+                if not yt_utils.get_pl_id_from_yt_url(self.ident):
                     raise ValueError(f"{self.ident} wasn't recognized as a youtube playlist id or url")
                 
             case Config_IdentType.PL_INFO_PATH:

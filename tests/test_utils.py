@@ -4,27 +4,36 @@ from pldl.yt_utils import *
 
 class Tests(unittest.TestCase):
 
-    def test_dict_merge(self):
+    def test_merge_objs(self):
         self.assertDictEqual(
-            dict_merge({'a': 1}, {'b': 2}),
+            merge_objs({'a': 1}, {'b': 2}),
             {'a': 1, 'b': 2})
         self.assertDictEqual(
-            dict_merge({'a': 1}, {'a': 2}),
+            merge_objs({'a': 1}, {'a': 2}),
             {'a': 2})
 
         self.assertDictEqual(
-            dict_merge({'a': {'a': 1}}, {'a': {'b': 2}}),
+            merge_objs({'a': {'a': 1}}, {'a': {'b': 2}}),
             {'a': {'a': 1, 'b': 2}})
         self.assertDictEqual(
-            dict_merge({'a': {'a': 1}}, {'a': {'a': 2}}),
+            merge_objs({'a': {'a': 1}}, {'a': {'a': 2}}),
             {'a': {'a': 2}})
         
         self.assertDictEqual(
-            dict_merge({'a': {'a': 1}}, {'a': 2}),
+            merge_objs({'a': {'a': 1}}, {'a': 2}),
             {'a': 2})
         self.assertDictEqual(
-            dict_merge({'a': 1}, {'a': {'a': 2}}),
+            merge_objs({'a': 1}, {'a': {'a': 2}}),
             {'a': {'a': 2}})
+        
+        self.assertListEqual(
+            merge_objs([{'x': 1}], [{'x': 2}]),
+            [{'x': 1}, {'x': 2}])
+        self.assertDictEqual(
+            merge_objs(
+                merge_objs({}, {'merge_info': {'abc': {'1234': {'updates': ['hello']}}}}),
+                {'merge_info': {'abc': {'1234': {'updates': ['bye']}}}}
+            ), {'merge_info': {'abc': {'1234': {'updates': ['hello', 'bye']}}}})
 
     def test_has_content(self):
         self.assertEqual(has_content(""), False)

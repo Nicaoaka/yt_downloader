@@ -2,6 +2,8 @@ from pldl import *
 
 # add ability to change id of certain video
 #   dvyG8KWrB_E -> 62RUkX4AqyM
+# test extraction/download from other sources
+# test manipulations
 
 def wrapper_match_filter(
     pl_v_info: V_InfoDict,

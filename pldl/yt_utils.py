@@ -1,7 +1,7 @@
 __all__ = [
-    'get_pl_id', 'is_id_like',
+    'get_v_id_from_yt_url', 'get_pl_id_from_yt_url', 'is_id_like',
     'get_yt_video_url', 'get_yt_playlist_url',
-    'get_archiveorg_url', 'get_archiveorg_video_url', 
+    'get_archiveorg_url_for_yt_dlp', 'get_archiveorg_url', 'get_archiveorg_video_url', 
     'get_v_display',
 
     'V_InfoLevel', 'PL_InfoLevel',
@@ -12,7 +12,7 @@ __all__ = [
 
     'copy_and_sanitize_info', 'load_yt_archive',
     'ids_from_yt_dlp_archive', 'ids_from_pl_download_info', 'ids_from_history',
-    'get_pl_v_info', 'add_pl_info_to_entries',
+    'get_pl_v_info', 'fixup_pl_info',
 
     'get_epoch', 'get_latest_epoch', 'to_readable_epoch', 'from_readable_epoch',
 
@@ -38,7 +38,14 @@ if TYPE_CHECKING:
 
 # YouTube and InternetWebArchive id/url
 
-def get_pl_id(url_or_id: str) -> str|None:
+def get_v_id_from_yt_url(url_or_id: str) -> str|None:
+    from yt_dlp.extractor.youtube import YoutubeIE
+    try:
+        return YoutubeIE._match_id(url_or_id)
+    except:
+        return None
+
+def get_pl_id_from_yt_url(url_or_id: str) -> str|None:
     from yt_dlp.extractor.youtube import YoutubePlaylistIE
     try:
         return YoutubePlaylistIE._match_id(url_or_id)
@@ -60,6 +67,12 @@ def is_id_like(id: str, is_video=False) -> bool:
     )
     return all(c in VALID_CHARS for c in id)
 
+def get_v_display(v_info: V_InfoDict|dict) -> str:
+    # some titles and channel names are empty strings
+    title = utils.first_non_default(v_info, ['title', 'alt_title'], default_values=[None], default_return='???') # type: ignore
+    creator = utils.first_non_default(v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=['', None], default_return='???') # type: ignore
+    return f"[{v_info['id']}] {title} by {creator}"
+
 def get_yt_video_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
@@ -68,24 +81,21 @@ def get_yt_playlist_url(playlist_id: str, video_id: str = '') -> str:
         return f"https://www.youtube.com/playlist?list={playlist_id}"
     return f"https://www.youtube.com/watch?v={video_id}&list={playlist_id}"
 
-def get_archiveorg_url(v_id: str, date: int|str|None = None, for_yt_dlp: bool = False) -> str:
+# note `date` is archiveorg format, so YYYYmmddHHMMSS
+# For example, "20261225090125" is 2026/12/25 9:01:25
+def get_archiveorg_url_for_yt_dlp(v_id_or_url: str, date: int|str|None = None) -> str:
     if not date:
-        if for_yt_dlp:
-            return 'ytarchive:' + v_id
+        return f"ytarchive:{v_id_or_url}"
+    return f"ytarchive:{v_id_or_url}:{date}"
+
+def get_archiveorg_url(v_id: str, date: int|str|None = None) -> str:
+    if not date:
         return f"https://web.archive.org/https://www.youtube.com/watch?v={v_id}"
-    if for_yt_dlp:
-        return f"ytarchive:{v_id}:{date}"
     return f"https://web.archive.org/web/{date}/https://www.youtube.com/watch?v={v_id}"
 
 def get_archiveorg_video_url(video_id: str) -> str:
     return f"https://web.archive.org/web/2oe_/http://wayback-fakeurl.archive.org/yt/{video_id}"
 
-def get_v_display(v_info: V_InfoDict|dict) -> str:
-    # some titles and channel names are empty strings
-    title = utils.first_non_default(v_info, ['title', 'alt_title'], default_values=[None], default_return='???') # type: ignore
-    creator = utils.first_non_default(v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=['', None], default_return='???') # type: ignore
-
-    return f"[{v_info['id']}] {title} by {creator}"
 
 # Extractors
 
@@ -130,7 +140,7 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
     return flat_info
 
 def download_video(
-        v_url_or_id: str,
+        v_id: str,
         opts: YT_DLP_Params = {},
         yt: bool = True,
         wa: bool = True,
@@ -139,7 +149,7 @@ def download_video(
     """ Downloads a video, using Youtube and/or WebArchive extractors
 
     Args:
-        v_url_or_id (str): the url or id of the video
+        v_id (str): the id of the video
         opts (YT_DLP_Params, optional): any additional opts for the download. Defaults to {}.
         yt (bool, optional): Use `YoutubeIE`. Should be False if it is known to be unavailable. Defaults to True.
         wa (bool, optional): Use `YoutubeWebArchiveIE` fallback. Defaults to True.
@@ -151,12 +161,15 @@ def download_video(
         - list of Exception objects
         - if extraction was successful
     """
+    if not is_id_like(v_id, is_video=True):
+        raise ValueError(f"{v_id} does not resemble a video id")
+    
     info: V_InfoDict = {'info_level': V_InfoLevel.NONE} # type: ignore - init
     errors: list[Exception] = []
     if yt:
         try:
             with YoutubeDL(opts) as ydl:
-                _info = ydl.extract_info(v_url_or_id, download=download)
+                _info = ydl.extract_info(get_yt_video_url(v_id), download=download)
                 if _info is None:
                     return None, errors, True # already downloaded
                 info.update(_info) # type: ignore
@@ -170,7 +183,7 @@ def download_video(
     if wa:
         try:
             with YoutubeDL(opts) as ydl:
-                _info = ydl.extract_info(get_archiveorg_url(v_url_or_id, for_yt_dlp=True), download=download)
+                _info = ydl.extract_info(get_archiveorg_url(v_id), download=download, ie_key='')
                 if _info is None:
                     return None, errors, True # already downloaded
                 info.update(_info) # type: ignore
@@ -377,9 +390,15 @@ def get_pl_v_info(pl_info: PL_InfoDict, v_idx: int):
         'playlist_epoch': get_epoch(pl_info)
     }
 
-def add_pl_info_to_entries(pl_info: PL_InfoDict):
+def _fixup_pl_v_infos(pl_info: PL_InfoDict):
     for i, entry in enumerate(pl_info['entries']):
         entry.update(get_pl_v_info(pl_info, i)) # type: ignore
+
+def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
+    pl_info['playlist_count'] = len(pl_info['entries'])
+
+    if fixup_entries:
+        _fixup_pl_v_infos(pl_info)
 
 
 
@@ -472,4 +491,24 @@ def validate_metdata_config_sync(metadata: Metadata, config: PlaylistDL_Config):
                 f"Path: {meta_path}")
 
 
+class __V_InfoDict_NoReqs(V_InfoDict, total=False):
+    id: ...
 
+def min_v_info(id: str, info_level: V_InfoLevel, other_info: __V_InfoDict_NoReqs = {}) -> V_InfoDict:
+    return {
+        **other_info,
+        'id': id,
+        'info_level': info_level.name,
+    }
+
+class __PL_InfoDict_NoReqs(PL_InfoDict, total=False):
+    id: ...
+    entries: ...
+
+def min_pl_info(id: str, info_level: PL_InfoLevel, other_info: __PL_InfoDict_NoReqs = {}) -> PL_InfoDict:
+    return {
+        **other_info,
+        'id': id,
+        'entries': [],
+        'info_level': info_level.name
+    }
