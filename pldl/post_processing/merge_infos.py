@@ -115,7 +115,7 @@ def merge_v_infos(
 
     if unavailable_msgs:
         merge_info['unavailable_msgs'] = _dedup_and_sort_unavail_msgs(unavailable_msgs)
-        utils.merge_objs(v_timeline, _get_unavailabe_timeline(merge_info['unavailable_msgs']))
+        v_timeline = utils.merge_objs(v_timeline, _get_unavailabe_timeline(merge_info['unavailable_msgs']), make_copy=False)
     return merge_info, v_timeline
 
 
@@ -187,7 +187,7 @@ def merge_pl_infos(
         entries[i] = merge_entry # type: ignore - __pl_v_info is correctly overwritten/set before returning
         if v_timeline:
             pl_timeline.setdefault(merge_entry['id'], {})
-            pl_timeline[merge_entry['id']] = utils.merge_objs(pl_timeline[merge_entry['id']], v_timeline)
+            pl_timeline[merge_entry['id']] = utils.merge_objs(pl_timeline[merge_entry['id']], v_timeline, make_copy=False)
     
     all_flat_entries = all(yt_utils.get_v_info_level(entry) == yt_utils.V_InfoLevel.FLAT for entry in entries)
     merge_info['entries'] = entries

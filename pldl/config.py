@@ -180,7 +180,7 @@ class PlaylistDL_Config:
     home: str
 
     # --- refresh ---
-    refresh_after: int = 7 * 24 * 3600  # seconds; if ident_type is Playlist_ID, it will extract
+    refresh_after: float = 7 * 24 * 3600  # seconds; if ident_type is Playlist_ID, it will extract
     base_info_type: Literal['any', 'latest_flat', 'merge_flat'] = 'merge_flat'
     
     # --- cookies ---
@@ -212,12 +212,15 @@ class PlaylistDL_Config:
         ], DL_Action,
     ] = default_wrapper_match_filter
     yt_dlp_match_filter: Callable[..., str | None] = dataclasses.field(default=default_yt_dlp_match_filter)
-
-    # --- path templates ---
-    path_tmpls: CustomOuttmpl = dataclasses.field(default_factory=default_path_tmpls)
     
     # --- yt-dlp params ---
     opts: YT_DLP_Params = dataclasses.field(default_factory=default_opts)
+
+    # --- path templates ---
+    path_tmpls: CustomOuttmpl = dataclasses.field(default_factory=default_path_tmpls)
+
+    # --- testing opts ---
+    _use_as_merge_flat: bool = False
 
     def __post_init__(self):
         """

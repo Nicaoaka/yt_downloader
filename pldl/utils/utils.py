@@ -11,6 +11,7 @@ __all__ = [
     'dict_without_keys', 'dict_with_keys',
     'get_missing_typeddict_keys', 'dedup', 'merge_objs',
     'has_content', 'first_non_default',
+    'position_to_index',
 
     'json_load', 'json_dump',
     'handle_collision',
@@ -33,7 +34,11 @@ import json
 import copy
 import re
 import traceback
+import sys
 
+
+def get_caller_function(offset: int = 0):
+    return sys._getframe(2+offset).f_code.co_qualname
 
 
 # Source - https://stackoverflow.com/a/69243488
@@ -81,10 +86,16 @@ WARN_COLOR = '#ffff47'
 ERR_COLOR = '#ff4747'
 def format_exception(e: BaseException) -> str:
     return hex(''.join(traceback.format_exception(e)).rstrip(), fg=EXC_COLOR)
-def WARNING(msg: str) -> None:
-    print(hex(" WARNING ", bg=WARN_COLOR), msg)
-def ERROR(msg: str) -> None:
-    print(hex("  ERROR  ", bg=ERR_COLOR), msg)
+def WARNING(msg: str, caller_offset: int = 0) -> None:
+    print(
+        hex(" WARNING ", bg=WARN_COLOR),
+        hex(f"[{get_caller_function(caller_offset)}]", fg=WARN_COLOR),
+        msg)
+def ERROR(msg: str, caller_offset: int = 0) -> None:
+    print(
+        hex("  ERROR  ", bg=ERR_COLOR),
+        hex(f"[{get_caller_function(caller_offset)}]", fg=ERR_COLOR),
+        msg)
 
 
 def truncate(s: str, max_len: int, end='...', *, end_in_max: bool = True, trunc_start: bool = False):
@@ -235,7 +246,7 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-def merge_objs(obj1: Any, obj2: Any, copy_fallback: Callable[[Any], Any] = str) -> Any:
+def merge_objs(obj1: Any, obj2: Any, make_copy: bool, copy_fallback: Callable[[Any], Any] = str) -> Any:
     """
     Recursive deep merger.
     Tries to create a deepcopy of values, on exception calls default with the value.
@@ -244,6 +255,8 @@ def merge_objs(obj1: Any, obj2: Any, copy_fallback: Callable[[Any], Any] = str) 
     Merges elements of dict, list, tuple, and set.
     """
     def _make_copy(o):
+        if not make_copy:
+            return o
         try:
             return copy.deepcopy(o)
         except:
@@ -310,14 +323,31 @@ def first_non_default(
         raise KeyError(keys)
     return default_return # type: ignore - type V
 
-def insert_index_clamp(i: int, len_: int) -> int:
-    m = -len_ - 1
-    M = len_
-    if i < m:
-        return m
-    if i > M:
-        return M
-    return i
+
+def position_to_index(position: int, len_: int) -> int:
+    """
+    Get clamped positive equivelent index [0, len_].
+
+    Behavior:
+
+             _ A _ B _ C _ D _
+             1   2   3   4   5 ...
+        ... -5  -4  -3  -2  -1
+
+        Ret: 0   1   2   3   4
+
+    """
+    if position == 0:
+        raise ValueError("Position can't be 0")
+    if position > 0:
+        position -= 1
+    
+    clamped = max(-(len_+1), min(position, len_))
+    
+    if clamped < 0:
+        clamped += len_ + 1
+        
+    return clamped
 
 
 
@@ -342,6 +372,7 @@ def json_dump(
         _dst: str|Path,
         on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
         auto_rename: bool = True,
+        indent: int|str|None = None,
 ) -> Path|None:
     """ Writes json based on selected `on_collision` policy. Returns dst Path used, or None if not written """
     dst = handle_collision(Path(_dst), on_collision, auto_rename)
@@ -349,7 +380,7 @@ def json_dump(
         return # policy chose not to write
     dst.parent.mkdir(parents=True, exist_ok=True)
     with open(dst, 'w', encoding='utf-8') as f:
-        json.dump(obj, f, ensure_ascii=False, default=str)
+        json.dump(obj, f, ensure_ascii=False, default=str, indent=indent)
     return dst
 
 

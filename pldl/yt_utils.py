@@ -280,7 +280,7 @@ def eval_tmpl_with_alt_data(tmpl: str, info: ANY_InfoDict, alt_data: ANY_InfoDic
 
 # Processing archives
 
-def copy_and_sanitize_info[T](_info_dict: T, remove_private_keys=False) -> T|Any:
+def copy_and_sanitize_info[T](_info_dict: T, remove_private_keys=False, wrap: bool = True) -> T|Any:
     """
     Creates a json-dumpable deepcopy of the info_dict.
     
@@ -290,11 +290,11 @@ def copy_and_sanitize_info[T](_info_dict: T, remove_private_keys=False) -> T|Any
     Never removes 'entries' kval.
     """
     KEY = None
-    if isinstance(_info_dict, dict):
-        info_dict = _info_dict
-    else:
+    if wrap or not isinstance(_info_dict, dict):
         KEY = '__copy_and_sanitize_info__'
         info_dict = {KEY: _info_dict}
+    else:
+        info_dict = _info_dict
     
     info_dict = YoutubeDL.sanitize_info(info_dict, False) # type: ignore
     if KEY:
@@ -397,8 +397,10 @@ def _fixup_pl_v_infos(pl_info: PL_InfoDict):
 def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
     pl_info['playlist_count'] = len(pl_info['entries'])
 
-    if fixup_entries:
-        _fixup_pl_v_infos(pl_info)
+    # FIXME: UNCOMMENT THIS
+    # if fixup_entries:
+    #     _fixup_pl_v_infos(pl_info)
+# FIXME: UNCOMMENT THE ABOVE
 
 
 
