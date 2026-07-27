@@ -1,10 +1,10 @@
-from pldl import *
-
 import shutil
 import pprint
 import os
 
-TEST_HOME = 'List Sim'
+from pldl import *
+
+TEST_HOME = 'Lists-Sim'
 TEST_INFO_PATH = os.path.join(TEST_HOME, '__fake_list__.json')
 BASE_INFO_DIR = os.path.join(TEST_HOME, 'base')
 
@@ -22,7 +22,7 @@ utils.json_dump(pl_info, TEST_INFO_PATH, 'rm old')
 _config = PlaylistDL_Config(
     ident=TEST_INFO_PATH,
     ident_type=Config_IdentType.PL_INFO_PATH,
-    base_info_type='merge_flat',
+    base_info_type='any',
     home=TEST_HOME,
     refresh_after = float('inf'),
     
@@ -31,12 +31,19 @@ _config = PlaylistDL_Config(
 
 def write_base(info, name):
     utils.json_dump(info, os.path.join(TEST_HOME, f'{name}.json'), 'mov new', indent=4)
+
 with PlaylistDL(_config) as pl_dl:
     write_base(pl_dl._infos.base_info.data, 'b')
     write_base(pl_dl._infos._merge_flat.data, 'mf')
-    # pl_dl.replace_video('1', '7', True) # does not remove old '2' causeing a duplicate id
+
+    # pl_dl.remove_video('4')
+    # pl_dl.remove_videos('234566734', True)
+    pl_dl.insert_videos('680', 100)
+    pl_dl.insert_videos('6', 100, True)
+    # pl_dl.replace_videos([('5', '7'), ('2', '6'), ('1', '2')])
+    # pl_dl.replace_videos([('5', '7'), ('2', '5')], True)
+    # pl_dl.move_video('1', 4)
     # pl_dl.move_video('1', 4, True)
-    # pl_dl.insert_video('6', 100, True)
-    pl_dl.remove_video('4', True)
+
     write_base(pl_dl._infos.base_info.data, 'b')
     write_base(pl_dl._infos._merge_flat.data, 'mf')

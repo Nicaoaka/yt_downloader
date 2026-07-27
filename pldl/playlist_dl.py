@@ -5,6 +5,7 @@ import copy
 from typing import Callable, Any, overload, Mapping, Iterable
 import pprint
 import dataclasses
+import itertools
 
 from .utils import utils
 from .config import PlaylistDL_Config, Config_IdentType
@@ -72,7 +73,8 @@ class PlaylistDL:
             if not raw_flat_info:
                 raise RuntimeError(f"Extracting Flat info from {id} returned `None`")
             self._infos.raw_flat = _InfosEntry(data=raw_flat_info, pl_outtmpl=None, is_written=False, metadata_key='latest_flat_info') # temporary
-            return self._infos.raw_flat.data
+            # the returned init info is owned by base_info
+            return yt_utils.copy_and_sanitize_info(self._infos.raw_flat.data)
 
         match self._config.ident_type:
             case Config_IdentType.PL_ID_OR_URL:
@@ -90,13 +92,10 @@ class PlaylistDL:
                     '_merge_flat', 'latest_flat_info', 'latest_pl_info', 'latest_merge_info'
                 ]
                 pointers: list[tuple[str, int]|None] = [metadata['pointers'].get(k) for k in preference_order]
-                latest_pointer = max(pointers, key=lambda x: -float('inf') if x is None else x[1])
-                if latest_pointer is None:
-                    return extract_flat(metadata['id'])
-                pl_info: PL_InfoDict = utils.json_load(os.path.join(self._config.home, latest_pointer[0]))
-                if self._need_refresh(yt_utils.get_epoch(pl_info)):
-                    return extract_flat(metadata['id'])
-                return pl_info
+                for p in pointers:
+                    if p is not None and not self._need_refresh(p[1]):
+                        return utils.json_load(os.path.join(self._config.home, p[0]))
+                return extract_flat(metadata['id'])
             
             case _:
                 raise ValueError(f"Invalid playlist ident_type: {self._config.ident_type}")
@@ -214,21 +213,21 @@ class PlaylistDL:
             
             case 'latest_flat':
                 if self._infos.raw_flat: # extracted when getting init_info
-                    return yt_utils.copy_and_sanitize_info(self._infos.raw_flat.data, wrap=True)
-                # need to check against 
+                    return self._infos.raw_flat.data
+                # need to check against
                 if p_latest and (not p_merge or p_merge[1] <= p_latest[1]) and not self._need_refresh(p_latest[1]):
                     return self.load('latest_flat_info')
                 return self.extract_flat_info()
                 
             case 'merge_flat':
                 if self._infos._merge_flat: # updated from init flat_info extraction
-                    return yt_utils.copy_and_sanitize_info(self._infos._merge_flat.data, wrap=True)
+                    return self._infos._merge_flat.data
                 if p_merge and not self._need_refresh(p_merge[1]):
                     return self.load('_merge_flat')
                 self.extract_flat_info() # has side effects on _merge_flat
                 if not self._infos._merge_flat:
                     raise RuntimeError("_merge_flat should be written and set in self._infos")
-                return yt_utils.copy_and_sanitize_info(self._infos._merge_flat.data, wrap=True)
+                return self._infos._merge_flat.data
 
 
 
@@ -265,7 +264,7 @@ class PlaylistDL:
                 raise ValueError("_use_as_merge_flat can't be set when there is a _merge_flat pointer")
             # must be written by caller
             self._infos._merge_flat = _InfosEntry(
-                init_info,
+                yt_utils.copy_and_sanitize_info(init_info),
                 self._pl_outtmpls['_merged_flat_infojson'],
                 is_written=True, metadata_key='_merge_flat')
         
@@ -787,7 +786,7 @@ class PlaylistDL:
     #
 
     @staticmethod
-    def add_to_merge_timeline(info: PL_InfoDict, timeline: PL_MergeTimeline) -> None:
+    def _add_to_merge_timeline(info: PL_InfoDict, timeline: PL_MergeTimeline) -> None:
         """ Input timeline wins collisions """
         info.setdefault('merge_timeline', {})
         info['merge_timeline'] = utils.merge_objs(
@@ -796,7 +795,7 @@ class PlaylistDL:
             make_copy=False)
 
     @staticmethod
-    def add_update_to_merge_timeline(info: PL_InfoDict, id: str, update_str: str, epoch_str: EPOCH_STR|None = None) -> None:
+    def _add_update_to_merge_timeline(info: PL_InfoDict, id: str, update_str: str, epoch_str: EPOCH_STR|None = None) -> None:
         """ Does not add if the update_str already exists. If epoch_str is None, use the current time """
         if epoch_str is None:
             epoch_str = yt_utils.to_readable_epoch(utils.epoch_now())
@@ -809,11 +808,28 @@ class PlaylistDL:
             make_copy=False)
 
 
+    def _remove_video_impl(self, base_index: int | None, merge_index: int | None, mutate_merge_flat: bool):
+        """Helper: Remove a video at given indices.
+
+        Assumes validation is already done.
+        Does NOT call fixup_pl_info - caller must call it after all operations.
+
+        base_index and merge_index do not need to point to the same v_id
+        """
+        if base_index is not None:
+            self._infos.base_info.data['entries'].pop(base_index)
+
+        if mutate_merge_flat and self._infos._merge_flat and merge_index is not None:
+            removed_entry = self._infos._merge_flat.data['entries'].pop(merge_index)
+            PlaylistDL._add_update_to_merge_timeline(
+                self._infos._merge_flat.data, removed_entry['id'],
+                update_str=f'<REMOVE {yt_utils.get_v_display(removed_entry)}>')
+
     def remove_video(self, v_id: V_ID, mutate_merge_flat: bool = False):
-        """Remove videos from the playlist by their IDs.
+        """Remove a video from the playlist by its ID.
 
         Args:
-            ids: Video IDs to remove from the playlist.
+            v_id: Video ID to remove from the playlist.
             mutate_merge_flat: If True, also update _merge_flat for persistence.
                 Requires config.base_info_type == 'merge_flat'.
                 Adds `<REMOVE {v_display}>` update
@@ -825,16 +841,73 @@ class PlaylistDL:
         if v_id not in base_v_ids and v_id not in merge_v_ids:
             utils.WARNING(f"{v_id} is not in the playlist.")
             return
+
+        base_index = base_v_ids.index(v_id) if v_id in base_v_ids else None
+        merge_index = merge_v_ids.index(v_id) if v_id in merge_v_ids else None
         
-        self._infos.base_info.data['entries'].pop(base_v_ids.index(v_id))
+        if base_index is not None or merge_index is not None:
+            self._remove_video_impl(base_index, merge_index, mutate_merge_flat)
+
         yt_utils.fixup_pl_info(self._infos.base_info.data)
+        if mutate_merge_flat and self._infos._merge_flat:
+            yt_utils.fixup_pl_info(self._infos._merge_flat.data)
+
+    def remove_videos(self, v_ids: Iterable[V_ID], mutate_merge_flat: bool = False):
+        """Remove multiple videos from the playlist by their IDs.
+
+        Videos are removed in reverse order (by position) to avoid index shifting issues.
+
+        Args:
+            v_ids: Video IDs to remove from the playlist.
+            mutate_merge_flat: If True, also update _merge_flat for persistence.
+                Requires config.base_info_type == 'merge_flat'.
+                Adds `<REMOVE {v_display}>` update for each video
+        """
+        base_v_ids = PlaylistDL.get_v_ids(self._infos.base_info)
+        merge_v_ids = PlaylistDL.get_v_ids(self._infos._merge_flat) or []
+
+        # Find indices for all videos to remove
+        base_indexes: list[int] = []
+        merge_indexes: list[int] = []
+
+        for v_id in set(v_ids):
+            base_i = base_v_ids.index(v_id) if v_id in base_v_ids else None
+            merge_i = merge_v_ids.index(v_id) if v_id in merge_v_ids else None
+
+            if base_i is None and (not mutate_merge_flat or merge_i is None):
+                utils.WARNING(f"{v_id} is not in the playlist.")
+                continue
+            if base_i  is not None: base_indexes.append(base_i)
+            if merge_i is not None: merge_indexes.append(merge_i)
+
+        # Sort by base_index descending to avoid index shifting issues
+        base_indexes.sort(reverse=True)
+        merge_indexes.sort(reverse=True)
+
+        # indexes may be for different v_ids
+        for base_i, merge_i in itertools.zip_longest(base_indexes, merge_indexes):
+            self._remove_video_impl(base_i, merge_i, mutate_merge_flat)
+
+        yt_utils.fixup_pl_info(self._infos.base_info.data)
+        if mutate_merge_flat and self._infos._merge_flat:
+            yt_utils.fixup_pl_info(self._infos._merge_flat.data)
+
+
+    def _insert_video_impl(self, v_id: V_ID, index: int, mutate_merge_flat: bool):
+        """Helper: Insert a video at given index.
+
+        Assumes validation is already done.
+        Does NOT call fixup_pl_info - caller must call it after all operations.
+        """
+        new_v_info = yt_utils.min_v_info(v_id, yt_utils.V_InfoLevel.NONE)
+
+        self._infos.base_info.data['entries'].insert(index, copy.deepcopy(new_v_info))
 
         if mutate_merge_flat and self._infos._merge_flat:
-            removed_entry = self._infos._merge_flat.data['entries'].pop(merge_v_ids.index(v_id))
-            yt_utils.fixup_pl_info(self._infos._merge_flat.data)
-            PlaylistDL.add_update_to_merge_timeline(
-                self._infos._merge_flat.data, removed_entry['id'],
-                update_str=f'<REMOVE {yt_utils.get_v_display(removed_entry)}>')
+            self._infos._merge_flat.data['entries'].insert(index, copy.deepcopy(new_v_info))
+            PlaylistDL._add_update_to_merge_timeline(
+                self._infos._merge_flat.data, v_id,
+                update_str=f'<INSERT to={index+1}>')
 
     def insert_video(self, v_id: V_ID, position: int = 1, mutate_merge_flat: bool = False):
         """Insert a new video into the playlist at the specified position.
@@ -857,68 +930,201 @@ class PlaylistDL:
                 Requires config.base_info_type == 'merge_flat'.
                 Adds `<INSERT>` update
         """
-        # if len(set(v_id)) != len(v_id):
-        #     raise ValueError(
-        #         f"All ids must be unique.\n"
-        #         f"Duplicates: {sorted(set(filter(lambda x: v_id.count(x) > 1, v_id)))}\n"
-        #         f"Got: {v_id}")
-
         base_v_ids = PlaylistDL.get_v_ids(self._infos.base_info)
         merge_v_ids = PlaylistDL.get_v_ids(self._infos._merge_flat) or []
-        
+
         if mutate_merge_flat and self._infos._merge_flat \
            and base_v_ids != merge_v_ids:
             raise AssertionError(
                 f"Mismatch between base_info and _merge_flat v_ids\n"
-                f"base_info = {base_v_ids}\n"
+                f"base_info   = {base_v_ids}\n"
                 f"_merge_flat = {merge_v_ids}")
-        
+
         if v_id in base_v_ids:
             raise ValueError(f"{v_id} is already in the playlist (check _merge_flat).")
-        
+
         index = utils.position_to_index(position, len(base_v_ids))
-        new_v_info = yt_utils.min_v_info(v_id, yt_utils.V_InfoLevel.NONE)
+        self._insert_video_impl(v_id, index, mutate_merge_flat)
 
-        self._infos.base_info.data['entries'].insert(index, copy.deepcopy(new_v_info))
         yt_utils.fixup_pl_info(self._infos.base_info.data)
-
         if mutate_merge_flat and self._infos._merge_flat:
-            self._infos._merge_flat.data['entries'].insert(index, copy.deepcopy(new_v_info))
             yt_utils.fixup_pl_info(self._infos._merge_flat.data)
-            PlaylistDL.add_update_to_merge_timeline(
-                self._infos._merge_flat.data, v_id,
-                update_str=f'<INSERT to={index+1}>')
 
-    def replace_video(self, v_id: V_ID, repl: V_ID, mutate_merge_flat: bool = False):
-        """Replace video IDs with new IDs while keeping the same positions.
+    def insert_videos(self, v_ids: Iterable[V_ID], position: int = 1, mutate_merge_flat: bool = False):
+        """Insert multiple videos into the playlist at the specified position.
+
+        Videos are inserted such that the first video in the iterable ends up at
+        the target position, the second at position+1, etc. The order in the
+        iterable is preserved in the final playlist.
+
+        This is equivalent to calling insert_video repeatedly while incrementing
+        the position each time.
+
+        Position Behavior:
+
+                 _ A _ B _ C _ D _
+                 1   2   3   4   5 ...
+            ... -5  -4  -3  -2  -1
 
         Args:
-            id: The target id.
-            repl: The id's replacement.
+            v_ids: Video IDs to insert. Order is preserved.
+            position: Target position for the first video. Clamped to valid range.
+                Can be negative. `0` is invalid. Defaults to 1 (start of playlist).
+            mutate_merge_flat: If True, also update _merge_flat for persistence.
+                Requires config.base_info_type == 'merge_flat'.
+                Adds `<INSERT>` update for each video
+        """
+        base_v_ids = PlaylistDL.get_v_ids(self._infos.base_info)
+        merge_v_ids = PlaylistDL.get_v_ids(self._infos._merge_flat) or []
+
+        if mutate_merge_flat and self._infos._merge_flat \
+           and base_v_ids != merge_v_ids:
+            raise AssertionError(
+                f"Mismatch between base_info and _merge_flat v_ids\n"
+                f"base_info   = {base_v_ids}\n"
+                f"_merge_flat = {merge_v_ids}")
+
+        # Convert to list to check for duplicates and allow multiple passes
+        v_ids_list = list(v_ids)
+
+        # Check for duplicates in input
+        if len(v_ids_list) != len(set(v_ids_list)):
+            duplicates = [x for x in set(v_ids_list) if v_ids_list.count(x) > 1]
+            raise ValueError(
+                f"All ids must be unique.\n"
+                f"Duplicates: {sorted(duplicates)}")
+
+        # Check for conflicts with existing videos
+        conflicts = [v_id for v_id in v_ids_list if v_id in base_v_ids]
+        if conflicts:
+            raise ValueError(f"The following IDs are already in the playlist: {conflicts}")
+
+        for offset, v_id in enumerate(v_ids_list):
+            index = utils.position_to_index(position+offset, len(base_v_ids))
+            self._insert_video_impl(v_id, index, mutate_merge_flat)
+            # Update base_v_ids for next iteration's position calculation
+            base_v_ids.insert(index, v_id)
+
+        yt_utils.fixup_pl_info(self._infos.base_info.data)
+        if mutate_merge_flat and self._infos._merge_flat:
+            yt_utils.fixup_pl_info(self._infos._merge_flat.data)
+
+
+    def _replace_video_impl(self, base_index: int|None, merge_index: int|None, v_id: V_ID, repl: V_ID, mutate_merge_flat: bool):
+        """Helper: Replace a video ID at given indices.
+
+        Assumes validation is already done.
+        Does NOT call fixup_pl_info - caller must call it after all operations.
+        """
+        if base_index is not None:
+            self._infos.base_info.data['entries'][base_index]['id'] = repl
+
+        if mutate_merge_flat and self._infos._merge_flat and merge_index is not None:
+            self._infos._merge_flat.data['entries'][merge_index]['id'] = repl
+            PlaylistDL._add_update_to_merge_timeline(
+                self._infos._merge_flat.data, repl,
+                update_str=f'<REPLACE ID from={v_id} to={repl}>')
+
+    def replace_video(self, v_id: V_ID, repl: V_ID, mutate_merge_flat: bool = False):
+        """Replace a video ID with a new ID while keeping the same position.
+
+        Args:
+            v_id: The target video ID to replace.
+            repl: The replacement video ID.
             mutate_merge_flat: If True, also update _merge_flat for persistence.
                 Requires config.base_info_type == 'merge_flat'.
                 Adds `<REPLACE ID from={v_id} to={repl}>` update
-
         """
 
         base_v_ids = PlaylistDL.get_v_ids(self._infos.base_info)
         merge_v_ids = PlaylistDL.get_v_ids(self._infos._merge_flat) or []
 
-        if v_id not in base_v_ids or v_id not in merge_v_ids:
+        if v_id not in base_v_ids and (not mutate_merge_flat or v_id not in merge_v_ids):
             raise ValueError(f"The target id {v_id} is not in the playlist.")
 
-        if repl in base_v_ids or repl in merge_v_ids:
-            raise ValueError(f"The replacement id {repl} is already in the playlist (check _merge_flat).")
+        base_index  = base_v_ids.index(v_id)  if v_id in base_v_ids  else None
+        merge_index = merge_v_ids.index(v_id) if v_id in merge_v_ids else None
+        if base_index is not None and repl in base_v_ids:
+            raise ValueError(f"Replacement id {repl} is already in the 'base_info' playlist")
+        if mutate_merge_flat and (merge_index is not None and repl in merge_v_ids):
+            raise ValueError(f"Replacement id {repl} is already in the '_merge_flat' playlist")
 
-        self._infos.base_info.data['entries'][base_v_ids.index(v_id)]['id'] = repl
+        self._replace_video_impl(base_index, merge_index, v_id, repl, mutate_merge_flat)
+
         yt_utils.fixup_pl_info(self._infos.base_info.data)
-
         if mutate_merge_flat and self._infos._merge_flat:
-            self._infos._merge_flat.data['entries'][merge_v_ids.index(v_id)]['id'] = repl
-            PlaylistDL.add_update_to_merge_timeline(
-                self._infos._merge_flat.data, repl,
-                update_str=f'<REPLACE ID from={v_id} to={repl}>')
             yt_utils.fixup_pl_info(self._infos._merge_flat.data)
+
+    def replace_videos(self, replacements: Iterable[tuple[V_ID, V_ID]], mutate_merge_flat: bool = False):
+        """Replace multiple video IDs with new IDs while keeping the same positions.
+
+        Performs a two-pass validation:
+        1. Check all targets exist in the playlist
+        2. Check for conflicts: a replacement ID is either already in the playlist,
+           or is used as a target in a later replacement
+
+        The replacements are processed in order, so the order of the iterable matters.
+
+        Args:
+            replacements: Iterable of (target_id, replacement_id) tuples.
+                Processed in order - a replacement_id can become a target in a
+                later replacement in the same iterable.
+            mutate_merge_flat: If True, also update _merge_flat for persistence.
+                Requires config.base_info_type == 'merge_flat'.
+                Adds `<REPLACE ID from={v_id} to={repl}>` update for each replacement
+        """
+        replacements_list = list(replacements)
+
+        base_v_ids = PlaylistDL.get_v_ids(self._infos.base_info)
+        merge_v_ids = PlaylistDL.get_v_ids(self._infos._merge_flat) or []
+
+        # Simulate replacements to check for conflicts
+        def simulate(sim_list: list[str], list_name: str):
+            """ mutates passed in list """
+            failed_ops: list[tuple[int, tuple[V_ID, V_ID]]] = []
+            for i, (target, repl) in enumerate(replacements_list):
+                if target not in sim_list:
+                    failed_ops.append((i, (target, repl)))
+                    continue
+                target_index = sim_list.index(target)
+                if repl in sim_list:
+                    raise ValueError(
+                        f"Replacement id {repl} is already in the '{list_name}' playlist "
+                        f"at position {sim_list.index(repl) + 1} "
+                        f"(target {target} is at position {target_index + 1})")
+                sim_list[target_index] = repl
+            return failed_ops
+
+        base_fails = simulate(list(base_v_ids), 'base_info')
+        if mutate_merge_flat and self._infos._merge_flat:
+            merge_fails = simulate(list(merge_v_ids), '_merge_info')
+            common_fails = sorted(set(base_fails).intersection(set(merge_fails)), key=lambda x: x[0])
+        else:
+            merge_fails = []
+            common_fails = base_fails
+
+        def format_fails(fails: list[tuple[int, tuple[V_ID, V_ID]]]):
+            return '\n'.join(f"{i+1}. '{_from}' -> '{to}'" for i, (_from, to) in fails)
+        if base_fails:
+            utils.WARNING(f"Failed base_info replacements:\n{format_fails(base_fails)}")
+        if merge_fails:
+            utils.WARNING(f"Failed _merge_flat replacements:\n{format_fails(merge_fails)}")
+        if common_fails:
+            raise ValueError(f"Failed Replacements:\n{format_fails(common_fails)}")
+
+        # Execute all replacements
+        for target, repl in replacements_list:
+            base_index = base_v_ids.index(target) if target in base_v_ids else None
+            merge_index = merge_v_ids.index(target) if target in merge_v_ids else None
+            self._replace_video_impl(base_index, merge_index, target, repl, mutate_merge_flat)
+            # Update v_ids for next iteration
+            if base_index is not None:  base_v_ids[base_index]   = repl
+            if merge_index is not None: merge_v_ids[merge_index] = repl
+
+        yt_utils.fixup_pl_info(self._infos.base_info.data)
+        if mutate_merge_flat and self._infos._merge_flat:
+            yt_utils.fixup_pl_info(self._infos._merge_flat.data)
+
 
     def move_video(self, v_id: V_ID, position: int, mutate_merge_flat: bool = False):
         """Move a video to a new position in the playlist.
@@ -944,7 +1150,7 @@ class PlaylistDL:
            and base_v_ids != merge_v_ids:
             raise AssertionError(
                 f"Mismatch between base_info and _merge_flat v_ids\n"
-                f"base_info = {base_v_ids}\n"
+                f"base_info   = {base_v_ids}\n"
                 f"_merge_flat = {merge_v_ids}")
         
         if v_id not in base_v_ids:
@@ -965,7 +1171,7 @@ class PlaylistDL:
             entry = self._infos._merge_flat.data['entries'].pop(old_index)
             self._infos._merge_flat.data['entries'].insert(index, entry)
             yt_utils.fixup_pl_info(self._infos._merge_flat.data)
-            PlaylistDL.add_update_to_merge_timeline(
+            PlaylistDL._add_update_to_merge_timeline(
                 self._infos._merge_flat.data, v_id,
                 update_str=f'<MOVE from={old_index+1} to={index+1}>')
 
