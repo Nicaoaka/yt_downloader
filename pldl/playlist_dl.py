@@ -232,11 +232,8 @@ class PlaylistDL:
             case 'merge_flat':
                 if self._infos._merge_flat: # updated from init flat_info extraction
                     return self._infos._merge_flat.data
-                if p_merge:
-                    print(self._need_refresh(p_merge[1]))
                 if p_merge and not self._need_refresh(p_merge[1]):
                     return self.load('_merge_flat')
-                raise RuntimeError("huh")
                 self.extract_flat_info() # has side effects on _merge_flat
                 if not self._infos._merge_flat:
                     raise RuntimeError("_merge_flat should be written and set in self._infos")
@@ -671,7 +668,7 @@ class PlaylistDL:
             v_info['id'] = v_id
             v_info.setdefault('epoch', raw_epoch)
 
-        print(utils.hex("<GENERIC>", fg="#CDFCFF")+'\n'+
+        print(utils.hex("<GENERIC>", fg="#CDFCFF"),
               display.download_info(dl_info, errors=True)+
               '\n')
         return v_info, dl_info
@@ -690,7 +687,7 @@ class PlaylistDL:
         v_info, dl_info = PlaylistDL._download_v_info_generic(
             v_id,
             any_yt_dlp_url,
-            opts | {'cookiefile': cookiefile},
+            self.opts | opts | {'cookiefile': cookiefile},
             download)
         
         if v_info is None:
@@ -702,11 +699,22 @@ class PlaylistDL:
         self._infos.raw_v_infos.data.append([v_info])
         self._infos.raw_v_infos.is_written = False
 
+        # update if downloaded
         if self._config.meta_dl_history_filter(dl_info):
             self._metadata['history'] \
                 .setdefault(yt_utils.to_readable_epoch(utils.epoch_now()), []) \
                 .append(dl_info)
-            
+
+        if dl_info['result'] == DL_Result.DOWNLOAD:
+            ie_or_url = v_info.get('ie_key', '').lower() \
+                or v_info.get('extractor', '').lower() \
+                or utils.get_domain(any_yt_dlp_url) \
+                or 'yt_dlp_generic'
+            with open(self._pl_outtmpls['yt_dlp_archive'], 'a') as f:
+                f.write(f'{ie_or_url} {v_id}\n')
+            print(utils.hex(f"Updated yt_dlp_archive: {self._pl_outtmpls['yt_dlp_archive']}", fg="#637f86"))
+            self._yt_dlp_archive.append((ie_or_url, v_id))
+
         if write or (write is USE_CONFIG and self._config.write_raw_v_infos):
             self.write_info(self._infos.raw_v_infos, collision_policy='rm old',
                 name='raw_v_infos', alt_info={'epoch': self.session_start_epoch})

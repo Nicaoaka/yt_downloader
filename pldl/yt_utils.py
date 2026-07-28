@@ -336,7 +336,7 @@ def copy_and_sanitize_info[T](_info_dict: T, remove_private_keys=False, wrap: bo
 
 def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
     if not p or not os.path.exists(p):
-        return ()
+        return []
     res = []
     with open(p, 'r', encoding='utf-8') as f:
         for line_no, line in enumerate(f, start=1):
@@ -351,7 +351,7 @@ def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
                 utils.WARNING(f"[yt_dlp archive] Bad video id @ L{line_no}: {line}")
                 continue
             res.append( (ie_key, v_id) )
-    return tuple(res)
+    return res
 
 def ids_from_yt_dlp_archive(l: YT_DLP_DownloadArchive) -> list[V_ID]:
     return [tup[1] for tup in l]

@@ -177,7 +177,7 @@ type ANY_InfoDict = V_InfoDict | PL_InfoDict | dict
 
 
 # custom Types
-type YT_DLP_DownloadArchive = tuple[tuple[str, str], ...]
+type YT_DLP_DownloadArchive = list[tuple[str, str]]
 type YT_DLP_DownloadArchive_IDs = list[V_ID]
 
 # outtmpl doesn't include Home,

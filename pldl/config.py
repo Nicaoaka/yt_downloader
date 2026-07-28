@@ -92,8 +92,9 @@ def default_wrapper_match_filter(
     # Download if under max and meets criteria
     if len(curr_dl_ids['download']) < MAX_DOWNLOADS and DOWNLOAD_MATCH:
         return DL_Action.DOWNLOAD
-
-    # Extract if under max
+    
+    # Extract if under max and meets criteria
+    # (Even if it will be downloaded later)
     if len(curr_dl_ids['extract']) < MAX_EXTRACTS and EXTRACT_MATCH:
         return DL_Action.EXTRACT
 
