@@ -8,7 +8,7 @@ __all__ = [
     'truncate', 'numbered_list', 'clear',
     'input_string',
 
-    'dict_without_keys', 'dict_with_keys',
+    'dict_without_keys', 'dict_with_keys', 'dict_reorder_keys',
     'get_missing_typeddict_keys', 'dedup', 'merge_objs',
     'has_content', 'first_non_default',
     'position_to_index',
@@ -245,6 +245,26 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
             raise KeyError(k) # mimic normal key error
         res[k] = copy.deepcopy(d.get(k, default))
     return res
+
+def dict_reorder_keys[K: Hashable](d: dict[K, Any], /, start_order: list[K] = [], end_order: list[K] = []) -> None:
+    """
+    Reorders keys in `d` in-place according to `order`.
+
+    Keys not in `order` are left at the bottom in their original relative order.
+    """
+
+    d_keys = set(d.keys())
+    extra_keys = [k for k in d_keys if k not in (start_order + end_order)]
+
+    for k in start_order:
+        if k in d:
+            d[k] = d.pop(k)
+    for k in extra_keys:
+        if k in d:
+            d[k] = d.pop(k)
+    for k in end_order:
+        if k in d:
+            d[k] = d.pop(k)
 
 def merge_objs(obj1: Any, obj2: Any, make_copy: bool, copy_fallback: Callable[[Any], Any] = str) -> Any:
     """

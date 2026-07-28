@@ -1,7 +1,7 @@
 from pathlib import Path
 import re
 
-from .._types import *
+from pldl.pldl_types import *
 
 # Playlist file helper
 # TODO: Test these 2 functions

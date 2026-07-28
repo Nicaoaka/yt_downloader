@@ -28,11 +28,11 @@ from enum import IntEnum
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from .utils import utils
-from ._types import *
-from . import _types
+from pldl.utils import utils
+from pldl.pldl_types import *
+from pldl import pldl_types
 if TYPE_CHECKING:
-    from .config import PlaylistDL_Config
+    from pldl.config import PlaylistDL_Config
 
 
 
@@ -118,17 +118,19 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
     Args:
         pl_url_or_id (str): Playlist url or id to extract
         opts (YT_DLP_Params, optional): Options to pass into YoutubeDL. Defaults to {}.
-            Note 'skip_download', 'extract_flat', 'ignoreerrors' are forced.
-
+            Note 'skip_download', 'extract_flat' are forced.
+    
     Returns:
         PL_InfoDict: Flat playlist info
     """
     with YoutubeDL(opts | {
         'skip_download': 'True',
         'extract_flat': 'in_playlist',
-        'ignoreerrors': True,
     }) as ydl:
         flat_info: PL_InfoDict[V_InfoDict] = ydl.extract_info(pl_url_or_id, download=False) # type: ignore
+
+    if not flat_info:
+        raise RuntimeError(f"Failed to extract flat playlist for {pl_url_or_id}. Check terminal for errors.")
 
     flat_info['info_level'] = PL_InfoLevel.FLAT.name
     
@@ -196,23 +198,36 @@ def download_video(
             errors.append(e)
     return info, errors, False
 
-def download_video_alt(url: str, opts: YT_DLP_Params, download: bool) -> V_InfoDict | str|None | Exception:
+def download_video_alt(url: str, opts: YT_DLP_Params, download: bool) -> tuple[V_InfoDict|None, Exception|DownloadError|None, bool]:
     """
     Tries to downlaod the video given the url using yt_dlp
-    Returns the resulting data
+    Returns the resulting infodict and the download info
     """
+    info: V_InfoDict = {'info_level': V_InfoLevel.NONE} # type: ignore - init
+    now = utils.epoch_now()
+
     try:
         with YoutubeDL(opts) as ydl:
             info: V_InfoDict = ydl.extract_info(url, download=download) # type: ignore
     except DownloadError as dl_err:
-        return dl_err.msg
+        info['unavailable_msgs'] = [{
+            'epoch': now,
+            'msg': dl_err.msg,
+            'type': utils.get_domain(url) or url,
+        }]
+        return (info, dl_err, False)
     except Exception as e:
-        return e
+        info['unavailable_msgs'] = [{
+            'epoch': now,
+            'msg': repr(e),
+            'type': utils.get_domain(url) or url,
+        }]
+        return (None, e, False)
     
     if not info:
-        return None
+        return (None, None, True)
     info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
-    return info
+    return (info, None, True)
 
 
 
@@ -366,10 +381,11 @@ def ids_from_history(history: PL_DownloadHistory) -> ID_DownloadInfo:
         'download': [],
         'error':    [],
     }
-    for epoch in sorted(map(int, history.keys())): # oldest -> newest
+    for epoch in sorted(history.keys(), key=from_readable_epoch): # oldest -> newest
         for k, ids in ids_from_pl_download_info(history[str(epoch)]).items():
             merged[k].extend(ids)
     return merged
+
 
 def get_pl_v_info(pl_info: PL_InfoDict, v_idx: int):
     return {
@@ -397,24 +413,22 @@ def _fixup_pl_v_infos(pl_info: PL_InfoDict):
 def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
     pl_info['playlist_count'] = len(pl_info['entries'])
 
-    # FIXME: UNCOMMENT THIS
-    # if fixup_entries:
-    #     _fixup_pl_v_infos(pl_info)
-# FIXME: UNCOMMENT THE ABOVE
+    if fixup_entries:
+        _fixup_pl_v_infos(pl_info)
 
 
 
 # epoch stuff
 
 def get_epoch(info: V_InfoDict|PL_InfoDict|dict) -> int:
-    from .config import DEFAULT_EPOCH
+    from pldl.config import DEFAULT_EPOCH
     return info.get('epoch', DEFAULT_EPOCH())
 
 def get_latest_epoch(pl_info: PL_InfoDict) -> int:
     """ Max 'epoch' in pl_info and its entries.
 
     A negative epoch means the epoch wasn't found or all were malformed. """
-    from .config import DEFAULT_EPOCH
+    from pldl.config import DEFAULT_EPOCH
     latest = max(
         get_epoch(pl_info),
         *(get_epoch(entry) for entry in pl_info['entries']))
@@ -426,7 +440,7 @@ def get_latest_epoch(pl_info: PL_InfoDict) -> int:
 def to_readable_epoch(epoch: int) -> str:
     # low epochs can be invalid because of timezones.
     # So, exclue the first 24 hours from the start of the epoch
-    from .config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
+    from pldl.config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
 
     is_malformed = epoch < 0
 
@@ -438,8 +452,8 @@ def to_readable_epoch(epoch: int) -> str:
         return MALFORMED_EPOCH_FMT.replace('{}', formatted)
     return formatted
 
-def from_readable_epoch(readable: str) -> int:
-    from .config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
+def from_readable_epoch(readable: str, warn_on_fallback: bool = True) -> int:
+    from pldl.config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
 
     # for simple regex matching (besides you only really need one)
     assert MALFORMED_EPOCH_FMT.count('{}') == 1, "MALFORMED_EPOCH_FMT must include ONE {} to sub for EPOCH_FMT"
@@ -450,12 +464,22 @@ def from_readable_epoch(readable: str) -> int:
     match = re.match(LOW_EPOCH_RE, readable)
     if match:
         return int(match.groups()[0])
+    
     match = re.match(MALFORMED_EPOCH_RE, readable)
     if match:
         readable = match.groups()[0]
-    return int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())
+    
+    try:
+        return int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())
+    except: ...
 
-
+    try:
+        res = int(readable)
+        if warn_on_fallback:
+            utils.WARNING(f"Using str -> int fallback for {readable}")
+        return res
+    except: ...
+    raise ValueError(f"{readable} is not a recognized readable epoch")
 
 # basic validations
 
@@ -465,7 +489,7 @@ def validate_metdata_config_sync(metadata: Metadata, config: PlaylistDL_Config):
     if missing := utils.get_missing_typeddict_keys(metadata, Metadata): # type: ignore - Metadata is a TypedDict
         raise KeyError(f"Missing kvals: {missing}")
 
-    for p_key in _types._MetadataPointers.__optional_keys__:
+    for p_key in pldl_types._MetadataPointers.__optional_keys__:
         if metadata['pointers'].get(p_key) is None:
             continue
 

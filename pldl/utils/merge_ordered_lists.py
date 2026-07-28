@@ -1,41 +1,39 @@
 """
-merge_ordered_lists
-===================
+### PROBLEM
 
-PROBLEM
--------
 You have several lists that each impose a *partial* ordering on some items
 (an item can appear in more than one list). The lists disagree with each
 other about relative order, and disagree about which items even exist in
 common. You want ONE merged ordering that:
 
 And you want one merged ordering that:
-    1.  Respects every "A comes before B" constraint that doesn't
-        contradict a HIGHER priority list.
-    2.  Prefers the orderings of earlier (higher priority) lists over
-        later (lower priority) ones whenever they conflict.
-    3.  For anything not pinned down by a constraint, breaks ties using
-        priority (prefer inserting higher-priority items as early as
-        their constraints allow).
+1.  Respects every "A comes before B" constraint that doesn't
+    contradict a HIGHER priority list.
 
-APPROACH (three phases)
------------------------
-    1.  Build a DAG. Each list becomes a chain of edges (item[i] -> item[i+1]),
-        but only add an edge if it doesn't create a cycle with edges already
-        added from higher-priority lists. This is where "higher priority
-        wins on conflict" is enforced.
+2.  Prefers the orderings of earlier (higher priority) lists over
+    later (lower priority) ones whenever they conflict.
 
-    2.  Group nodes into "islands" (weakly-connected components) and give
-        each island a priority equal to the priority of its most important
-        member. This is what lets independent chunks of the graph be
-        ordered relative to each other by importance, not by some arbitrary
-        property of the algorithm.
+3.  For anything not pinned down by a constraint, breaks ties using
+    priority (prefer inserting higher-priority items as early as
+    their constraints allow).
 
-    3.  Topologically sort the DAG, using island-priority as the primary
-        tie-break and node-priority as the secondary tie-break, in a way
-        that pulls low-priority "filler" nodes as close as possible to
-        their high-priority anchors (see "ASAP vs ALAP" below -- this is
-        the subtle part).
+### APPROACH (three main phases)
+
+1.  Build a DAG. Each list becomes a chain of edges (item[i] -> item[i+1]),
+    but only add an edge if it doesn't create a cycle with edges already
+    added from higher-priority lists. This is where "higher priority
+    wins on conflict" is enforced.
+
+2.  Group nodes into "islands" (weakly-connected components) and give
+    each island a priority equal to the priority of its most important
+    member. This is what lets independent chunks of the graph be
+    ordered relative to each other by importance, not by some arbitrary
+    property of the algorithm.
+
+3.  Topologically sort the DAG in reverse, using island-priority as the primary
+    tie-break and node-priority as the secondary tie-break. Going in reverse
+    puts low-priority parent nodes as close as possible to their
+    higher-priority child nodes.
 """
 
 __all__ = ['merge_ordered_lists']
@@ -292,14 +290,17 @@ def _get_islands_priorities(dts: DynamicTopoSort[Node], priority: list[NodePrior
     than every node globally competing at the same time.
 
     Example:
-        ab
-        xyz
-        bc
-    
-        island A (priority -1):   a -- b -- c
-        island B (priority -2):   x -- y -- z
-            (even though `c` has priority -3, its island priority
-             of -1 (from `a` or `b`) causes `c` to appear before `xyz`)
+        1. `ab`
+        2. `xyz`
+        3. `bc`
+        Result: `abcxyz`
+        
+    Explanation:
+        island from `ab` and `bc` (priority -1):    a -- b -- c
+        island from `xyz`         (priority -2):    x -- y -- z
+
+        Even though the node `c` has priority -3, its island priority
+        of -1 (from `a` or `b`) causes `c` to appear before `xyz`.
     """
     UNSET = 0 # valid priorities are negative
     islands: list[IslandPriority] = [UNSET for _ in range(len(dts._ord_to_node))]
@@ -399,17 +400,17 @@ def _reversed_kahns(dts: DynamicTopoSort[Node], priority: list[NodePriority], is
 def merge_ordered_lists[T: Hashable](_lists: Iterable[Iterable[T]]) -> list[T]:
     """
     Priority is highest to lowest from first to last element in `lists`.
-    (eg. lists[0] is highest priority, lists[-1] is lowest priority).
+    (eg. lists[0] has the highest priority, lists[-1] has the lowest priority).
 
     Higher priority lists have their orderings favored over ALL
     conflicting orderings in lower priority lists.
 
     Phases:
-    1.  Preprocess items into ints
-    2.  Build DAG (`_create_dag`)
-    3.  Tag islands with priority (`_get_islands_priorities`)
+    1.  (Preprocess items into ints)
+    2.  Build DAG
+    3.  Tag islands with priority
     4.  Topologically sort the DAG to get ordering
-    5.  Map ints back to original items
+    5.  (Map ints back to original items)
     """
 
     lists, item_to_node, node_to_item = _create_nodes(_lists)

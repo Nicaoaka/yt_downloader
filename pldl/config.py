@@ -9,10 +9,10 @@ import dataclasses
 from typing import Callable, Literal, Any
 from enum import StrEnum, auto
 
-from .utils import utils
-from ._types import *
-from . import yt_utils
-from .post_processing import filters
+from pldl.utils import utils
+from pldl.pldl_types import *
+from pldl import yt_utils
+from pldl.post_processing import filters
 
 class Config_IdentType(StrEnum):
     """
@@ -29,45 +29,74 @@ class Config_IdentType(StrEnum):
 
 
 def default_wrapper_match_filter(
-    pl_v_info: V_InfoDict|dict,
+    pl_v_info: V_InfoDict,
     curr_dl_info: PL_DownloadInfo,
     history: PL_DownloadHistory,
     history_ids: ID_DownloadInfo,
     ytdlp: YT_DLP_DownloadArchive,
     ytdlp_ids: YT_DLP_DownloadArchive_IDs,
 ) -> DL_Action:
-    """
-    Per run
-    QUIT: After 5 downloads OR 20 extracts
-    DOWNLOAD: If <1,000,000 or unknown views
-    EXTRACT: If not extracted yet
-    SKIP: Otherwise
-    """
-    
+
+    # basic derived values
+    v_id = pl_v_info['id']
+    view_count = pl_v_info.get('view_count') or 0
+    duration = pl_v_info.get('duration') or 0
     curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
-    if len(curr_dl_ids['download']) >= 5 or len(curr_dl_ids['extract']) >= 20:
+
+    # Configuration
+    MAX_DOWNLOADS = 5
+    MAX_EXTRACTS = 25
+    QUIT_WHEN_MAXED = False # if True, not all unavailable vids will be seen
+
+    DOWNLOAD_MATCH: bool = view_count < 100_000 and duration <= 5 * 60
+    EXTRACT_MATCH: bool = True
+
+    FAIL_BACKOFF_TIME = 7 * 24 * 3600
+    EXTRACT_OVERRIDE: list[V_ID] = []
+    DOWNLOAD_OVERRIDE: list[V_ID] = []
+    YT_UNAVAILABLE_DL_ACTION: DL_Action | None = DL_Action.DOWNLOAD
+
+    # Manual overrides
+    if v_id in DOWNLOAD_OVERRIDE:
+        return DL_Action.DOWNLOAD
+    if v_id in EXTRACT_OVERRIDE:
+        return DL_Action.EXTRACT
+
+    # Max limits
+    if QUIT_WHEN_MAXED and \
+       (len(curr_dl_ids['download']) >= MAX_DOWNLOADS or len(curr_dl_ids['extract']) >= MAX_EXTRACTS):
         return DL_Action.QUIT
 
-    # already downloaded - would be skipped by yt-dlp anyway from download_archive
-    if pl_v_info['id'] in history_ids['download'] or pl_v_info['id'] in ytdlp_ids:
+    # Skip if failed and backoff time hasn't elapsed
+    forget_fail = utils.epoch_now() - FAIL_BACKOFF_TIME
+    for epoch in history:
+        if yt_utils.from_readable_epoch(epoch, warn_on_fallback=False) < forget_fail:
+            continue
+        for dl_info in history[str(epoch)]:
+            if dl_info['id'] == v_id and dl_info['result'] == DL_Result.FAIL:
+                return DL_Action.SKIP
+
+    # Already downloaded
+    if v_id in history_ids['download'] or v_id in ytdlp_ids:
         return DL_Action.SKIP
-    
-    if pl_v_info['id'] in history_ids['fail']:
-        for epoch in history:
-            # ignore dl_info older than a week
-            if int(epoch) < utils.epoch_now() - 7*24*3600:
-                continue
-            # skip if failed in the last week
-            for dl_info in history[str(epoch)]:
-                if dl_info['result'] in (DL_Result.FAIL) and dl_info['id'] == pl_v_info['id']:
-                    return DL_Action.SKIP
-    
-    if (pl_v_info.get('view_count') or 0) < 1_000_000:
+
+    # Already extracted
+    if v_id in history_ids['extract']:
+        return DL_Action.SKIP
+
+    # Unavailable video handling
+    likely_unavailable = (view_count == 0)
+    if YT_UNAVAILABLE_DL_ACTION is not None and likely_unavailable:
+        return YT_UNAVAILABLE_DL_ACTION
+
+    # Download if under max and meets criteria
+    if len(curr_dl_ids['download']) < MAX_DOWNLOADS and DOWNLOAD_MATCH:
         return DL_Action.DOWNLOAD
-    
-    if pl_v_info['id'] not in history_ids['extract']:
+
+    # Extract if under max
+    if len(curr_dl_ids['extract']) < MAX_EXTRACTS and EXTRACT_MATCH:
         return DL_Action.EXTRACT
-    
+
     return DL_Action.SKIP
 
 

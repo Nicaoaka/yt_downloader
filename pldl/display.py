@@ -1,7 +1,7 @@
 from yt_dlp.utils import DownloadError
 
-from . import utils
-from ._types import *
+from pldl.utils import utils
+from pldl.pldl_types import *
 
 
 

@@ -13,7 +13,7 @@ Return:
 
 from typing import Any
 
-from .._types import *
+from pldl.pldl_types import *
 
 def latest(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
     if is_latest and v != NO_VALUE:

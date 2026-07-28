@@ -1,5 +1,5 @@
 __all__ = [
-    'V_ID', 'PL_ID', 'EPOCH_STR', 'YT_DLP_Params',
+    'V_ID', 'PL_ID', 'READABLE_EPOCH_STR', 'YT_DLP_Params',
 
     'YT_DLP_InfoDict', 'V_InfoDict', 'PL_InfoDict', 'ANY_InfoDict',
 
@@ -24,13 +24,13 @@ if TYPE_CHECKING:
     from yt_dlp import _Params
     # from yt_dlp.utils import PagedList
 
-from .utils.utils import FalsySentinel
+from pldl.utils.utils import FalsySentinel
 
 
 
 type V_ID = str
 type PL_ID = str
-type EPOCH_STR = str
+type READABLE_EPOCH_STR = str
 type YT_DLP_Params = _Params
 
 
@@ -253,7 +253,7 @@ class DownloadInfo(TypedDict):
     errors: NotRequired[list[Exception]]
 
 type PL_DownloadInfo = list[DownloadInfo]
-type PL_DownloadHistory = dict[EPOCH_STR, PL_DownloadInfo]
+type PL_DownloadHistory = dict[READABLE_EPOCH_STR, PL_DownloadInfo]
 
 class ID_DownloadInfo(TypedDict):
     # skip: list[str]
@@ -274,7 +274,7 @@ class _V_MergeTimeline(TypedDict):
     better_info: NotRequired[list[str]] # "{merge_V_InfoLevel.name} -> {new_V_InfoLevel.name}"
     unavailable: NotRequired[list[str]]
     updates:     NotRequired[list[str]]
-type V_MergeTimeline = dict[EPOCH_STR, _V_MergeTimeline]
+type V_MergeTimeline = dict[READABLE_EPOCH_STR, _V_MergeTimeline]
 type PL_MergeTimeline = dict[V_ID, V_MergeTimeline]
 
 class NO_VALUE(FalsySentinel): ...

@@ -5,10 +5,10 @@ __all__ = [
 from collections import defaultdict
 from typing import Any, Callable
 
-from .._types import *
-from .. import utils
-from .. import yt_utils
-from .merge_updaters import latest_not_none_and_latest_unavail
+from pldl.pldl_types import *
+from pldl.utils import utils, merge_ordered_lists
+from pldl import yt_utils
+from pldl.post_processing.merge_updaters import latest_not_none_and_latest_unavail
 
     
 def _dedup_and_sort_unavail_msgs(msgs: list[UnavailableMsg]):
@@ -22,7 +22,7 @@ def _dedup_and_sort_unavail_msgs(msgs: list[UnavailableMsg]):
 
 
 def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimeline:
-    from ..config import DEFAULT_EPOCH
+    from pldl.config import DEFAULT_EPOCH
     timeline: V_MergeTimeline = defaultdict(dict) # type: ignore - init
     for msg in unavail_msgs:
         epoch = yt_utils.to_readable_epoch(msg['epoch'] if msg['epoch'] is not None else DEFAULT_EPOCH())
@@ -168,7 +168,7 @@ def merge_pl_infos(
 
     # most recent pl_info has highest priority
     _init_pl_idx: int|None = None if not _init else pl_infos.index(_init)
-    V_ID_ORDER = utils.merge_ordered_lists([[entry['id'] for entry in pl_info['entries']] for pl_info in pl_infos])
+    V_ID_ORDER = merge_ordered_lists([[entry['id'] for entry in pl_info['entries']] for pl_info in pl_infos])
 
     merge_info: PL_InfoDict = utils.dict_without_keys(pl_infos[0], {'entries', 'merge_timeline'}) # type: ignore - init
     merge_info['playlist_count'] = len(V_ID_ORDER)

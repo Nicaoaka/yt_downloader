@@ -1,10 +1,16 @@
+__all__ = [
+    'YT_Flat_V_InfoDict', 'YT_V_InfoDict', 'WA_V_InfoDict',
+    'YT_Flat_PL_V_InfoDict', 'YT_PL_V_InfoDict', 'WA_PL_V_InfoDict',
+    'YT_Flat_PL_InfoDict', 'YT_PL_InfoDict',
+]
+
 from typing import TypedDict, Literal, NotRequired, Required, Any, TYPE_CHECKING
-if TYPE_CHECKING:
-    from ._types import (
-        _PL_V_RelInfo,
-        _V_InfoDict_Addons,
-        _PL_InfoDict_Addons,
-    )
+from pldl.pldl_types import (
+    _PL_V_RelInfo,
+    _V_InfoDict_Addons,
+    _PL_InfoDict_Addons,
+)
+
 
 
 # 
@@ -232,7 +238,7 @@ class _YT_V_InfoDict(__YT_Format_Compact, total=False):
     requested_downloads: list[_YT_RequestedDownloads]
     requested_formats: list[_YT_Formats]
 
-    # almost the same as _YT_Format (may change based on download)
+    # almost the same as _YT_Formats (may change based on download)
         # format
         # format_id
         # ext
@@ -248,7 +254,7 @@ class _YT_V_InfoDict(__YT_Format_Compact, total=False):
         # dynamic_range
         # vcodec
         # vbr
-    stretched_ratio: int | float | None # not in _YT_Forma
+    stretched_ratio: int | float | None # not in _YT_Formats
         # aspect_ratio
         # acodec
         # abr
@@ -441,9 +447,7 @@ class _YT_PL_InfoDict_Common[ENTRY](TypedDict, total=False):
     release_year: int | None
     epoch: int
 
-class _YT_Flat_PL_InfoDict[ENTRY](_YT_PL_InfoDict_Common[ENTRY]):
-    _version: NotRequired[dict] # contains stuff but idrc about it
-
+class _YT_Flat_PL_InfoDict[ENTRY](_YT_PL_InfoDict_Common[ENTRY]): ...
 class _YT_PL_InfoDict[ENTRY](_YT_PL_InfoDict_Common[ENTRY]): ...
 
 # more concise but not used internally
@@ -457,3 +461,5 @@ class WA_PL_V_InfoDict(_WA_PL_V_InfoDict, _V_InfoDict_Addons): ...
 
 class YT_Flat_PL_InfoDict[ENTRY](_YT_Flat_PL_InfoDict[ENTRY], _PL_InfoDict_Addons): ...
 class YT_PL_InfoDict[ENTRY](_YT_PL_InfoDict[ENTRY], _PL_InfoDict_Addons): ...
+# YT_Flat_PL_InfoDict and YT_PL_InfoDict they are the same
+ 

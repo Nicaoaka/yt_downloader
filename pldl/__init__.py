@@ -7,13 +7,14 @@ By default, try to download from `YouTube` and fallback on `InternetWebArchive`.
 See `config.py` and `playlist_downloader.py`
 """
 
-
-from ._types import *
-from . import (
-    utils,
+from pldl.pldl_types import *
+from pldl import (
+    pldl_types,
+    pldl_type_extensions,
     yt_utils,
     display,
-    post_processing
+    post_processing,
 )
-from .playlist_dl import PlaylistDL
-from .config import PlaylistDL_Config, Config_IdentType
+from pldl.utils import *
+from pldl.playlist_dl import PlaylistDL
+from pldl.config import PlaylistDL_Config, Config_IdentType
