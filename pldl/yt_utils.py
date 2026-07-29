@@ -5,7 +5,7 @@ __all__ = [
     'get_v_display',
 
     'V_InfoLevel', 'PL_InfoLevel',
-    'extract_flat_info', 'download_video', 'download_video_alt',
+    'extract_flat_info', 'download_video', 'download_video_generic',
     'get_v_info_level', 'get_pl_info_level',
 
     'ytdlp_eval_tmpl', 'eval_tmpl_with_alt_data',
@@ -166,7 +166,7 @@ def download_video(
     if not is_id_like(v_id, is_video=True):
         raise ValueError(f"{v_id} does not resemble a video id")
     
-    info: V_InfoDict = {'info_level': V_InfoLevel.NONE} # type: ignore - init
+    info: V_InfoDict = {} # type: ignore - init
     errors: list[Exception] = []
     if yt:
         try:
@@ -196,9 +196,10 @@ def download_video(
             errors.append(wa_err)
         except Exception as e:
             errors.append(e)
+    info['info_level'] = V_InfoLevel.NONE.name
     return info, errors, False
 
-def download_video_alt(url: str, opts: YT_DLP_Params, download: bool) -> tuple[V_InfoDict|None, Exception|DownloadError|None, bool]:
+def download_video_generic(url: str, opts: YT_DLP_Params, download: bool) -> tuple[V_InfoDict|None, Exception|DownloadError|None, bool]:
     """
     Tries to downlaod the video given the url using yt_dlp
     Returns the resulting infodict and the download info
@@ -354,7 +355,8 @@ def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
     return res
 
 def ids_from_yt_dlp_archive(l: YT_DLP_DownloadArchive) -> list[V_ID]:
-    return [tup[1] for tup in l]
+    EXTRACTORS_WITH_YT_IDS = {'youtube', 'youtubewebarchive', '__pldl_yt_dlp_generic__'}
+    return [tup[1] for tup in l if tup[0] in EXTRACTORS_WITH_YT_IDS]
 
 def ids_from_pl_download_info(pl_dl_info: PL_DownloadInfo) -> ID_DownloadInfo:
     res: ID_DownloadInfo = {

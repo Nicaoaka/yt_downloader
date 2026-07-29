@@ -570,6 +570,9 @@ class PlaylistDL:
                     wa = wa,
                     download = (action == DL_Action.DOWNLOAD)
                 )
+
+                if v_info:
+                    pl_v_display = f"[{i_of_N}] {yt_utils.get_v_display(entry | v_info)}"
                 
                 pl_dl_info[-1] = {
                     'id': entry['id'],
@@ -624,11 +627,11 @@ class PlaylistDL:
                 is_written=False, metadata_key=None)
         
 
-        print("\n ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
-                "  Playlist Videos Download Info  \n"
-                " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n")
-        print(display.pl_download_info(pl_dl_info, errors=True))
-        print()
+        print("\n"
+              " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
+              "  Playlist Videos Download Info  \n"
+              " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n" +
+              display.pl_download_info(pl_dl_info, errors=True) + "\n")
         
         if write or (write is USE_CONFIG and self._config.write_raw_v_infos):
             self.write_info(self._infos.raw_v_infos, collision_policy='rm old', name='raw_v_infos', alt_info={'epoch': self.session_start_epoch})
@@ -657,7 +660,7 @@ class PlaylistDL:
               utils.hex("<GENERIC>", fg="#CDFCFF"),
               display.ACTION_TAG[dl_info['action']].rendered,
               utils.hex(v_id, display.ACTION_TAG[dl_info['action']].color))
-        v_info, error, success = yt_utils.download_video_alt(any_yt_dlp_url, opts, download=download)
+        v_info, error, success = yt_utils.download_video_generic(any_yt_dlp_url, opts, download=download)
 
         if error:
             dl_info['errors'] = [error]
@@ -667,7 +670,8 @@ class PlaylistDL:
         if v_info:
             v_info['id'] = v_id
             v_info.setdefault('epoch', raw_epoch)
-
+            dl_info['title'] = v_info.get('title')
+        
         print(utils.hex("<GENERIC>", fg="#CDFCFF"),
               display.download_info(dl_info, errors=True)+
               '\n')
@@ -706,10 +710,7 @@ class PlaylistDL:
                 .append(dl_info)
 
         if dl_info['result'] == DL_Result.DOWNLOAD:
-            ie_or_url = v_info.get('ie_key', '').lower() \
-                or v_info.get('extractor', '').lower() \
-                or utils.get_domain(any_yt_dlp_url) \
-                or 'yt_dlp_generic'
+            ie_or_url = '__pldl_yt_dlp_generic__'
             with open(self._pl_outtmpls['yt_dlp_archive'], 'a') as f:
                 f.write(f'{ie_or_url} {v_id}\n')
             print(utils.hex(f"Updated yt_dlp_archive: {self._pl_outtmpls['yt_dlp_archive']}", fg="#637f86"))
