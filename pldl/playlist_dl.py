@@ -394,16 +394,24 @@ class PlaylistDL:
             match collision_policy:
                 case 'mov new': collision_policy = 'rm new'
                 case 'mov old': collision_policy = 'rm old'
-        
-        if isinstance(info.data, dict):
-            epoch = yt_utils.get_epoch(info.data)
-            if alt_info:
-                _dst = yt_utils.eval_tmpl_with_alt_data(info.pl_outtmpl, info.data, alt_info)
-            else:
-                _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data)
-        else:
-            epoch = yt_utils.get_epoch(alt_info)
-            _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, alt_info) # can't use info.data to make path
+
+        match info.metadata_key:
+            case 'latest_pl_info' | 'latest_merge_info':
+                epoch = yt_utils.get_epoch(info.data)
+                _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data, alt_info)
+
+            case '_merge_flat' | 'latest_flat_info':
+                epoch = yt_utils.get_latest_epoch(info.data)
+                _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data, {'epoch': epoch} | alt_info)
+
+            case _: # raw_v_infos
+                if isinstance(info.data, dict):
+                    epoch = yt_utils.get_epoch(info.data)
+                    _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data, alt_info)
+                else:
+                    # can't use info.data to make path
+                    epoch = yt_utils.get_epoch(alt_info)
+                    _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, alt_info)
 
         to_write = self.get_filtered_data(info)
         PlaylistDL.reorder_keys(to_write, type=info.metadata_key)
@@ -576,7 +584,7 @@ class PlaylistDL:
                 
                 pl_dl_info[-1] = {
                     'id': entry['id'],
-                    'title': (v_info or entry).get('title'),
+                    'title': (v_info or {}).get('title') or entry.get('title'),
                     'action': action,
                     'result': PlaylistDL._get_dl_result(v_info, success),
                 }
@@ -863,6 +871,10 @@ class PlaylistDL:
     # optionally mutate _merge_info for persistent changes.
     # Does not update history or yt_dlp archive,
     # any new ids should be redownloaded/extracted from scratch
+    # 
+    # TODO: Make it update history in some way, will need to update how history handles entries.
+    # Nmamely replacing ids. What policy should be followed?
+    # Just ignore it, but write it into history so it knows?
     #
 
     @staticmethod
@@ -1269,7 +1281,7 @@ class PlaylistDL:
         if self._config.cookie_file and os.path.exists(self._config.cookie_file):
             with open(self._config.cookie_file, 'w'):
                 ...
-            print(utils.hex(f"Emptied cookie file: {self._config.cookie_file}", fg="#c80053"))
+            print(utils.hex(f"Emptied cookie file: {self._config.cookie_file}", fg="#ff60bd"))
 
     def close(self):
         if self._infos._merge_flat:

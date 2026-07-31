@@ -161,12 +161,15 @@ def default_path_tmpls() -> CustomOuttmpl:
 
         'video_file': "Videos\\%(title)s [%(id)s].%(ext)s",
 
-        'raw_flat_infojson': "_flat\\%(epoch>%Y-%m-%d %H-%M-%S)s.flat.json",
-        'raw_video_infojson': "_v_infos\\%(epoch>%Y-%m-%d %H-%M-%S)s.v_infos.json", # uses latest v epoch within
-
-        '_merged_flat_infojson': "%(epoch>%Y-%m-%d %H-%M-%S)s.merge.flat.json",
-        'pl_infojson': "playlist\\%(epoch>%Y-%m-%d %H-%M-%S)s.info.json",
-        'merge_infojson': "%(epoch>%Y-%m-%d %H-%M-%S)s.merge.json",
+        # Adjust epoch to local timezone (this is utc-7)
+        # This will need adjusting if you have daylight savings
+        # raw_video_infojson uses session start time for epoch
+        # pl_infojson and merge_infojson use latest playlist/video epoch for epoch
+        'raw_flat_infojson': "_flat\\%(epoch-25200>%Y-%m-%d %H-%M-%S)s.flat.json",
+        'raw_video_infojson': "_v_infos\\%(epoch-25200>%Y-%m-%d %H-%M-%S)s.v_infos.json",
+        '_merged_flat_infojson': "%(epoch-25200>%Y-%m-%d %H-%M-%S)s.merge.flat.json",
+        'pl_infojson': "playlist\\%(epoch-25200>%Y-%m-%d %H-%M-%S)s.info.json",
+        'merge_infojson': "%(epoch-25200>%Y-%m-%d %H-%M-%S)s.merge.json",
 
         'yt_dlp_archive': "_yt_dlp_archive.txt",
         'metadata': "_metadata.json",

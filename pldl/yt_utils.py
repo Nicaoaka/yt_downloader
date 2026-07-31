@@ -8,7 +8,7 @@ __all__ = [
     'extract_flat_info', 'download_video', 'download_video_generic',
     'get_v_info_level', 'get_pl_info_level',
 
-    'ytdlp_eval_tmpl', 'eval_tmpl_with_alt_data',
+    'ytdlp_eval_tmpl',
 
     'copy_and_sanitize_info', 'load_yt_archive',
     'ids_from_yt_dlp_archive', 'ids_from_pl_download_info', 'ids_from_history',
@@ -284,13 +284,12 @@ def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
 
 # Path helpers
 
-def ytdlp_eval_tmpl(tmpl: str, info: ANY_InfoDict):
-    return YoutubeDL().evaluate_outtmpl(tmpl, info, sanitize=True) # type: ignore
-
-def eval_tmpl_with_alt_data(tmpl: str, info: ANY_InfoDict, alt_data: ANY_InfoDict):
-    """ Temporarily swap keys of `info` to `alt_data` to call ``ytdlp_eval_tmpl`` """
-    path = ytdlp_eval_tmpl(tmpl, copy_and_sanitize_info(info | alt_data)) # type: ignore - both are dicts, tmp isn't important
-    return path
+def ytdlp_eval_tmpl(tmpl: str, info: ANY_InfoDict, alt_info: ANY_InfoDict = {}) -> str:
+    """ Creates a deepcopy with `alt_info` overriding `info` to call yt_dlp's ``evaluate_outtmpl()`` """
+    return YoutubeDL().evaluate_outtmpl(
+        tmpl,
+        copy_and_sanitize_info(info | alt_info, wrap=True), # type: ignore
+        sanitize=True)
 
 
 
@@ -431,9 +430,10 @@ def get_latest_epoch(pl_info: PL_InfoDict) -> int:
 
     A negative epoch means the epoch wasn't found or all were malformed. """
     from pldl.config import DEFAULT_EPOCH
-    latest = max(
-        get_epoch(pl_info),
-        *(get_epoch(entry) for entry in pl_info['entries']))
+    latest: int = max(
+        pl_info.get('epoch', -float('inf')),
+        *(entry.get('epoch', -float('inf')) for entry in pl_info['entries']),
+        DEFAULT_EPOCH()) # type: ignore - default always overrides 
     if latest <= DEFAULT_EPOCH():
         utils.WARNING(f"All epochs are malformed or missing: {latest}")
     return latest
