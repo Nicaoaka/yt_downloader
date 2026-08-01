@@ -454,7 +454,7 @@ def to_readable_epoch(epoch: int) -> str:
         return MALFORMED_EPOCH_FMT.replace('{}', formatted)
     return formatted
 
-def from_readable_epoch(readable: str, warn_on_fallback: bool = True) -> int:
+def from_readable_epoch(readable: str, warn_on_fallback: bool = False) -> int:
     from pldl.config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
 
     # for simple regex matching (besides you only really need one)

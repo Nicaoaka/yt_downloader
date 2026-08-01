@@ -270,6 +270,9 @@ class PlaylistDL:
                 self.write_info(self._infos.raw_flat, 'mov new')
             self.update_merge_flat_info([self._infos.raw_flat.data])
 
+        if self._infos.raw_flat is None and self._config.force_flat_extract:
+            self.extract_flat_info()
+
         # dev stuff ignore for most use cases
         if self._config._use_as_merge_flat:
             if self._infos._merge_flat:
@@ -458,8 +461,9 @@ class PlaylistDL:
         raw_flat_info = yt_utils.extract_flat_info(pl_url_or_id=self.id,
             opts=self.opts | {
                 'cookiefile': cookiefile if cookiefile is not USE_CONFIG else \
-                              self._config.cookie_file if self._config.cookies_for_vids else \
-                              None}) # type: ignore
+                              self._config.cookie_file if self._config.cookies_for_pl else \
+                              None,
+                'download_archive': None}) # type: ignore - download flat info anyway!
         self._infos.raw_flat = _InfosEntry(raw_flat_info, self._pl_outtmpls['raw_flat_infojson'], is_written=False, metadata_key='latest_flat_info')
 
         if write or (write is USE_CONFIG and self._config.write_flat):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 __all__ = [
     'PlaylistDL_Config', 'Config_IdentType',
+    'wrapper_match_filter_builder',
 ]
 
 import os
@@ -28,77 +29,88 @@ class Config_IdentType(StrEnum):
     METADATA_PATH = auto() # abs/rel path, is not effected by home 
 
 
-def default_wrapper_match_filter(
-    pl_v_info: V_InfoDict,
-    curr_dl_info: PL_DownloadInfo,
-    history: PL_DownloadHistory,
-    history_ids: ID_DownloadInfo,
-    ytdlp: YT_DLP_DownloadArchive,
-    ytdlp_ids: YT_DLP_DownloadArchive_IDs,
-) -> DL_Action:
+def wrapper_match_filter_builder(
+    max_downloads = 5,
+    max_extracts = 25,
+    quit_when_maxed = False, # if True, not all unavailable vids will be seen
 
-    # basic derived values
-    v_id = pl_v_info['id']
-    view_count = pl_v_info.get('view_count') or 0
-    duration = pl_v_info.get('duration') or 0
-    curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
-
-    # Configuration
-    MAX_DOWNLOADS = 5
-    MAX_EXTRACTS = 25
-    QUIT_WHEN_MAXED = False # if True, not all unavailable vids will be seen
-
-    DOWNLOAD_MATCH: bool = view_count < 100_000 and duration <= 5 * 60
-    EXTRACT_MATCH: bool = True
-
-    FAIL_BACKOFF_TIME = 7 * 24 * 3600
-    EXTRACT_OVERRIDE: list[V_ID] = []
-    DOWNLOAD_OVERRIDE: list[V_ID] = []
-    YT_UNAVAILABLE_DL_ACTION: DL_Action | None = DL_Action.DOWNLOAD
-
-    # Manual overrides
-    if v_id in DOWNLOAD_OVERRIDE:
-        return DL_Action.DOWNLOAD
-    if v_id in EXTRACT_OVERRIDE:
-        return DL_Action.EXTRACT
-
-    # Max limits
-    if QUIT_WHEN_MAXED and \
-       (len(curr_dl_ids['download']) >= MAX_DOWNLOADS or len(curr_dl_ids['extract']) >= MAX_EXTRACTS):
-        return DL_Action.QUIT
-
-    # Skip if failed and backoff time hasn't elapsed
-    forget_fail = utils.epoch_now() - FAIL_BACKOFF_TIME
-    for epoch in history:
-        if yt_utils.from_readable_epoch(epoch, warn_on_fallback=False) < forget_fail:
-            continue
-        for dl_info in history[str(epoch)]:
-            if dl_info['id'] == v_id and dl_info['result'] == DL_Result.FAIL:
-                return DL_Action.SKIP
-
-    # Already downloaded
-    if v_id in history_ids['download'] or v_id in ytdlp_ids:
-        return DL_Action.SKIP
-
-    # Already extracted
-    if v_id in history_ids['extract']:
-        return DL_Action.SKIP
-
-    # Unavailable video handling
-    likely_unavailable = (view_count == 0)
-    if YT_UNAVAILABLE_DL_ACTION is not None and likely_unavailable:
-        return YT_UNAVAILABLE_DL_ACTION
-
-    # Download if under max and meets criteria
-    if len(curr_dl_ids['download']) < MAX_DOWNLOADS and DOWNLOAD_MATCH:
-        return DL_Action.DOWNLOAD
+    extract_match: Callable[[V_InfoDict], bool]|None = None,
+    download_match: Callable[[V_InfoDict], bool] = lambda v: (
+               ((v.get('view_count') or 0) < 100_000) \
+            and (v.get('duration') or 0) <=  5 * 60),
     
-    # Extract if under max and meets criteria
-    # (Even if it will be downloaded later)
-    if len(curr_dl_ids['extract']) < MAX_EXTRACTS and EXTRACT_MATCH:
-        return DL_Action.EXTRACT
+    extract_override: list[V_ID] = [],
+    download_override: list[V_ID] = [],
 
-    return DL_Action.SKIP
+    fail_backoff_time = 7 * 24 * 3600,
+
+    yt_unavailable_action: DL_Action | None = DL_Action.DOWNLOAD
+):
+    """ If `extract_match` is None (default), then it is the opposite of `download_match` """
+
+    if extract_match is None:
+        extract_match = lambda pl_v_info: not download_match(pl_v_info)
+
+    def wrapper_match_filter(
+        pl_v_info: V_InfoDict,
+        curr_dl_info: PL_DownloadInfo,
+        history: PL_DownloadHistory,
+        history_ids: ID_DownloadInfo,
+        ytdlp: YT_DLP_DownloadArchive,
+        ytdlp_ids: YT_DLP_DownloadArchive_IDs,
+    ) -> DL_Action:
+
+        # basic derived values
+        v_id = pl_v_info['id']
+        curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
+
+
+        # Manual overrides
+        if v_id in download_override:
+            return DL_Action.DOWNLOAD
+        if v_id in extract_override:
+            return DL_Action.EXTRACT
+
+        # Max limits
+        if quit_when_maxed and \
+        (len(curr_dl_ids['download']) >= max_downloads or len(curr_dl_ids['extract']) >= max_extracts):
+            return DL_Action.QUIT
+
+        # Skip if failed and backoff time hasn't elapsed
+        forget_fail = utils.epoch_now() - fail_backoff_time
+        for epoch in history:
+            if yt_utils.from_readable_epoch(epoch, warn_on_fallback=False) < forget_fail:
+                continue
+            for dl_info in history[str(epoch)]:
+                if dl_info['id'] == v_id and dl_info['result'] == DL_Result.FAIL:
+                    return DL_Action.SKIP
+
+        # Already downloaded
+        if v_id in history_ids['download'] or v_id in ytdlp_ids:
+            return DL_Action.SKIP
+
+        # Already extracted
+        if v_id in history_ids['extract']:
+            return DL_Action.SKIP
+
+        # Unavailable video handling
+        likely_unavailable = pl_v_info.get('view_count') in (0, None)
+        if yt_unavailable_action is not None and likely_unavailable:
+            return yt_unavailable_action
+
+        # Download if under max and meets criteria
+        if len(curr_dl_ids['download']) < max_downloads and download_match(pl_v_info):
+            return DL_Action.DOWNLOAD
+        
+        # Extract if under max and meets criteria
+        # (Even if it will be downloaded later)
+        if len(curr_dl_ids['extract']) < max_extracts and extract_match(pl_v_info):
+            return DL_Action.EXTRACT
+
+        return DL_Action.SKIP
+
+    return wrapper_match_filter
+
 
 
 def default_yt_dlp_match_filter(v_info: V_InfoDict, *, incomplete: bool) -> str | None:
@@ -214,6 +226,7 @@ class PlaylistDL_Config:
 
     # --- refresh ---
     refresh_after: float = 7 * 24 * 3600  # seconds; if ident_type is Playlist_ID, it will extract
+    force_flat_extract: bool = False
     base_info_type: Literal['any', 'latest_flat', 'merge_flat'] = 'merge_flat'
     
     # --- cookies ---
@@ -243,7 +256,7 @@ class PlaylistDL_Config:
             PL_DownloadHistory,     ID_DownloadInfo,
             YT_DLP_DownloadArchive, YT_DLP_DownloadArchive_IDs,
         ], DL_Action,
-    ] = default_wrapper_match_filter
+    ] = wrapper_match_filter_builder()
     yt_dlp_match_filter: Callable[..., str | None] = dataclasses.field(default=default_yt_dlp_match_filter)
     
     # --- yt-dlp params ---

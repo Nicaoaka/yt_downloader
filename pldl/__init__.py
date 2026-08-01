@@ -17,4 +17,4 @@ from pldl import (
 )
 from pldl.utils import *
 from pldl.playlist_dl import PlaylistDL
-from pldl.config import PlaylistDL_Config, Config_IdentType
+from pldl.config import PlaylistDL_Config, Config_IdentType, wrapper_match_filter_builder
