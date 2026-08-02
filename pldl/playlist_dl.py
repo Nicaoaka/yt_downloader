@@ -1118,6 +1118,9 @@ class PlaylistDL:
         if mutate_merge_flat and self._infos._merge_flat and merge_index is not None:
             self._infos._merge_flat.data['entries'][merge_index]['id'] = repl
             PlaylistDL._add_update_to_merge_timeline(
+                self._infos._merge_flat.data, v_id,
+                update_str=f'<REPLACE ID from={v_id} to={repl}>')
+            PlaylistDL._add_update_to_merge_timeline(
                 self._infos._merge_flat.data, repl,
                 update_str=f'<REPLACE ID from={v_id} to={repl}>')
 
