@@ -481,7 +481,7 @@ class PlaylistDL:
             init_merge_flat: PL_InfoDict|None = self.load('_merge_flat', default=None)
 
         self._infos._merge_flat = _InfosEntry(
-            merge_infos.merge_pl_infos(flat_infos, merge_updaters.latest_only, _init=init_merge_flat),
+            merge_infos.merge_pl_infos(flat_infos, merge_updaters.curated, _init=init_merge_flat),
             self._pl_outtmpls['_merged_flat_infojson'],
             is_written=False,
             metadata_key='_merge_flat')
@@ -595,7 +595,7 @@ class PlaylistDL:
                 if errors:
                     pl_dl_info[-1]['errors'] = errors
 
-                result_tag = display.download_result(pl_dl_info[-1])
+                result_tag = display.download_result_tag(pl_dl_info[-1])
                 print(result_tag.rendered, utils.hex(pl_v_display, result_tag.color)+
                       '\n')
                 
@@ -770,7 +770,7 @@ class PlaylistDL:
             i = vid_to_index[v_info['id']]
             pl_info['entries'][i], _v_merge_timeline = merge_infos.merge_v_infos(
                 [pl_info['entries'][i], yt_utils.copy_and_sanitize_info(v_info, clean_info_json)],
-                field_updater=merge_updaters.latest, update_filter=lambda _: False)
+                field_updater=merge_updaters.curated, update_filter=lambda _: False)
             # TODO: Check if this merge udpater is actually a good fit
 
         yt_utils.fixup_pl_info(pl_info)
@@ -809,7 +809,7 @@ class PlaylistDL:
             write: bool | type[USE_CONFIG] = USE_CONFIG,
             delete_prev: bool = False,
             init_ident: PL_InfoDict | list[pldl_types._MetadataFiles_Lit] = ['latest_merge_info', 'latest_pl_info', 'latest_flat_info', '_merge_flat'],
-            field_updater: Callable[[V_InfoDict, str, Any|type[merge_infos.NO_VALUE], bool],bool] = merge_updaters.latest_not_none_and_latest_unavail,
+            field_updater: merge_updaters.Signature = merge_updaters.curated,
             update_filter: Callable[[str], bool]|list = [
                 'title',
                 'description', 'categories', 'tags',
@@ -871,14 +871,10 @@ class PlaylistDL:
 
     # 
     # Manipulation
-    # Primarily effects base_info,
-    # optionally mutate _merge_info for persistent changes.
-    # Does not update history or yt_dlp archive,
-    # any new ids should be redownloaded/extracted from scratch
-    # 
-    # TODO: Make it update history in some way, will need to update how history handles entries.
-    # Nmamely replacing ids. What policy should be followed?
-    # Just ignore it, but write it into history so it knows?
+    # Primarily effects base_info
+    # Optionally mutate _merge_info for persistent changes
+    # Does not update history or yt_dlp archive
+    # Any new ids should be redownloaded/extracted from scratch
     #
 
     @staticmethod
@@ -1106,6 +1102,7 @@ class PlaylistDL:
             yt_utils.fixup_pl_info(self._infos._merge_flat.data)
 
 
+    # TODO: Should update metadata in some way? That would also require updating how history is handled though...
     def _replace_video_impl(self, base_index: int|None, merge_index: int|None, v_id: V_ID, repl: V_ID, mutate_merge_flat: bool):
         """Helper: Replace a video ID at given indices.
 

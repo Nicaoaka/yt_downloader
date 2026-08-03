@@ -8,7 +8,6 @@ from typing import Any, Callable
 from pldl.pldl_types import *
 from pldl.utils import utils, merge_ordered_lists
 from pldl import yt_utils
-from pldl.post_processing.merge_updaters import latest_not_none_and_latest_unavail
 
     
 def _dedup_and_sort_unavail_msgs(msgs: list[UnavailableMsg]):
@@ -19,8 +18,6 @@ def _dedup_and_sort_unavail_msgs(msgs: list[UnavailableMsg]):
                         +(0.2 if info['type'] == 'yt' else 0.1 if info['type'] == 'wa' else 0),
         reverse=True)
 
-
-
 def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimeline:
     from pldl.config import DEFAULT_EPOCH
     timeline: V_MergeTimeline = defaultdict(dict) # type: ignore - init
@@ -29,11 +26,9 @@ def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimel
         timeline[epoch].setdefault('unavailable', []).append(f"{msg['type']}: {msg['msg']}")
     return timeline
 
-
-
 def merge_v_infos(
         v_infos: list[V_InfoDict],
-        field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool] = latest_not_none_and_latest_unavail,
+        field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool],
         update_filter: Callable[[str], bool] = lambda _: True,
         _init: V_InfoDict|None = None,
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
@@ -117,7 +112,6 @@ def merge_v_infos(
         merge_info['unavailable_msgs'] = _dedup_and_sort_unavail_msgs(unavailable_msgs)
         v_timeline = utils.merge_objs(v_timeline, _get_unavailabe_timeline(merge_info['unavailable_msgs']), make_copy=False)
     return merge_info, v_timeline
-
 
 
 

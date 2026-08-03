@@ -270,11 +270,11 @@ class UnavailableMsg(TypedDict):
     msg:   str|None
     type:  str
 
-class _V_MergeTimeline(TypedDict):
+class V_MergeTimelineEntry(TypedDict):
     better_info: NotRequired[list[str]] # "{merge_V_InfoLevel.name} -> {new_V_InfoLevel.name}"
     unavailable: NotRequired[list[str]]
     updates:     NotRequired[list[str]]
-type V_MergeTimeline = dict[READABLE_EPOCH_STR, _V_MergeTimeline]
+type V_MergeTimeline = dict[READABLE_EPOCH_STR, V_MergeTimelineEntry]
 type PL_MergeTimeline = dict[V_ID, V_MergeTimeline]
 
 class NO_VALUE(FalsySentinel): ...

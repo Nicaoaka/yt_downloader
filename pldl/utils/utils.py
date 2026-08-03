@@ -86,16 +86,22 @@ WARN_COLOR = '#ffff47'
 ERR_COLOR = '#ff4747'
 def format_exception(e: BaseException) -> str:
     return hex(''.join(traceback.format_exception(e)).rstrip(), fg=EXC_COLOR)
-def WARNING(msg: str, caller_offset: int = 0) -> None:
-    print(
-        hex(" WARNING ", bg=WARN_COLOR),
+def WARNING(msg: str, caller_offset: int = 0, auto_print: bool = True) -> str:
+    res = ' '.join(
+        (hex(" WARNING ", bg=WARN_COLOR),
         hex(f"[{get_caller_function(caller_offset)}]", fg=WARN_COLOR),
-        msg)
-def ERROR(msg: str, caller_offset: int = 0) -> None:
-    print(
+        msg))
+    if auto_print:
+        print(res)
+    return res
+def ERROR(msg: str, caller_offset: int = 0, auto_print: bool = True) -> str:
+    res = ' '.join((
         hex("  ERROR  ", bg=ERR_COLOR),
         hex(f"[{get_caller_function(caller_offset)}]", fg=ERR_COLOR),
-        msg)
+        msg))
+    if auto_print:
+        print(res)
+    return res
 
 
 def truncate(s: str, max_len: int, end='...', *, end_in_max: bool = True, trunc_start: bool = False):
