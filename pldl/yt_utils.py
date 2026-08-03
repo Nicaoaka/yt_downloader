@@ -444,23 +444,21 @@ def to_readable_epoch(epoch: int) -> str:
     # So, exclue the first 24 hours from the start of the epoch
     from pldl.config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
 
-    is_malformed = epoch < 0
+    is_negative = epoch < 0
 
     if abs(epoch) <= 3600 * 24:
         return MALFORMED_EPOCH_FMT.replace('{}', str(epoch))
     
     formatted = datetime.datetime.fromtimestamp(abs(epoch)).strftime(READABLE_EPOCH_FMT)
-    if is_malformed:
-        return MALFORMED_EPOCH_FMT.replace('{}', formatted)
+    if is_negative:
+        return MALFORMED_EPOCH_FMT.replace('{}', '-'+formatted)
     return formatted
 
-def from_readable_epoch(readable: str, warn_on_fallback: bool = False) -> int:
+def from_readable_epoch(readable: str) -> int:
     from pldl.config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
 
-    # for simple regex matching (besides you only really need one)
-    assert MALFORMED_EPOCH_FMT.count('{}') == 1, "MALFORMED_EPOCH_FMT must include ONE {} to sub for EPOCH_FMT"
-    assert MALFORMED_EPOCH_FMT.count('__epoch_fmt_sub') == 0, "MALFORMED_EPOCH_FMT cannot include '__epoch_fmt_sub' for internal reasons"
-    MALFORMED_EPOCH_RE = '^'+ re.escape(MALFORMED_EPOCH_FMT.replace('{}', '__epoch_fmt_sub')).replace('__epoch_fmt_sub', '(.+)') +'$'
+    # make sure 
+    MALFORMED_EPOCH_RE = '^'+ re.escape(MALFORMED_EPOCH_FMT.replace('{}', '__epoch_fmt_sub')).replace('__epoch_fmt_sub', '(-?)(.+)') +'$'
     LOW_EPOCH_RE = '^'+ re.escape(MALFORMED_EPOCH_FMT.replace('{}', '__epoch_fmt_sub')).replace('__epoch_fmt_sub', r'(-?\d+)') +'$'
 
     match = re.match(LOW_EPOCH_RE, readable)
@@ -468,18 +466,18 @@ def from_readable_epoch(readable: str, warn_on_fallback: bool = False) -> int:
         return int(match.groups()[0])
     
     match = re.match(MALFORMED_EPOCH_RE, readable)
+    is_negative = 1
     if match:
-        readable = match.groups()[0]
+        readable = match.groups()[1]
+        is_negative = -1 if bool(match.groups()[0]) else 1
     
     try:
-        return int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())
+        epoch = int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())
+        return is_negative * epoch
     except: ...
 
     try:
-        res = int(readable)
-        if warn_on_fallback:
-            utils.WARNING(f"Using str -> int fallback for {readable}")
-        return res
+        return int(readable)
     except: ...
     raise ValueError(f"{readable} is not a recognized readable epoch")
 

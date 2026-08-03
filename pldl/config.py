@@ -79,7 +79,7 @@ def wrapper_match_filter_builder(
         # Skip if failed and backoff time hasn't elapsed
         forget_fail = utils.epoch_now() - fail_backoff_time
         for epoch in history:
-            if yt_utils.from_readable_epoch(epoch, warn_on_fallback=False) < forget_fail:
+            if yt_utils.from_readable_epoch(epoch) < forget_fail:
                 continue
             for dl_info in history[str(epoch)]:
                 if dl_info['id'] == v_id and dl_info['result'] == DL_Result.FAIL:
@@ -321,6 +321,10 @@ class PlaylistDL_Config:
 DEFAULT_EPOCH: Callable[[],int] = lambda: -utils.epoch_now()
 READABLE_EPOCH_FMT = '%Y-%m-%d__%H-%M-%S' # For formats, see datetime.strftime()
 MALFORMED_EPOCH_FMT = '{} (malformed)'
+
+assert MALFORMED_EPOCH_FMT.strip() != '{}', "MALFORMED_EPOCH_FMT must include non space characters eg '{}-bad'"
+assert MALFORMED_EPOCH_FMT.count('{}') == 1, "MALFORMED_EPOCH_FMT must include ONE {} to sub for EPOCH_FMT"
+assert MALFORMED_EPOCH_FMT.count('__epoch_fmt_sub') == 0, "MALFORMED_EPOCH_FMT cannot include '__epoch_fmt_sub' for internal reasons"
 
 def main():
 

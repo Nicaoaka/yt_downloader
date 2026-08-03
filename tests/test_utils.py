@@ -57,6 +57,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(from_readable_epoch(to_readable_epoch(now)), now)
         self.assertEqual(from_readable_epoch(to_readable_epoch(0)), 0)
         self.assertEqual(from_readable_epoch(to_readable_epoch(-100)), -100)
+        self.assertEqual(from_readable_epoch(to_readable_epoch(-100000)), -100000)
         
         self.assertEqual(from_readable_epoch("12345"), 12345)
         self.assertEqual(from_readable_epoch("1234567890"), 1234567890)
