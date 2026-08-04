@@ -25,6 +25,8 @@ def builder(k_to_func: dict[tuple[str, ...], Signature], default_func: Signature
                 raise ValueError(f"{k} appears more than once in k_to_func keys")
             flattened[k] = func
     def res(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+        if k == v:
+            return False
         return flattened.get(k, default_func)(info, k, v, is_latest)
     return res
 

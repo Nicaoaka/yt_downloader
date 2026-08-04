@@ -30,8 +30,8 @@ class Config_IdentType(StrEnum):
 
 
 def wrapper_match_filter_builder(
-    max_downloads = 5,
-    max_extracts = 25,
+    max_downloads: float = 5,
+    max_extracts: float = 25,
     quit_when_maxed = False, # if True, not all unavailable vids will be seen
 
     extract_match: Callable[[V_InfoDict], bool]|None = None,
@@ -50,6 +50,9 @@ def wrapper_match_filter_builder(
 
     if extract_match is None:
         extract_match = lambda pl_v_info: not download_match(pl_v_info)
+
+    if max_downloads < 0: raise ValueError("max_downloads must be >= 0")
+    if max_extracts < 0: raise ValueError("max_extracts must be >= 0")
 
     def wrapper_match_filter(
         pl_v_info: V_InfoDict,
@@ -72,8 +75,11 @@ def wrapper_match_filter_builder(
             return DL_Action.EXTRACT
 
         # Max limits
-        if quit_when_maxed and \
-        (len(curr_dl_ids['download']) >= max_downloads or len(curr_dl_ids['extract']) >= max_extracts):
+        if quit_when_maxed and any((
+                len(curr_dl_ids['download']) >= max_downloads and max_downloads > 0,
+                len(curr_dl_ids['extract']) >= max_extracts and max_extracts > 0,
+                max_downloads == max_extracts == 0,
+            )):
             return DL_Action.QUIT
 
         # Skip if failed and backoff time hasn't elapsed
@@ -206,13 +212,23 @@ def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
     """
     Return True to add to history
 
-    The default will return False for operations that were intentionally skipped:
-    - `SKIP -> CANCELLED`
-    - `QUIT -> CANCELLED`
+    The default will return False for operations that were cancelled.
     """
-    return not (
-        dl_info['action'] in (DL_Action.SKIP, DL_Action.QUIT, ) and \
-        dl_info['result'] in (DL_Result.CANCELLED, ))
+    return not dl_info['result'] == DL_Result.CANCELLED
+
+def default_field_updater(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+    from pldl.post_processing import merge_updaters
+    return merge_updaters.curated(info, k, v, is_latest)
+
+def default_update_filter(k: str) -> bool:
+    return k in {
+        'title',
+        'description', 'categories', 'tags',
+        'uploader', 'uploader_id', 'channel', 'creators', 'creator',
+        'release_year', 'modified_date', 'availability',
+        'duration',
+        'extractor',
+    }
 
 
 @dataclasses.dataclass
@@ -243,11 +259,14 @@ class PlaylistDL_Config:
     
     # filters
     filter_flat_info:   Callable[[PL_InfoDict], None] = dataclasses.field(default=default_filter_flat_info)
-    filter_pl_info: Callable[[PL_InfoDict], None] = dataclasses.field(default=default_filter_pl_info)
+    filter_pl_info:     Callable[[PL_InfoDict], None] = dataclasses.field(default=default_filter_pl_info)
     filter_merge_info:  Callable[[PL_InfoDict], None] = dataclasses.field(default=default_filter_merge_info)
-    filter_all_info: Callable[[PL_InfoDict|Any], None] = dataclasses.field(default=default_filter_all_info) # used after filter_flat, filter_normal, and filter_merge
+    filter_all_info:    Callable[[PL_InfoDict|Any], None] = dataclasses.field(default=default_filter_all_info) # used after filter_flat, filter_normal, and filter_merge
 
     meta_dl_history_filter: Callable[[DownloadInfo], bool] = dataclasses.field(default=default_dl_info_filter)
+
+    field_updater: Callable[[V_InfoDict | dict, str, Any | type[NO_VALUE], bool], bool] = default_field_updater
+    update_filter: Callable[[str], bool] = default_update_filter
 
     # --- control hooks (override per-instance as needed) ---
     wrapper_match_filter: Callable[[

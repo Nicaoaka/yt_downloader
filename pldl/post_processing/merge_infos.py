@@ -28,7 +28,7 @@ def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimel
 def merge_v_infos(
         v_infos: list[V_InfoDict],
         field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool],
-        update_filter: Callable[[str], bool] = lambda _: True,
+        update_filter: Callable[[str], bool],
         _init: V_InfoDict|None = None,
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
     """
@@ -59,7 +59,7 @@ def merge_v_infos(
     if not v_infos:
         return _init, {} # type: ignore - ok
 
-    v_infos = sorted(v_infos, key=yt_utils.get_epoch, reverse=True)
+    v_infos = sorted(v_infos, key=yt_utils.get_epoch) # oldest to newest
     merge_info: V_InfoDict = _init or {} # type: ignore - init
 
     curr_info_level = yt_utils.get_v_info_level(merge_info)
@@ -77,7 +77,8 @@ def merge_v_infos(
         _timeline = v_timeline[epoch]
         
         # updating v_info
-        is_latest = v_info is v_infos[0] and (yt_utils.get_epoch(v_info) >= yt_utils.get_epoch(merge_info))
+        is_latest = v_info is v_infos[-1] \
+            and (yt_utils.get_epoch(v_info) >= (yt_utils.get_epoch(_init) if _init else -float('inf')))
         for k in v_info.keys() | merge_info.keys():
             v = v_info.get(k, NO_VALUE)
             report_update = field_updater(merge_info, k, v, is_latest)
@@ -151,9 +152,17 @@ def merge_pl_infos(
     - entries (list[PL_V_InfoDict]):
     - merge_timeline (dict[V_ID, V_MergeInfo]): Preserves _init's and adds current merge operation's timeline.
     """
-    pl_infos = sorted(pl_infos, key=yt_utils.get_epoch, reverse=True)
+    pl_infos = sorted(pl_infos, key=yt_utils.get_epoch)
     if _init and _init not in pl_infos:
         pl_infos.append(_init)
+    pl_infos = utils.dedup(pl_infos, id)
+
+    if non_init_merge_infos := list(filter(
+        lambda pl_info: pl_info is not _init and yt_utils.get_pl_info_level(pl_info) == yt_utils.PL_InfoLevel.MERGE, 
+        pl_infos)):
+        utils.WARNING(f"{len(non_init_merge_infos)} pl_info merge_timeline's will be omitted from merge_info.")
+        utils.json_dump(yt_utils.copy_and_sanitize_info(non_init_merge_infos), 'bad_infos.json')
+    
     if len(pl_infos) == 0:
         raise ValueError("Provide at least 1")
     if len({pl_info['id'] for pl_info in pl_infos}) > 1:
@@ -163,9 +172,7 @@ def merge_pl_infos(
     _init_pl_idx: int|None = None if not _init else pl_infos.index(_init)
     V_ID_ORDER = merge_ordered_lists([[entry['id'] for entry in pl_info['entries']] for pl_info in pl_infos])
 
-    merge_info: PL_InfoDict = utils.dict_without_keys(pl_infos[0], {'entries', 'merge_timeline'}) # type: ignore - init
-    merge_info['playlist_count'] = len(V_ID_ORDER)
-    
+    merge_info: PL_InfoDict = utils.dict_without_keys(pl_infos[-1], {'entries', 'merge_timeline'}) # type: ignore - init
     v_id_to_paths = _get_v_paths(V_ID_ORDER, pl_infos)
 
     entries: list[V_InfoDict] = [{'id': id} for id in range(len(V_ID_ORDER))] # type: ignore - correct type
@@ -173,8 +180,8 @@ def merge_pl_infos(
     for i, v_paths in enumerate(v_id_to_paths):
         merge_entry, v_timeline = merge_v_infos(
             v_infos       = [pl_infos[pl]['entries'][v] for pl, v in v_paths if pl != _init_pl_idx],
-            update_filter = update_filter,
             field_updater = field_updater,
+            update_filter = update_filter,
             _init         = next((pl_infos[pl]['entries'][v] for pl, v in v_paths if pl == _init_pl_idx), None))
         
         entries[i] = merge_entry # type: ignore - __pl_v_info is correctly overwritten/set before returning
@@ -182,9 +189,7 @@ def merge_pl_infos(
             pl_timeline.setdefault(merge_entry['id'], {})
             pl_timeline[merge_entry['id']] = utils.merge_objs(pl_timeline[merge_entry['id']], v_timeline, make_copy=False)
     
-    all_flat_entries = all(yt_utils.get_v_info_level(entry) == yt_utils.V_InfoLevel.FLAT for entry in entries)
     merge_info['entries'] = entries
-    merge_info['info_level'] = (yt_utils.PL_InfoLevel.MERGE_FLAT if all_flat_entries else yt_utils.PL_InfoLevel.MERGE).name
     yt_utils.fixup_pl_info(merge_info)
     
     merge_info['merge_timeline'] = pl_timeline

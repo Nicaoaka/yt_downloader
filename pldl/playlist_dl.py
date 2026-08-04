@@ -294,10 +294,10 @@ class PlaylistDL:
         
         if not self._infos._merge_flat:
             # always try loading if not loaded
-            self._infos._merge_flat = _InfosEntry(
-                self.load('_merge_flat', None),
-                pl_outtmpl=self._pl_outtmpls['_merged_flat_infojson'],
-                is_written=True, metadata_key='_merge_flat')
+            if data := self.load('_merge_flat', None):
+                self._infos._merge_flat = _InfosEntry(data,
+                    pl_outtmpl=self._pl_outtmpls['_merged_flat_infojson'],
+                    is_written=True, metadata_key='_merge_flat')
 
 
 
@@ -311,27 +311,31 @@ class PlaylistDL:
 
     @overload
     @staticmethod
-    def get_v_ids(info_entry: _InfosEntry[PL_InfoDict]) -> list[V_ID]: ...
+    def get_v_ids(info_entry: _InfosEntry[PL_InfoDict]|PL_InfoDict) -> list[V_ID]: ...
     @overload
     @staticmethod
     def get_v_ids(info_entry: None) -> None: ...
     @staticmethod
-    def get_v_ids(info_entry: _InfosEntry[PL_InfoDict]|None) -> list[V_ID]|None:
+    def get_v_ids(info_entry: _InfosEntry[PL_InfoDict]|PL_InfoDict|None) -> list[V_ID]|None:
         if not info_entry:
             return None
-        return [entry['id'] for entry in info_entry.data['entries']]
+        if isinstance(info_entry, _InfosEntry):
+            info_entry = info_entry.data
+        return [entry['id'] for entry in info_entry['entries']]
 
     @overload
     @staticmethod
-    def get_v_id_to_index(info_entry: _InfosEntry[PL_InfoDict]) -> dict[V_ID, int]: ...
+    def get_v_id_to_index(info_entry: _InfosEntry[PL_InfoDict]|PL_InfoDict) -> dict[V_ID, int]: ...
     @overload
     @staticmethod
     def get_v_id_to_index(info_entry: None) -> None: ...
     @staticmethod
-    def get_v_id_to_index(info_entry: _InfosEntry[PL_InfoDict]|None) -> dict[V_ID, int]|None:
+    def get_v_id_to_index(info_entry: _InfosEntry[PL_InfoDict]|PL_InfoDict|None) -> dict[V_ID, int]|None:
         if not info_entry:
             return None
-        return {entry['id']: i for i, entry in enumerate(info_entry.data['entries'])}
+        if isinstance(info_entry, _InfosEntry):
+            info_entry = info_entry.data
+        return {entry['id']: i for i, entry in enumerate(info_entry['entries'])}
 
     @overload
     def get_filtered_data[T](self, info_entry: _InfosEntry[T]) -> T: ...
@@ -439,18 +443,40 @@ class PlaylistDL:
         return pointer
 
 
-    def load[T](self, info_type: pldl_types._MetadataFiles_Lit, default: Any|T = utils.RAISE_EXC) -> Any|T:
+    @overload
+    def load(self, info_type: pldl_types._MetadataFiles_Lit, default: type[utils.RAISE_EXC] = utils.RAISE_EXC) -> PL_InfoDict: ...
+    @overload
+    def load[T](self, info_type: pldl_types._MetadataFiles_Lit, default: T) -> PL_InfoDict|T: ...
+
+    def load[T](self, info_type: pldl_types._MetadataFiles_Lit, default: T|type[utils.RAISE_EXC] = utils.RAISE_EXC) -> PL_InfoDict|T:
         if info_type not in pldl_types._MetadataPointers.__optional_keys__:
             raise ValueError(f"Unknown {info_type = }")
+
+        types: dict[pldl_types._MetadataFiles_Lit, _InfosEntry|None] = {
+            '_merge_flat': self._infos._merge_flat,
+            'latest_flat_info': self._infos.raw_flat,
+            'latest_pl_info': self._infos.pl_info,
+            'latest_merge_info': self._infos.merge_info,
+        }
+        entry = types[info_type]
+        if entry is not None:
+            utils.WARNING(f"{info_type} is already loaded. Returning a copy to the data.")
+            return entry.data
         
         pointer: tuple[str, int]|None = self._metadata['pointers'].get(info_type)
         if not pointer:
             if default is utils.RAISE_EXC:
                 raise FileNotFoundError(f"{info_type} is not written according to metadata")
-            return default
+            return default # type: ignore - utils.RAISE_EXC is dealt with
         path, _epoch = pointer
         return utils.json_load(os.path.join(self._config.home, path), default)
 
+    def get_best_info(self) -> PL_InfoDict:
+        # note: or returns the first non falsey element
+        return (self._infos.merge_info or
+                self._infos.pl_info or
+                self._infos.base_info).data
+        
 
     def extract_flat_info(self, write: bool|type[USE_CONFIG]=USE_CONFIG, delete_prev: bool=False, cookiefile: str|None|type[USE_CONFIG] = USE_CONFIG) -> PL_InfoDict:
         """
@@ -481,7 +507,11 @@ class PlaylistDL:
             init_merge_flat: PL_InfoDict|None = self.load('_merge_flat', default=None)
 
         self._infos._merge_flat = _InfosEntry(
-            merge_infos.merge_pl_infos(flat_infos, merge_updaters.curated, _init=init_merge_flat),
+            merge_infos.merge_pl_infos(
+                flat_infos,
+                merge_updaters.curated,
+                update_filter=self._config.update_filter,
+                _init=init_merge_flat),
             self._pl_outtmpls['_merged_flat_infojson'],
             is_written=False,
             metadata_key='_merge_flat')
@@ -574,7 +604,6 @@ class PlaylistDL:
                       display.ACTION_TAG[action].rendered,
                       utils.hex(pl_v_display, display.ACTION_TAG[action].color))
 
-                # v_info, errors, success = {}, [], True
                 v_info, errors, success = yt_utils.download_video(
                     entry['id'],
                     opts=opts,
@@ -754,25 +783,27 @@ class PlaylistDL:
         return added
     
 
-    @staticmethod
-    def _make_pl_info(base_pl_info: PL_InfoDict, raw_v_infos: list[V_InfoDict], clean_info_json: bool):
+    def _make_pl_info(self, base_pl_info: PL_InfoDict, raw_v_infos: list[V_InfoDict], clean_info_json: bool):
         pl_info = yt_utils.copy_and_sanitize_info(base_pl_info, clean_info_json)
         if not raw_v_infos:
             return pl_info
 
-        index_to_vid = [entry['id'] for entry in pl_info['entries']]
-        vid_to_index = {id_: i for i, id_ in enumerate(index_to_vid)}
+        v_id_to_index = PlaylistDL.get_v_id_to_index(pl_info)
 
         for v_info in raw_v_infos:
-            if v_info.get('id') not in index_to_vid:
+            if v_info.get('id') not in v_id_to_index:
                 utils.WARNING(f"SKIP: {yt_utils.get_v_display(v_info)} is not in the playlist.")
                 continue
-            i = vid_to_index[v_info['id']]
-            pl_info['entries'][i], _v_merge_timeline = merge_infos.merge_v_infos(
-                [pl_info['entries'][i], yt_utils.copy_and_sanitize_info(v_info, clean_info_json)],
-                field_updater=merge_updaters.curated, update_filter=lambda _: False)
-            # TODO: Check if this merge udpater is actually a good fit
+            i = v_id_to_index[v_info['id']]
 
+            # merge_info is responsible for full info_level path
+            pl_info['entries'][i], _v_timeline = merge_infos.merge_v_infos(
+                [pl_info['entries'][i],
+                 yt_utils.copy_and_sanitize_info(v_info, clean_info_json)],
+                field_updater=merge_updaters.curated,
+                update_filter=self._config.update_filter)
+        
+        pl_info.pop('merge_timeline')
         yt_utils.fixup_pl_info(pl_info)
         return pl_info
 
@@ -787,37 +818,47 @@ class PlaylistDL:
         Returned object is also stored in `self._infos.pl_info.data`
         """
         if not self._infos.raw_v_infos:
-            print("No raw_v_infos found. Downloading video infos using self.download_v_infos()")
-            self.download_v_infos()
-        raw_v_infos = []
-        if self._infos.raw_v_infos:
-            for v_infos in self._infos.raw_v_infos.data:
-                raw_v_infos.extend(v_infos)
+            utils.WARNING("No raw_v_infos were found. Videos can be downloaded using self.download_v_infos()")
+
         clean_info_json = self.opts.get('clean_infojson') or False
         
-        pl_info = PlaylistDL._make_pl_info(self._infos.base_info.data, raw_v_infos, clean_info_json)
+        pl_info = self._make_pl_info(
+            self._infos.base_info.data,
+            [v_info for v_infos in self._infos.raw_v_infos.data for v_info in v_infos],
+            clean_info_json)
         self._infos.pl_info = _InfosEntry(pl_info, self._pl_outtmpls['pl_infojson'], is_written=False, metadata_key='latest_pl_info')
 
         if write or (write is USE_CONFIG and self._config.write_pl_info):
             self.write_info(self._infos.pl_info, collision_policy='mov new',
                 alt_info={'epoch': yt_utils.get_latest_epoch(pl_info)}, delete_prev=delete_prev)
         return pl_info
-        
 
+
+    def _make_merge_info(
+            self,
+            field_updater: merge_updaters.Signature,
+            update_filter: Callable[[str], bool],
+    ) -> PL_InfoDict:
+        if self._infos.merge_info:
+            init = self._infos.merge_info.data
+        else:
+            init = self.load('latest_merge_info', default=None)
+
+        if not self._infos.pl_info:
+            self.make_pl_info()
+
+        pl_infos = [(self._infos._merge_flat or self._infos.base_info).data]
+        if self._infos.pl_info:
+            pl_infos.append(self._infos.pl_info.data)
+        
+        return merge_infos.merge_pl_infos(pl_infos, field_updater, update_filter, init)
+            
     def make_merge_info(
             self,
             write: bool | type[USE_CONFIG] = USE_CONFIG,
             delete_prev: bool = False,
-            init_ident: PL_InfoDict | list[pldl_types._MetadataFiles_Lit] = ['latest_merge_info', 'latest_pl_info', 'latest_flat_info', '_merge_flat'],
-            field_updater: merge_updaters.Signature = merge_updaters.curated,
-            update_filter: Callable[[str], bool]|list = [
-                'title',
-                'description', 'categories', 'tags',
-                'uploader', 'uploader_id', 'channel', 'creators', 'creator',
-                'release_year', 'modified_date', 'availability',
-                'duration',
-                'extractor'
-            ],
+            field_updater: merge_updaters.Signature|type[USE_CONFIG] = USE_CONFIG,
+            update_filter: Callable[[str], bool]|list[str]|type[USE_CONFIG] = USE_CONFIG,
     ) -> PL_InfoDict:
         """
         Creates merge info using `init_ident` and the current run's pl_info.
@@ -825,29 +866,13 @@ class PlaylistDL:
         
         May call ``make_pl_info()``, which may call ``download_v_infos()``.
         """
-        init: PL_InfoDict|None = None
-        if isinstance(init_ident, list):
-            for file_type in init_ident:
-                init = self.load(file_type, default=None)
-                if init is not None:
-                    break
-        else:
-            init = init_ident
 
-        if not self._infos.pl_info:
-            print("No pl_info found. Creating pl_info using self.make_pl_info()")
-            self.make_pl_info()
-            if not self._infos.pl_info: raise RuntimeError("Failed to make pl_info")
-
-        if isinstance(update_filter, list):
-            # need to put in a different variable
-            __update_filter = lambda k: k in update_filter
-        else:
-            __update_filter = update_filter
-
-        merge_info = merge_infos.merge_pl_infos(
-            [yt_utils.copy_and_sanitize_info(self._infos.pl_info.data)],
-            field_updater, __update_filter, _init=init)
+        merge_info = self._make_merge_info(
+            self._config.field_updater if field_updater == USE_CONFIG else \
+                field_updater, # type: ignore - USE_CONFIG is captured
+            self._config.update_filter if update_filter == USE_CONFIG else \
+                lambda k: k in update_filter if isinstance(update_filter, list) else \
+                update_filter) # type: ignore - USE_CONFIG is captured)
         self._infos.merge_info = _InfosEntry(merge_info, self._pl_outtmpls['merge_infojson'], is_written=False, metadata_key='latest_merge_info')
 
         if write or (write is USE_CONFIG and self._config.write_merge):
@@ -1270,6 +1295,36 @@ class PlaylistDL:
             PlaylistDL._add_update_to_merge_timeline(
                 self._infos._merge_flat.data, v_id,
                 update_str=f'<MOVE from={old_index+1} to={index+1}>')
+
+
+
+    # 
+    # Display
+    # 
+
+    def display_metadata_history(self, info: _InfosEntry[PL_InfoDict]|PL_InfoDict|None = None):
+        if info is None:
+            info = self.get_best_info()
+        if isinstance(info, _InfosEntry):
+            info = info.data
+        
+        print("\n ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n"
+                "  Playlist Metadata History \n"
+                " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n")
+        display.metadata_history(self._metadata['history'], info, PlaylistDL.get_v_ids(info))
+        print()
+
+    def display_pl_merge_timeline(self, info: _InfosEntry[PL_InfoDict]|PL_InfoDict|None):
+        if info is None:
+            return
+        if isinstance(info, _InfosEntry):
+            info = info.data
+
+        print("\n ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n"
+                "  Playlist Merge Timeline \n"
+                " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n")
+        display.pl_merge_timeline(info, PlaylistDL.get_v_ids(info))
+        print()
 
 
 

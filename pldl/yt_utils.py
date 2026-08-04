@@ -276,18 +276,13 @@ def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
     if not pl_info:
         return PL_InfoLevel.NONE
     
-    info_level_name: str = pl_info.get('info_level') or ''
-    if info_level_name in PL_InfoLevel.__members__:
-        return PL_InfoLevel[info_level_name]
-    
-    utils.WARNING(f"No 'info_level' key found for playlist id={pl_info.get('id')}. Using heuristics . . .")
     has_extracts = any(get_v_info_level(entry) >= V_InfoLevel.EXTRACT for entry in pl_info.get('entries', []))
     has_merge_timeline = 'merge_timeline' in pl_info
     match has_extracts, has_merge_timeline:
-        case  True,  True: return PL_InfoLevel.MERGE
-        case  True, False: return PL_InfoLevel.NORMAL
-        case False,  True: return PL_InfoLevel.MERGE_FLAT
         case False, False: return PL_InfoLevel.FLAT
+        case False,  True: return PL_InfoLevel.MERGE_FLAT
+        case  True, False: return PL_InfoLevel.NORMAL
+        case  True,  True: return PL_InfoLevel.MERGE
 
 
 
@@ -422,9 +417,9 @@ def _fixup_pl_v_infos(pl_info: PL_InfoDict):
 
 def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
     pl_info['playlist_count'] = len(pl_info['entries'])
-
     if fixup_entries:
         _fixup_pl_v_infos(pl_info)
+    pl_info['info_level'] = get_pl_info_level(pl_info).name
 
 
 
