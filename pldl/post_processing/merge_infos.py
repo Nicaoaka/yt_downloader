@@ -19,10 +19,9 @@ def _dedup_and_sort_unavail_msgs(msgs: list[UnavailableMsg]):
         reverse=True)
 
 def _get_unavailabe_timeline(unavail_msgs: list[UnavailableMsg]) -> V_MergeTimeline:
-    from pldl.config import DEFAULT_EPOCH
     timeline: V_MergeTimeline = defaultdict(dict) # type: ignore - init
     for msg in unavail_msgs:
-        epoch = yt_utils.to_readable_epoch(msg['epoch'] if msg['epoch'] is not None else DEFAULT_EPOCH())
+        epoch = yt_utils.to_readable_epoch(msg['epoch'] if msg['epoch'] is not None else yt_utils.DEFAULT_EPOCH())
         timeline[epoch].setdefault('unavailable', []).append(f"{msg['type']}: {msg['msg']}")
     return timeline
 

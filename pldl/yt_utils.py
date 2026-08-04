@@ -1,4 +1,6 @@
 __all__ = [
+    'DEFAULT_EPOCH', 'READABLE_EPOCH_FMT', 'MALFORMED_EPOCH_FMT',
+    
     'get_v_id_from_yt_url', 'get_pl_id_from_yt_url', 'is_id_like',
     'get_yt_video_url', 'get_yt_playlist_url',
     'get_archiveorg_url_for_yt_dlp', 'get_archiveorg_url', 'get_archiveorg_video_url', 
@@ -22,7 +24,7 @@ __all__ = [
 import re
 import datetime
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from enum import IntEnum
 
 from yt_dlp import YoutubeDL
@@ -35,6 +37,13 @@ if TYPE_CHECKING:
     from pldl.config import PlaylistDL_Config
 
 
+DEFAULT_EPOCH: Callable[[],int] = lambda: -utils.epoch_now()
+READABLE_EPOCH_FMT = '%Y-%m-%d__%H-%M-%S' # For formats, see datetime.strftime()
+MALFORMED_EPOCH_FMT = '{} (malformed)'
+
+assert MALFORMED_EPOCH_FMT.strip() != '{}', "MALFORMED_EPOCH_FMT must include non space characters eg '{}-bad'"
+assert MALFORMED_EPOCH_FMT.count('{}') == 1, "MALFORMED_EPOCH_FMT must include ONE {} to sub for EPOCH_FMT"
+assert MALFORMED_EPOCH_FMT.count('__epoch_fmt_sub') == 0, "MALFORMED_EPOCH_FMT cannot include '__epoch_fmt_sub' for internal reasons"
 
 # YouTube and InternetWebArchive id/url
 
@@ -254,8 +263,8 @@ def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
         return V_InfoLevel.NONE
     
     info_level_name: str = v_info.get('info_level') or ''
-    if info_level_name in V_InfoLevel.__members__:
-        return V_InfoLevel[info_level_name]
+    if info_level_name.upper() in V_InfoLevel.__members__:
+        return V_InfoLevel[info_level_name.upper()]
     
     utils.WARNING(f"No 'info_level' key found for video id={v_info.get('id')}. Using heuristics . . .")
     if _has_download_info(v_info):     return V_InfoLevel.DOWNLOAD
@@ -422,14 +431,12 @@ def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
 # epoch stuff
 
 def get_epoch(info: V_InfoDict|PL_InfoDict|dict) -> int:
-    from pldl.config import DEFAULT_EPOCH
     return info.get('epoch', DEFAULT_EPOCH())
 
 def get_latest_epoch(pl_info: PL_InfoDict) -> int:
     """ Max 'epoch' in pl_info and its entries.
 
     A negative epoch means the epoch wasn't found or all were malformed. """
-    from pldl.config import DEFAULT_EPOCH
     latest: int = max(
         pl_info.get('epoch', -float('inf')),
         *(entry.get('epoch', -float('inf')) for entry in pl_info['entries']),
@@ -442,7 +449,6 @@ def get_latest_epoch(pl_info: PL_InfoDict) -> int:
 def to_readable_epoch(epoch: int) -> str:
     # low epochs can be invalid because of timezones.
     # So, exclue the first 24 hours from the start of the epoch
-    from pldl.config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
 
     is_negative = epoch < 0
 
@@ -455,7 +461,6 @@ def to_readable_epoch(epoch: int) -> str:
     return formatted
 
 def from_readable_epoch(readable: str) -> int:
-    from pldl.config import READABLE_EPOCH_FMT, MALFORMED_EPOCH_FMT
 
     # make sure 
     MALFORMED_EPOCH_RE = '^'+ re.escape(MALFORMED_EPOCH_FMT.replace('{}', '__epoch_fmt_sub')).replace('__epoch_fmt_sub', '(-?)(.+)') +'$'
