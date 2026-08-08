@@ -44,7 +44,9 @@ def wrapper_match_filter_builder(
 
     fail_backoff_time = 7 * 24 * 3600,
 
-    yt_unavailable_action: DL_Action | None = DL_Action.DOWNLOAD
+    yt_unavailable_action: DL_Action | None = DL_Action.DOWNLOAD,
+
+    debug: bool = False,
 ):
     """ If `extract_match` is None (default), then it is the opposite of `download_match` """
 
@@ -53,6 +55,9 @@ def wrapper_match_filter_builder(
 
     if max_downloads < 0: raise ValueError("max_downloads must be >= 0")
     if max_extracts < 0: raise ValueError("max_extracts must be >= 0")
+    
+    _print = lambda s: print(utils.hex('>', fg="#FF9F21"), utils.hex(s, fg="#FFC478")) if debug else \
+             lambda *args, **kwargs: None
 
     def wrapper_match_filter(
         pl_v_info: V_InfoDict,
@@ -80,6 +85,7 @@ def wrapper_match_filter_builder(
                 len(curr_dl_ids['extract']) >= max_extracts and max_extracts > 0,
                 max_downloads == max_extracts == 0,
             )):
+            _print("maxed")
             return DL_Action.QUIT
 
         # Skip if failed and backoff time hasn't elapsed
@@ -89,29 +95,35 @@ def wrapper_match_filter_builder(
                 continue
             for dl_info in history[str(epoch)]:
                 if dl_info['id'] == v_id and dl_info['result'] == DL_Result.FAIL:
+                    _print("previous fail")
                     return DL_Action.SKIP
 
         # Already downloaded
         if v_id in history_ids['download'] or v_id in ytdlp_ids:
-            return DL_Action.SKIP
-
-        # Already extracted
-        if v_id in history_ids['extract']:
+            _print("hit ytdlp download archive")
             return DL_Action.SKIP
 
         # Unavailable video handling
         likely_unavailable = pl_v_info.get('view_count') in (0, None)
         if yt_unavailable_action is not None and likely_unavailable:
+            _print("likely unavailable")
             return yt_unavailable_action
 
         # Download if under max and meets criteria
         if len(curr_dl_ids['download']) < max_downloads and download_match(pl_v_info):
             return DL_Action.DOWNLOAD
+        _print("No download match")
+        
+        # Already extracted
+        if v_id in history_ids['extract']:
+            _print("Extract past")
+            return DL_Action.SKIP
         
         # Extract if under max and meets criteria
         # (Even if it will be downloaded later)
         if len(curr_dl_ids['extract']) < max_extracts and extract_match(pl_v_info):
             return DL_Action.EXTRACT
+        _print("No extract")
 
         return DL_Action.SKIP
 
@@ -218,7 +230,7 @@ def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
 
 def default_field_updater(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
     from pldl.post_processing import merge_updaters
-    return merge_updaters.curated(info, k, v, is_latest)
+    return merge_updaters.COMMON_UPDATER(info, k, v, is_latest)
 
 def default_update_filter(k: str) -> bool:
     return k in {
@@ -226,7 +238,6 @@ def default_update_filter(k: str) -> bool:
         'description', 'categories', 'tags',
         'uploader', 'uploader_id', 'channel', 'creators', 'creator',
         'release_year', 'modified_date', 'availability',
-        'duration',
         'extractor',
     }
 

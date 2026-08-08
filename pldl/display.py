@@ -184,7 +184,7 @@ def _v_merge_timline(v_tl: V_MergeTimeline) -> tuple[str, str]:
                     case _:    segments.append(utils.hex(type, "#DC3CFC"))
             failed = True
         
-        if match := re.match(r'(.+) -> (.+)', entry.get('better_info', [''])[0]):
+        if match := re.match(r'(.+) -> (.+)', entry.get('better_info', '')):
             name = match.groups()[1]
             if name in yt_utils.V_InfoLevel._member_names_:
                 new_level = yt_utils.V_InfoLevel[name]
@@ -232,8 +232,11 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v
             v_id = dl_info['id']
             if v_id not in v_id_set:
                 continue
-
+            
             segments = []
+
+            if dl_info.get('errors'):
+                segments.append('') # add a space in from of the errors
             for error in dl_info.get('errors', []):
                 match = re.match(r".*\[([^\[]+?)\].*", str(error))
                 if not match:

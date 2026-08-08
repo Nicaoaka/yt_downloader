@@ -188,13 +188,18 @@ def download_video(
                 return info, errors, True
         except DownloadError as yt_err:
             info['yt_unavailable_msg'] = yt_err.msg
+            info.setdefault('unavailable_msgs', []).append({
+                'epoch': utils.epoch_now(),
+                'msg': yt_err.msg,
+                'type': 'yt',
+            })
             errors.append(yt_err)
         except Exception as e:
             errors.append(e)
     if wa:
         try:
             with YoutubeDL(opts) as ydl:
-                _info = ydl.extract_info(get_archiveorg_url(v_id), download=download, ie_key='')
+                _info = ydl.extract_info(get_archiveorg_url(v_id), download=download)
                 if _info is None:
                     return None, errors, True # already downloaded
                 info.update(_info) # type: ignore
@@ -202,6 +207,11 @@ def download_video(
                 return info, errors, True
         except DownloadError as wa_err:
             info['wa_unavailable_msg'] = wa_err.msg
+            info.setdefault('unavailable_msgs', []).append({
+                'epoch': utils.epoch_now(),
+                'msg': wa_err.msg,
+                'type': 'wa',
+            })
             errors.append(wa_err)
         except Exception as e:
             errors.append(e)
@@ -266,7 +276,7 @@ def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
     if info_level_name.upper() in V_InfoLevel.__members__:
         return V_InfoLevel[info_level_name.upper()]
     
-    utils.WARNING(f"No 'info_level' key found for video id={v_info.get('id')}. Using heuristics . . .")
+    utils.WARNING(f"No 'info_level' key found for video id={v_info.get('id')}. Using heuristics . . .", caller_offset=1)
     if _has_download_info(v_info):     return V_InfoLevel.DOWNLOAD
     if _has_extracted_info(v_info):    return V_InfoLevel.EXTRACT
     if _maybe_available_on_yt(v_info): return V_InfoLevel.FLAT

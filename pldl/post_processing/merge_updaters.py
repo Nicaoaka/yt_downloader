@@ -32,34 +32,6 @@ def builder(k_to_func: dict[tuple[str, ...], Signature], default_func: Signature
 
 
 
-def fill_absent(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-    if v == NO_VALUE:
-        return False
-    if k not in info:
-        info[k] = v
-        return True
-    return False
-
-def repl_none(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-    if v == NO_VALUE:
-        return False
-    if k not in info or info[k] is None:
-        info[k] = v
-        return True
-    return False
-
-
-def latest(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-    if is_latest and v != NO_VALUE:
-        info[k] = v
-        return True
-    return False
-
-def latest_not_None(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-    if v is None:
-        return False
-    return latest(info, k, v, is_latest)
-
 def latest_exact(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
     """ will pop if the latest value is absent """
     if not is_latest:
@@ -70,6 +42,14 @@ def latest_exact(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest
         info[k] = v
     return True
 
+
+def fill_absent(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+    if v == NO_VALUE:
+        return False
+    if k not in info:
+        info[k] = v
+        return True
+    return False
 
 def maximizer(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
     try:
@@ -83,12 +63,16 @@ def maximizer(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: b
         return fill_absent(info, k, v, is_latest)
 
 
+def latest_not_none_and_not_same(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
+    if v != NO_VALUE and is_latest and v is not None and v != info.get(k, NO_VALUE):
+        info[k] = v
+        return True
+    return False
 
-def curated(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
-    func = builder(
-        {
-            ('yt_unavailable_msg', 'wa_unavailable_msg'): latest_exact,
-            ('view_count', 'like_count', 'comment_count'): maximizer,
-        },
-        default_func=latest_not_None)
-    return func(info, k, v, is_latest)
+
+COMMON_UPDATER = builder(
+    {
+        ('yt_unavailable_msg', 'wa_unavailable_msg'): latest_exact,
+        ('view_count', 'like_count', 'comment_count'): maximizer,
+    },
+    default_func=latest_not_none_and_not_same)
