@@ -42,11 +42,11 @@ class _Tag:
 
 # Actions
 ACTION_TAG: dict[DL_Action, _Tag] = {
-    DL_Action.USER     : _Tag("USER INPUT", "#000000", width=10),
-    DL_Action.QUIT     : _Tag("QUIT",       "#ffffff", width=10),
-    DL_Action.SKIP     : _Tag("SKIP",       "#161616", width=10),
-    DL_Action.EXTRACT  : _Tag("EXTRACT",    "#4ec9b0", width=10),
-    DL_Action.DOWNLOAD : _Tag("DOWNLOAD",   "#6a9955", width=10),
+    DL_Action.USER     : _Tag("USER", "#000000"),
+    DL_Action.QUIT     : _Tag("QUIT", "#ffffff"),
+    DL_Action.SKIP     : _Tag("SKIP", "#161616"),
+    DL_Action.EXTRACT  : _Tag("EXTR", "#4ec9b0"),
+    DL_Action.DOWNLOAD : _Tag("DWLD", "#6a9955"),
 }
 
 # Raw results (used when the result is reported "as-is")
@@ -156,49 +156,60 @@ def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str],
     for i, (v_id, v_print, _color) in enumerate(zip(v_ids, id_prints, ident_colors), start=1):
         pl_v_info: V_InfoDict = pl_info['entries'][pl_ids[v_id]] if v_id in pl_ids else {'id': v_id}
         ident = utils.hex(f"{i:>4}. {v_id}", fg=_color)
+        extractor = utils.first_non_default(pl_v_info, ['extractor_key', 'extractor', 'ie_key'], default_values=[None], default_return=None) # type: ignore - pl_v_info is a dict
+        url = (
+            '' if extractor is None else
+            yt_utils.get_yt_video_url(v_id) if extractor.lower() in ('youtube', 'yt') else
+            yt_utils.get_archiveorg_url(v_id) if extractor.lower() in ('YoutubeWebArchive', 'web.archive:youtube') else
+            ''
+        )
+        if url: url = f" ({url})"
         ident_alt = utils.hex(
-            utils.first_non_default(pl_v_info, ['title', 'alt_title'], default_values=[None], default_return='???') +  # type: ignore
+            utils.first_non_default(pl_v_info, ['title', 'alt_title'], default_values=[None], default_return='???') +  # type: ignore - pl_v_info is a dict
             " by " +
-            utils.first_non_default(pl_v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=[None], default_return='???'), # type: ignore
+            utils.first_non_default(pl_v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=[None], default_return='???') + # type: ignore - pl_v_info is a dict
+            url,
             fg=_color)
         print(ident, v_print, ident_alt)
 
 
-def _v_merge_timline(v_tl: V_MergeTimeline) -> tuple[str, str]:
-    """ Does not detect manipulation """
+def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
+    """
+    Does not detect manipulation
+    
+    Creates rows like:
+     n  yt  EXTR   yt|wa  FAIL  
+    """
     v_info_level = yt_utils.V_InfoLevel.NONE
-    res: list[str] = [V_INFO_LEVEL[v_info_level].rendered]
-    failed = False
+    res: str = V_INFO_LEVEL[v_info_level].rendered
+    had_fails = False
     for readable_epoch in sorted(v_tl.keys(), key=yt_utils.from_readable_epoch):
+        had_fails = False
         entry = v_tl[readable_epoch]
-        segments: list[str] = []
 
         if entry.get('unavailable'):
-            segments.append('') # add a space in from of the errors
-        for msg in entry.get('unavailable', []):
-            if match := re.match(r'^(.+?): .*', msg):
-                type: str = match.groups()[0]
-                match type:
-                    case 'yt': segments.append(utils.hex(type, "#FF9191"))
-                    case 'wa': segments.append(utils.hex(type, "#6ABCFF"))
-                    case _:    segments.append(utils.hex(type, "#DC3CFC"))
-            failed = True
+            excs = []
+            for msg in entry.get('unavailable', []):
+                if match := re.match(r'^(.+?): .*', msg):
+                    type: str = match.groups()[0].strip().lower()
+                    match type:
+                        case 'youtube'|'yt':             excs.append(utils.hex('yt', "#FF9191"))
+                        case 'web.archive:youtube'|'wa': excs.append(utils.hex('wa', "#6ABCFF"))
+                        case _:                          excs.append(utils.hex(utils.truncate(type, 11, end="-"), "#DC3CFC"))
+            res += " "+ "|".join(excs)
+            had_fails = True
         
         if match := re.match(r'(.+) -> (.+)', entry.get('better_info', '')):
             name = match.groups()[1]
             if name in yt_utils.V_InfoLevel._member_names_:
                 new_level = yt_utils.V_InfoLevel[name]
                 if new_level > v_info_level:
-                    segments.append(V_INFO_LEVEL[new_level].rendered)
+                    res += V_INFO_LEVEL[new_level].rendered
                     v_info_level = new_level
-        
-        if segments:
-            res.append(' '.join(segments))
 
-    s = ''.join(res)
-    if failed and v_info_level not in (yt_utils.V_InfoLevel.EXTRACT, yt_utils.V_InfoLevel.DOWNLOAD):
-        return s +" "+ RESULT_TAG[DL_Result.FAIL].rendered, RESULT_TAG[DL_Result.FAIL].color
-    return s, V_INFO_LEVEL[v_info_level].color
+    if had_fails and v_info_level not in (yt_utils.V_InfoLevel.EXTRACT, yt_utils.V_InfoLevel.DOWNLOAD):
+        return res +""+ RESULT_TAG[DL_Result.FAIL].rendered, RESULT_TAG[DL_Result.FAIL].color
+    return res, V_INFO_LEVEL[v_info_level].color
 
 def _pl_merge_timeline(pl_info: PL_InfoDict, v_ids: list[V_ID], warn_not_found: bool = True) -> tuple[list[str], list[str|None]]:
     """ Does not handle manipulations """
@@ -211,7 +222,7 @@ def _pl_merge_timeline(pl_info: PL_InfoDict, v_ids: list[V_ID], warn_not_found: 
             if warn_not_found: _results[v_id] = (utils.WARNING(f"{v_id} - not found", auto_print=False), None)
             else:              _results[v_id] = ('', None)
             continue
-        _results[v_id] = _v_merge_timline(pl_info.get('merge_timeline', {}).get(v_id, {}))
+        _results[v_id] = _v_merge_timeline(pl_info.get('merge_timeline', {}).get(v_id, {}))
     return [_results[v_id][0] for v_id in v_ids], [_results[v_id][1] for v_id in v_ids]
 
 def pl_merge_timeline(pl_info: PL_InfoDict, v_ids: list[V_ID], warn_not_found: bool = True) -> None:
@@ -222,7 +233,7 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v
 
     v_id_set = set(v_ids)
     results: dict[V_ID, dict] = defaultdict(lambda: {
-        'str': [V_INFO_LEVEL[yt_utils.V_InfoLevel.NONE].rendered],
+        'str': V_INFO_LEVEL[yt_utils.V_InfoLevel.NONE].rendered,
         'best_info_level': yt_utils.V_InfoLevel.NONE,
         'failing': False,
         'color': None})
@@ -232,24 +243,22 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v
             v_id = dl_info['id']
             if v_id not in v_id_set:
                 continue
-            
-            segments = []
 
-            if dl_info.get('errors'):
-                segments.append('') # add a space in from of the errors
+            excs = []
             for error in dl_info.get('errors', []):
                 match = re.match(r".*\[([^\[]+?)\].*", str(error))
                 if not match:
                     continue
                 ie = match.groups()[0]
                 match match.groups()[0]:
-                    case 'youtube':             segments.append(utils.hex("yt", "#FF9191"))
-                    case 'web.archive:youtube': segments.append(utils.hex("wa", "#6ABCFF"))
-                    case _:                     segments.append(utils.hex( ie,  "#DC3CFC"))
+                    case 'youtube':             excs.append(utils.hex("yt", "#FF9191"))
+                    case 'web.archive:youtube': excs.append(utils.hex("wa", "#6ABCFF"))
+                    case _:                     excs.append(utils.hex( ie,  "#DC3CFC"))
+            if excs:
+                results[v_id]['str'] += " " + "|".join(excs)
 
             dl_result = DL_Result[dl_info['result'].upper()]
-            segments.append(RESULT_TAG[dl_result].rendered)
-            results[v_id]['str'].append(' '.join(segments))
+            results[v_id]['str'] += RESULT_TAG[dl_result].rendered
 
             # color
             info_level = yt_utils.V_InfoLevel.DOWNLOAD if dl_result == DL_Result.DOWNLOAD else \
@@ -262,11 +271,12 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v
                 results[v_id]['color'] = RESULT_TAG[DL_Result.FAIL].color
 
     return (
-        [''.join(results[v_id]['str']) for v_id in v_ids],
+        [results[v_id]['str'] for v_id in v_ids],
         [results[v_id]['color'] for v_id in v_ids]
     )
 
 def metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v_ids: list[V_ID]):
+    """ Does not handle manipulations """
     _print_per_id(pl_info, v_ids, *_metadata_history(pl_dl_history, pl_info, v_ids))
 
 

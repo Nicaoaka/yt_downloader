@@ -58,7 +58,7 @@ def init_metadata(
 
 def sleep_1_second():
     caller = utils.get_caller_function()
-    print(f"[{caller}] Sleeping for 1 second ...", end='')
+    print(utils.hex(f"[{caller}] Sleeping for 1 second ...", fg="#000436"), end='')
     time.sleep(1)
     print()
 
@@ -276,7 +276,7 @@ class PlaylistDL:
             self._infos.raw_flat.pl_outtmpl = self._pl_outtmpls['raw_flat_infojson']
             if self._config.write_flat:
                 self.write_info(self._infos.raw_flat, 'mov new')
-            self.update_merge_flat_info([self._infos.raw_flat.data])
+            self.update_merge_flat_pl_info([self._infos.raw_flat.data])
 
         if self._infos.raw_flat is None and self._config.force_flat_extract:
             self.extract_flat_info()
@@ -370,15 +370,20 @@ class PlaylistDL:
 
 
     @staticmethod
-    def reorder_keys(info: Any, type: pldl_types._MetadataFiles_Lit | Literal['raw_v_info'] | None):
+    def reorder_keys(info, type: pldl_types._MetadataFiles_Lit | None):
         match type:
             case None:
-                pass
-            case '_merge_flat' | 'latest_flat_info' | "latest_pl_info" | 'latest_merge_info':
-                reorder_infodict_keys.reorder_pl_infodict(info, reorder_v_infos=True)
-            case 'raw_v_info':
-                for entry in info:
-                    reorder_infodict_keys.reorder_v_infodict(entry)
+                # workaround :sigh:
+                if not isinstance(info, list): return
+                for bulk in info:
+                    if not isinstance(bulk, list): return
+                    for v_info in bulk:
+                        if not isinstance(v_info, dict): return
+                        reorder_infodict_keys.reorder_v_infodict(v_info)
+            case 'latest_flat_info' | "latest_pl_info":
+                reorder_infodict_keys.reorder_pl_infodict(info)
+            case '_merge_flat' | 'latest_merge_info':
+                reorder_infodict_keys.reorder_merge_info(info)
             case _:
                 utils.ERROR(f"Unknown type: {type}")
 
@@ -386,9 +391,9 @@ class PlaylistDL:
             self,
             info: _InfosEntry|None,
             collision_policy: utils.CollisionPolicies,
-            name: str = '',
             alt_info: ANY_InfoDict = {},
-            delete_prev: bool = False
+            delete_prev: bool = False,
+            _name: str = '',
     ) -> tuple[str, int]|None:
         """
         Call with any info from `self._infos`. If the info.data is not a dict (raw_v_infos),
@@ -398,7 +403,7 @@ class PlaylistDL:
         if info is None:
             utils.ERROR("Info entry was not found")
             return None
-        ident = name or info.metadata_key or info.pl_outtmpl
+        ident = _name or info.metadata_key or info.pl_outtmpl
         if delete_prev and not info.metadata_key:
             raise ValueError(f"Deleting the previous requires a metadata_key (for {ident})")
         if info.is_written == True and info.metadata_key != '_merge_flat':
@@ -408,7 +413,7 @@ class PlaylistDL:
             raise ValueError(f"pl_outtmpl was not found (for {ident})")
 
         if not utils.has_content(info.data):
-            utils.WARNING(f"{info.metadata_key or name} has no content. Not writing.")
+            utils.WARNING(f"{info.metadata_key or _name} has no content. Not writing.")
             return None
 
         if delete_prev:
@@ -418,21 +423,21 @@ class PlaylistDL:
 
         match info.metadata_key:
             case 'latest_pl_info' | 'latest_merge_info':
-                epoch = yt_utils.get_epoch(info.data)
-                _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data, alt_info)
+                epoch = yt_utils.get_latest_epoch(info.data)
+                _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data, {'epoch': epoch} | alt_info)
 
             case '_merge_flat' | 'latest_flat_info':
-                epoch = yt_utils.get_latest_epoch(info.data)
+                epoch = yt_utils.get_epoch(info.data)
                 _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data, {'epoch': epoch} | alt_info)
 
             case _: # raw_v_infos
                 if isinstance(info.data, dict):
                     epoch = yt_utils.get_epoch(info.data)
-                    _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data, alt_info)
+                    _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, info.data, {'epoch': epoch} | alt_info)
                 else:
                     # can't use info.data to make path
                     epoch = yt_utils.get_epoch(alt_info)
-                    _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, alt_info)
+                    _dst = yt_utils.ytdlp_eval_tmpl(info.pl_outtmpl, {'epoch': epoch} | alt_info)
 
         to_write = self.get_filtered_data(info)
         PlaylistDL.reorder_keys(to_write, type=info.metadata_key)
@@ -449,12 +454,51 @@ class PlaylistDL:
                 stale_path = os.path.join(self._config.home, stale_pointer[0])
                 if pointer[0] != stale_pointer[0] and os.path.exists(stale_path):
                     os.unlink(stale_path)
-                    print(utils.hex(f"Removed {name or info.metadata_key or '\b'}: {stale_path}", fg="#ff60bd"))
+                    print(utils.hex(f"Removed {ident or '\b'}: {stale_path}", fg="#ff60bd"))
             self._metadata['pointers'][info.metadata_key] = pointer
 
-        print(utils.hex(f"Wrote {name or info.metadata_key or '\b'} to: {dst}", fg="#70eeff"))
+        print(utils.hex(f"Wrote {ident or '\b'} to: {dst}", fg="#70eeff"))
         
         return pointer
+
+    def write_info_debug(
+            self,
+            info: _InfosEntry|None,
+            alt_info: ANY_InfoDict = {},
+            on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
+            pl_outtmpl_override: str|None = None,
+    ):
+        if info is None:
+            utils.WARNING("info was None")
+            return
+
+        pl_outtmpl = info.pl_outtmpl or pl_outtmpl_override
+        if pl_outtmpl is None:
+            utils.WARNING(f"pl_outtmpl was not found (for {info.metadata_key})")
+            return
+        
+        match info.metadata_key:
+            case 'latest_pl_info' | 'latest_merge_info':
+                epoch = yt_utils.get_latest_epoch(info.data)
+                _dst = yt_utils.ytdlp_eval_tmpl(pl_outtmpl, info.data, {'epoch': epoch} | alt_info)
+
+            case '_merge_flat' | 'latest_flat_info':
+                epoch = yt_utils.get_epoch(info.data)
+                _dst = yt_utils.ytdlp_eval_tmpl(pl_outtmpl, info.data, {'epoch': epoch} | alt_info)
+
+            case _: # raw_v_infos
+                if isinstance(info.data, dict):
+                    epoch = yt_utils.get_epoch(info.data)
+                    _dst = yt_utils.ytdlp_eval_tmpl(pl_outtmpl, info.data, {'epoch': epoch} | alt_info)
+                else:
+                    # can't use info.data to make path
+                    epoch = yt_utils.get_epoch(alt_info)
+                    _dst = yt_utils.ytdlp_eval_tmpl(pl_outtmpl, {'epoch': epoch} | alt_info)
+
+        to_write = yt_utils.copy_and_sanitize_info(info.data)
+        PlaylistDL.reorder_keys(to_write, type=info.metadata_key)
+        dst = utils.json_dump(to_write, _dst, on_collision)
+        print(utils.hex(f"Wrote {info.metadata_key or '\b'} to: {dst}", fg="#70eeff"))
 
 
     @overload
@@ -509,10 +553,10 @@ class PlaylistDL:
 
         if write or (write is USE_CONFIG and self._config.write_flat):
             self.write_info(self._infos.raw_flat, collision_policy='mov new', delete_prev=delete_prev)
-        self.update_merge_flat_info([self._infos.raw_flat.data])
+        self.update_merge_flat_pl_info([self._infos.raw_flat.data])
         return self._infos.raw_flat.data
 
-    def update_merge_flat_info(self, flat_infos: list[PL_InfoDict]) -> PL_InfoDict:
+    def update_merge_flat_pl_info(self, flat_infos: list[PL_InfoDict]):
         """
         Updates `_merge_flat`, and `_metadata`
         """
@@ -530,12 +574,52 @@ class PlaylistDL:
             self._pl_outtmpls['_merged_flat_infojson'],
             is_written=False,
             metadata_key='_merge_flat')
+    
+    def update_merge_flat_v_info(self, v_info: V_InfoDict):
+        """ updates the keys in flat_info, adds v_timeline """
+        if yt_utils.get_v_info_level(v_info) == yt_utils.V_InfoLevel.NONE:
+            return
         
-        return self._infos._merge_flat.data
+        if not self._infos._merge_flat:
+            utils.WARNING("_merge_flat was not found. Try extracting flat or setting base_info_type to " \
+                          "`latest_flat` or `merge_flat`. (Fixing this would require many edits)")
+            return
+        
+        v_id = v_info['id']
+        merge_flat_info = self._infos._merge_flat.data
 
+        index = next((i for i, entry in enumerate(merge_flat_info['entries']) if entry['id'] == v_id), None)
+        if index is None:
+            utils.WARNING(f"v_info {v_id} is not in _merge_flat")
+            return
+        init_v_info = None if index is None else merge_flat_info['entries'][index]
 
-    # TODO: video downloads (download_v_infos, download_v_info_generic, add_raw_v_infos)
-    # should update _merge_flat, using the latest_not_none_and_not_same merge field updater
+        update_flat_keys = merge_updaters.builder({
+            ('id', 'title', 'live_status', 'availability', 'channel', 'channel_id', 'channel_url', 'uploader',
+             'uploader_id', 'uploader_url', 'creators', 'view_count', 'timestamp', 'epoch', 'duration',
+             'thumbnails', 'url', '_type', 'ie_key', '__x_forwarded_for_ip', 'info_level', 'playlist_epoch'):
+            merge_updaters.latest_not_none_and_not_same
+        }, default_func=lambda *_: False)
+
+        new_v_info, new_v_timeline = merge_infos.merge_v_infos(
+            [v_info],
+            update_flat_keys,
+            self._config.update_filter,
+            _init_v_info=init_v_info,
+            _init_v_timeline=merge_flat_info.get('merge_timeline', {}).get(v_id, {}))
+        new_v_info['info_level'] = merge_flat_info['entries'][index].get('info_level', yt_utils.V_InfoLevel.NONE.name)
+
+        for epoch in list(new_v_timeline.keys()):
+            # this is very fragile, but it'll work
+            entry = new_v_timeline[epoch]
+            if 'better_info' in entry and entry['better_info'] != 'NONE -> FLAT': entry.pop('better_info')
+            if 'unavailable' in entry: entry.pop('unavailable')
+            if not entry:
+                new_v_timeline.pop(epoch)
+        merge_flat_info['entries'][index] = new_v_info
+        merge_flat_info.setdefault('merge_timeline', {})[v_id] = new_v_timeline
+        
+
 
     @staticmethod
     def _get_dl_result(v_info, success: bool) -> DL_Result:
@@ -584,7 +668,6 @@ class PlaylistDL:
             try_yt_if_unavailable (bool, optional): Try Youtube even if it seems unavailable. Defaults to True.
             wa (bool, optional): Use archive.org if YouTube failed (fallback). Defaults to True.
         """
-        sleep_1_second()
         extracted_v_infos: list[V_InfoDict] = []
         pl_dl_info: PL_DownloadInfo = []
 
@@ -659,6 +742,8 @@ class PlaylistDL:
 
     def download_v_infos(self, write: bool|type[USE_CONFIG] = USE_CONFIG, cookiefile: str|None|type[USE_CONFIG] = USE_CONFIG):
         """ Returns the newly downloaded portion of the raw v_infos """
+        sleep_1_second()
+
         history_ids = yt_utils.ids_from_history(self._metadata['history'])
         yt_dlp_archive_ids = yt_utils.ids_from_yt_dlp_archive(self._yt_dlp_archive)
 
@@ -676,15 +761,9 @@ class PlaylistDL:
                 'cookiefile': cookiefile if cookiefile is not USE_CONFIG else \
                               self._config.cookie_file if self._config.cookies_for_vids else \
                               None}) # type: ignore
-                
-        if self._infos.raw_v_infos:
-            self._infos.raw_v_infos.data.append(v_infos) # type: ignore - V_InfoDict
-            self._infos.raw_v_infos.is_written = False
-        else:
-            self._infos.raw_v_infos = _InfosEntry([v_infos],
-                self._pl_outtmpls['raw_video_infojson'],
-                is_written=False, metadata_key=None)
         
+        self._infos.raw_v_infos.data.append(v_infos) # type: ignore - V_InfoDict
+        self._infos.raw_v_infos.is_written = False
 
         print("\n"
               " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
@@ -694,20 +773,22 @@ class PlaylistDL:
               display.pl_download_info(pl_dl_info, errors=True) + "\n")
         
         if write or (write is USE_CONFIG and self._config.write_raw_v_infos):
-            self.write_info(self._infos.raw_v_infos, collision_policy='rm old', name='raw_v_infos', alt_info={'epoch': self.session_start_epoch})
+            self.write_info(self._infos.raw_v_infos, collision_policy='rm old', _name='raw_v_infos', alt_info={'epoch': self.session_start_epoch})
         
         # special metadata
         raw_epoch = max((yt_utils.get_epoch(info) for info in v_infos), default=None) or utils.epoch_now()
         self._metadata['history'] \
             .setdefault(yt_utils.to_readable_epoch(raw_epoch), []) \
             .extend(filter(self._config.meta_dl_history_filter, pl_dl_info))
+        
+        for v_info in v_infos:
+            self.update_merge_flat_v_info(v_info)
 
         return v_infos, pl_dl_info
 
 
     @staticmethod
     def _download_v_info_generic(v_id: str, any_yt_dlp_url: str, opts: YT_DLP_Params, download: bool) -> tuple[V_InfoDict|None, DownloadInfo]:
-        sleep_1_second()
         raw_epoch = utils.epoch_now()
 
         dl_info: DownloadInfo = {
@@ -746,6 +827,8 @@ class PlaylistDL:
 
         Returns what was recieved from yt_dlp
         """
+        sleep_1_second()
+
         if v_id not in self.get_v_ids(self._infos.base_info):
             raise ValueError(f"{v_id} is not in the loaded playlist")
         
@@ -764,12 +847,12 @@ class PlaylistDL:
         self._infos.raw_v_infos.data.append([v_info])
         self._infos.raw_v_infos.is_written = False
 
-        # update if downloaded
         if self._config.meta_dl_history_filter(dl_info):
             self._metadata['history'] \
                 .setdefault(yt_utils.to_readable_epoch(utils.epoch_now()), []) \
                 .append(dl_info)
 
+        # update if downloaded
         if dl_info['result'] == DL_Result.DOWNLOAD:
             ie_or_url = '__pldl_yt_dlp_generic__'
             with open(self._pl_outtmpls['yt_dlp_archive'], 'a') as f:
@@ -779,7 +862,9 @@ class PlaylistDL:
 
         if write or (write is USE_CONFIG and self._config.write_raw_v_infos):
             self.write_info(self._infos.raw_v_infos, collision_policy='rm old',
-                name='raw_v_infos', alt_info={'epoch': self.session_start_epoch})
+                _name='raw_v_infos', alt_info={'epoch': self.session_start_epoch})
+            
+        self.update_merge_flat_v_info(v_info)
         return v_info
 
 

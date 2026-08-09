@@ -1,14 +1,14 @@
 __all__ = [
-    'reorder_v_infodict', 'reorder_pl_infodict',
+    'reorder_v_infodict', 'reorder_pl_infodict', 'reorder_merge_info',
 ]
 
 """
-This is coupled to `pldl_type` and `pldl_type_extensions`
+This is based on keys from `pldl_type` and `pldl_type_extensions`
 
 Reordering was done using Claude
 """
 
-from typing import Any
+from pldl.yt_utils import from_readable_epoch
 from pldl.pldl_types import *
 from pldl.utils.utils import dict_reorder_keys
 
@@ -200,11 +200,26 @@ PL_END = [
 ]
 
 
-def reorder_v_infodict(v_info: V_InfoDict) -> None:
+V_TIMELINE_ENTRY_ORDER = [
+    'better_info',
+    'unavailable',
+    'updates',
+]
+
+
+def reorder_v_infodict(v_info: V_InfoDict|dict) -> None:
     dict_reorder_keys(v_info, V_START, V_END) # type: ignore
 
-def reorder_pl_infodict(pl_info: PL_InfoDict, reorder_v_infos: bool = True):
-    if reorder_v_infos:
-        for v_info in pl_info['entries']:
-            reorder_v_infodict(v_info)
+def reorder_pl_infodict(pl_info: PL_InfoDict):
+    for v_info in pl_info['entries']:
+        reorder_v_infodict(v_info)
     dict_reorder_keys(pl_info, PL_START, PL_END) # type: ignore
+
+def reorder_merge_info(pl_info: PL_InfoDict):
+    if 'merge_timeline' in pl_info:
+        for v_timeline in pl_info['merge_timeline'].values():
+            for timeline_entry in v_timeline.values():
+                dict_reorder_keys(timeline_entry, V_TIMELINE_ENTRY_ORDER) # type: ignore - tiemline_entry is a dict
+            dict_reorder_keys(v_timeline, sorted(v_timeline.keys(), key=from_readable_epoch))
+        dict_reorder_keys(pl_info['merge_timeline'], [entry['id'] for entry in pl_info['entries']])
+    reorder_pl_infodict(pl_info)

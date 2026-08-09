@@ -35,13 +35,10 @@ def _merge_v_infos(
         return merge_info, v_timeline
     
     merge_info_level = yt_utils.get_v_info_level(merge_info)
-    unavailable_msgs = []
+    unavailable_msgs: list[UnavailableMsg] = []
 
-    for v_info in v_infos:
+    for v_info in yt_utils.copy_and_sanitize_info(v_infos):
         unavailable_msgs.extend(v_info.get('unavailable_msgs', []))
-
-        if v_info is _init_v_info:
-            continue
 
         # nothing below should aggregate init info
 
@@ -58,7 +55,7 @@ def _merge_v_infos(
             v = v_info.get(k, NO_VALUE)
             report_update = field_updater(merge_info, k, v, is_latest)
             if report_update and update_filter(k):
-                # not the best fix but prevents duplciates
+                # doesn't truncate, could be added to update_filter maybe
                 updates[k] = v
 
         # better_info
@@ -93,8 +90,7 @@ def merge_v_infos(
         _init_v_timeline: V_MergeTimeline|None = None,
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
     """
-    Does not copy v_info objects. Some input object references will be the same in the output!
-
+    Creates copies of all dict arguments
     `info_level` and `unavailable_msgs` will be updated without concern for callbacks.
 
     Args:
@@ -112,6 +108,7 @@ def merge_v_infos(
 
     if len(v_infos) == 0 and not _init_v_info:
         raise ValueError("Provide at least 1 v_info.")
+    v_infos = v_infos.copy()
     if _init_v_info and _init_v_info not in v_infos:
         v_infos.append(_init_v_info)
     ids = {info['id'] for info in v_infos}
@@ -233,10 +230,10 @@ def merge_pl_infos(
             if yt_utils.get_pl_info_level(pl_info) == yt_utils.PL_InfoLevel.MERGE:
                 non_init_merge_infos.append(pl_info)
         if non_init_merge_infos:
-            from pldl.post_processing.reorder_infodict_keys import reorder_pl_infodict
+            from pldl.post_processing.reorder_infodict_keys import reorder_merge_info
             utils.WARNING(f"{len(non_init_merge_infos)} pl_info merge_timeline's will be omitted from merge_info.")
             ds = yt_utils.copy_and_sanitize_info(non_init_merge_infos)
-            map(reorder_pl_infodict, ds)
+            map(reorder_merge_info, ds)
             utils.json_dump(list(ds), 'omitted_merge_timeline_infos.json')
     warn_non_init_merge()
 

@@ -90,8 +90,13 @@ def get_yt_playlist_url(playlist_id: str, video_id: str = '') -> str:
         return f"https://www.youtube.com/playlist?list={playlist_id}"
     return f"https://www.youtube.com/watch?v={video_id}&list={playlist_id}"
 
-# note `date` is archiveorg format, so YYYYmmddHHMMSS
-# For example, "20261225090125" is 2026/12/25 9:01:25
+def get_yt_thumbnail_url(video_id: str) -> str:
+    return f"https://i.ytimg.com/vi_webp/{video_id}/maxresdefault.webp"
+
+
+# `date` is archiveorg format, so YYYYmmddHHMMSS
+# For example, "20261225090125" is 2026/12/25 9:01:25.
+# This can be input as an int: 2026_12_25__09_01_25.
 def get_archiveorg_url_for_yt_dlp(v_id_or_url: str, date: int|str|None = None) -> str:
     if not date:
         return f"ytarchive:{v_id_or_url}"
@@ -191,7 +196,7 @@ def download_video(
             info.setdefault('unavailable_msgs', []).append({
                 'epoch': utils.epoch_now(),
                 'msg': yt_err.msg,
-                'type': 'yt',
+                'type': 'youtube',
             })
             errors.append(yt_err)
         except Exception as e:
@@ -210,7 +215,7 @@ def download_video(
             info.setdefault('unavailable_msgs', []).append({
                 'epoch': utils.epoch_now(),
                 'msg': wa_err.msg,
-                'type': 'wa',
+                'type': 'web.archive:youtube',
             })
             errors.append(wa_err)
         except Exception as e:
@@ -313,8 +318,9 @@ def copy_and_sanitize_info[T](_info_dict: T, remove_private_keys=False, wrap: bo
     """
     Creates a json-dumpable deepcopy of the info_dict.
     
-    Keeps: dict, list, tuple, set, LazyList, str, int, float, bool.
-    Everything else is turned to str using repr().
+    Keeps: `dict, list, str, int, float, bool`
+    (`tuple, set, LazyList`) -> `list`
+    non-basic types use `repr()`
 
     Never removes 'entries' kval.
     """

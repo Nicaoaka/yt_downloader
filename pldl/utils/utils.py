@@ -259,8 +259,7 @@ def dict_reorder_keys[K: Hashable](d: dict[K, Any], /, start_order: list[K] = []
     Keys not in `order` are left at the bottom in their original relative order.
     """
 
-    d_keys = set(d.keys())
-    extra_keys = [k for k in d_keys if k not in (start_order + end_order)]
+    extra_keys = [k for k in d.keys() if k not in (start_order + end_order)]
 
     for k in start_order:
         if k in d:
