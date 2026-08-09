@@ -252,7 +252,7 @@ class PlaylistDL_Config:
     cookie_file: str | None = None
     cookies_for_pl:    bool = True
     cookies_for_vids:  bool = False
-    empty_cookies:     bool = False
+    empty_cookies:     bool = True
 
     # --- what to persist ---
     write_flat:        bool = False
