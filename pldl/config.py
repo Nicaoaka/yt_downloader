@@ -7,7 +7,7 @@ __all__ = [
 
 import os
 import dataclasses
-from typing import Callable, Literal, Any
+from typing import Callable, Literal, Any, Iterable
 from enum import StrEnum, auto
 
 from pldl.utils import utils
@@ -30,17 +30,16 @@ class Config_IdentType(StrEnum):
 
 
 def wrapper_match_filter_builder(
-    max_downloads: float = 5,
     max_extracts: float = 25,
+    max_downloads: float = 5,
     quit_when_maxed = False, # if True, not all unavailable vids will be seen
 
     extract_match: Callable[[V_InfoDict], bool]|None = None,
     download_match: Callable[[V_InfoDict], bool] = lambda v: (
                ((v.get('view_count') or 0) < 100_000) \
             and (v.get('duration') or 0) <=  5 * 60),
-    
-    extract_override: list[V_ID] = [],
-    download_override: list[V_ID] = [],
+
+    overrides: dict[DL_Action, Iterable[V_ID]] = {},
 
     fail_backoff_time = 7 * 24 * 3600,
 
@@ -53,8 +52,8 @@ def wrapper_match_filter_builder(
     if extract_match is None:
         extract_match = lambda pl_v_info: not download_match(pl_v_info)
 
-    if max_downloads < 0: raise ValueError("max_downloads must be >= 0")
     if max_extracts < 0: raise ValueError("max_extracts must be >= 0")
+    if max_downloads < 0: raise ValueError("max_downloads must be >= 0")
     
     _print = lambda s: print(utils.hex('>', fg="#FF9F21"), utils.hex(s, fg="#FFC478")) if debug else \
              lambda *args, **kwargs: None
@@ -71,59 +70,52 @@ def wrapper_match_filter_builder(
         # basic derived values
         v_id = pl_v_info['id']
         curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
+        likely_unavailable = pl_v_info.get('view_count') in (0, None)
 
-
-        # Manual overrides
-        if v_id in download_override:
-            return DL_Action.DOWNLOAD
-        if v_id in extract_override:
-            return DL_Action.EXTRACT
+        # See DL_Action definition for order (order is top to bottom)
+        # A v_id should only appear in one dl_action in the override anyway
+        for action in DL_Action:
+            if v_id in overrides.get(action, []):
+                _print(f"{action} override")
+                return action
 
         # Max limits
         if quit_when_maxed and any((
-                len(curr_dl_ids['download']) >= max_downloads and max_downloads > 0,
                 len(curr_dl_ids['extract']) >= max_extracts and max_extracts > 0,
+                len(curr_dl_ids['download']) >= max_downloads and max_downloads > 0,
                 max_downloads == max_extracts == 0,
             )):
-            _print("maxed")
+            _print("Maxed")
             return DL_Action.QUIT
 
-        # Skip if failed and backoff time hasn't elapsed
-        forget_fail = utils.epoch_now() - fail_backoff_time
+        # Skip if failed and still in the backoff time
+        # Applies to both download and extract
         for epoch in history:
-            if yt_utils.from_readable_epoch(epoch) < forget_fail:
+            if yt_utils.from_readable_epoch(epoch) < (utils.epoch_now() - fail_backoff_time):
                 continue
             for dl_info in history[str(epoch)]:
                 if dl_info['id'] == v_id and dl_info['result'] == DL_Result.FAIL:
-                    _print("previous fail")
+                    _print(f"Previous fail at {epoch}\n\t{dl_info.get('errors')}")
                     return DL_Action.SKIP
 
-        # Already downloaded
-        if v_id in history_ids['download'] or v_id in ytdlp_ids:
-            _print("hit ytdlp download archive")
-            return DL_Action.SKIP
+        # if a v_info could be downloaded or extracted,
+        # download takes priority
+        # unavailable ignores maxes
+        if v_id not in history_ids['download'] or v_id not in ytdlp_ids:
+            if yt_unavailable_action == DL_Action.DOWNLOAD and likely_unavailable:
+                _print("likely unavailable is DOWNLOAD")
+                return DL_Action.DOWNLOAD
+            if len(curr_dl_ids['download']) < max_downloads and download_match(pl_v_info):
+                _print("download match")
+                return DL_Action.DOWNLOAD
 
-        # Unavailable video handling
-        likely_unavailable = pl_v_info.get('view_count') in (0, None)
-        if yt_unavailable_action is not None and likely_unavailable:
-            _print("likely unavailable")
-            return yt_unavailable_action
-
-        # Download if under max and meets criteria
-        if len(curr_dl_ids['download']) < max_downloads and download_match(pl_v_info):
-            return DL_Action.DOWNLOAD
-        _print("No download match")
-        
-        # Already extracted
-        if v_id in history_ids['extract']:
-            _print("Extract past")
-            return DL_Action.SKIP
-        
-        # Extract if under max and meets criteria
-        # (Even if it will be downloaded later)
-        if len(curr_dl_ids['extract']) < max_extracts and extract_match(pl_v_info):
-            return DL_Action.EXTRACT
-        _print("No extract")
+        if v_id not in history_ids['extract']:
+            if yt_unavailable_action == DL_Action.EXTRACT and likely_unavailable:
+                _print("likely unavailable is EXTRACT")
+                return DL_Action.EXTRACT
+            if len(curr_dl_ids['extract']) < max_extracts and extract_match(pl_v_info):
+                _print("extract match")
+                return DL_Action.EXTRACT
 
         return DL_Action.SKIP
 
