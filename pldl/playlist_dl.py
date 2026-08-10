@@ -705,6 +705,10 @@ class PlaylistDL:
                       display.ACTION_TAG[action].rendered,
                       utils.hex(pl_v_display, display.ACTION_TAG[action].color))
 
+                # TODO: non `DownloadErrors` exceptions do not indicate that a download will fail in the future
+                # - is relying on the fallback okay for now, or should something special be used?
+                # - drop the dl_info?
+                # - make the result `CANCELLED` while keeping the dl_info?
                 v_info, errors, success = yt_utils.download_video(
                     entry['id'],
                     opts=opts,
@@ -1413,19 +1417,22 @@ class PlaylistDL:
     # Display
     # 
 
-    def display_metadata_history(self, info: _InfosEntry[PL_InfoDict]|PL_InfoDict|None = None):
+    def display_metadata_history(self, include_urls: bool = True, info: _InfosEntry[PL_InfoDict]|PL_InfoDict|None = None):
         if info is None:
-            info = self.get_best_info()
+            if self._infos._merge_flat:
+                info = self._infos._merge_flat.data
+            else:
+                info = self.get_best_info()
         if isinstance(info, _InfosEntry):
             info = info.data
         
         print("\n ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n"
                 "  Playlist Metadata History \n"
                 " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n")
-        display.metadata_history(self._metadata['history'], info, PlaylistDL.get_v_ids(info))
+        display.metadata_history(self._metadata['history'], info, PlaylistDL.get_v_ids(info), include_urls)
         print()
 
-    def display_pl_merge_timeline(self, info: _InfosEntry[PL_InfoDict]|PL_InfoDict|None):
+    def display_pl_merge_timeline(self, info: _InfosEntry[PL_InfoDict]|PL_InfoDict|None, include_urls: bool = True):
         if info is None:
             utils.WARNING("Info is None")
             return
@@ -1435,7 +1442,7 @@ class PlaylistDL:
         print("\n ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n"
                 "  Playlist Merge Timeline \n"
                 " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n")
-        display.pl_merge_timeline(info, PlaylistDL.get_v_ids(info))
+        display.pl_merge_timeline(info, PlaylistDL.get_v_ids(info), include_urls, warn_not_found=True)
         print()
 
 

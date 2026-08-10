@@ -126,7 +126,6 @@ def pl_download_info(pl_dl_info: PL_DownloadInfo, errors: bool) -> str:
     return '\n'.join(lines)
 
 
-# TODO: FINISH THIS
 def _warn_if_duplicates(v_ids: list[V_ID]):
     counts = Counter(v_ids)
     duplicates = {v_id: count for v_id, count in counts.items() if count > 1}
@@ -139,11 +138,14 @@ def _warn_if_duplicates(v_ids: list[V_ID]):
         f"{duplicates}",
         caller_offset=1)
 
-def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str], ident_colors: list[str|None] = []):
+def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str], ident_colors: list[str|None] = [], include_urls: bool = False, warn_duplicates: bool = True):
     if len(v_ids) != len(id_prints):
         raise ValueError(f"v_ids and id_prints ({len(v_ids)} != {len(id_prints)}) must have same length")
     if len(ident_colors) not in (0, len(v_ids)):
         raise ValueError(f"v_ids and index_colors ({len(v_ids)} != {len(ident_colors)}) must have same length")
+
+    if warn_duplicates:
+        _warn_if_duplicates(v_ids)
 
     DEFAULT_IDENT_COLOR = "#2E2E2E"
     for i in range(len(ident_colors)):
@@ -164,6 +166,7 @@ def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str],
             ''
         )
         if url: url = f" ({url})"
+        if not include_urls: url = ""
         ident_alt = utils.hex(
             utils.first_non_default(pl_v_info, ['title', 'alt_title'], default_values=[None], default_return='???') +  # type: ignore - pl_v_info is a dict
             " by " +
@@ -190,13 +193,17 @@ def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
         if entry.get('unavailable'):
             excs = []
             for msg in entry.get('unavailable', []):
-                if match := re.match(r'^(.+?): .*', msg):
-                    type: str = match.groups()[0].strip().lower()
-                    match type:
-                        case 'youtube'|'yt':             excs.append(utils.hex('yt', "#FF9191"))
-                        case 'web.archive:youtube'|'wa': excs.append(utils.hex('wa', "#6ABCFF"))
-                        case _:                          excs.append(utils.hex(utils.truncate(type, 11, end="-"), "#DC3CFC"))
-            res += " "+ "|".join(excs)
+                match = re.match(r".*\[([^\[]+?)\].*", msg)
+                if match:
+                    unavail_type: str = match.groups()[0].strip().lower()
+                else:
+                    unavail_type = msg
+                match unavail_type:
+                    case 'download':                 excs.append(utils.hex("yt-dlp-misc", "#FFEB91"))
+                    case 'youtube'|'yt':             excs.append(utils.hex('yt', "#FF9191"))
+                    case 'web.archive:youtube'|'wa': excs.append(utils.hex('wa', "#6ABCFF"))
+                    case _: excs.append(utils.hex(utils.truncate(unavail_type, 11, end="-"), "#DC3CFC"))
+            res += " "+ " ".join(excs)
             had_fails = True
         
         if match := re.match(r'(.+) -> (.+)', entry.get('better_info', '')):
@@ -225,11 +232,11 @@ def _pl_merge_timeline(pl_info: PL_InfoDict, v_ids: list[V_ID], warn_not_found: 
         _results[v_id] = _v_merge_timeline(pl_info.get('merge_timeline', {}).get(v_id, {}))
     return [_results[v_id][0] for v_id in v_ids], [_results[v_id][1] for v_id in v_ids]
 
-def pl_merge_timeline(pl_info: PL_InfoDict, v_ids: list[V_ID], warn_not_found: bool = True) -> None:
-    _print_per_id(pl_info, v_ids, *_pl_merge_timeline(pl_info, v_ids, warn_not_found))
+def pl_merge_timeline(pl_info: PL_InfoDict, v_ids: list[V_ID], include_urls: bool = True, warn_not_found: bool = True) -> None:
+    _print_per_id(pl_info, v_ids, *_pl_merge_timeline(pl_info, v_ids, warn_not_found), include_urls)
 
 
-def _metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v_ids: list[V_ID]) -> tuple[list[str], list[str|None]]:
+def _metadata_history(pl_dl_history: PL_DownloadHistory, v_ids: list[V_ID]) -> tuple[list[str], list[str|None]]:
 
     v_id_set = set(v_ids)
     results: dict[V_ID, dict] = defaultdict(lambda: {
@@ -251,11 +258,14 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v
                     continue
                 ie = match.groups()[0]
                 match match.groups()[0]:
+                    # yt-dlp-misc errors do not indicate that a download will fail in the future
+                    # [download] Got error: HTTPSConnectionPool(host='rr1---sn-a5mekndl.googlevideo.com', port=443): Read timed out. (read timeout=20.0)
+                    case 'download':            excs.append(utils.hex("yt-dlp-misc", "#FFEB91"))
                     case 'youtube':             excs.append(utils.hex("yt", "#FF9191"))
                     case 'web.archive:youtube': excs.append(utils.hex("wa", "#6ABCFF"))
                     case _:                     excs.append(utils.hex( ie,  "#DC3CFC"))
             if excs:
-                results[v_id]['str'] += " " + "|".join(excs)
+                results[v_id]['str'] += " " + " ".join(excs)
 
             dl_result = DL_Result[dl_info['result'].upper()]
             results[v_id]['str'] += RESULT_TAG[dl_result].rendered
@@ -275,9 +285,9 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v
         [results[v_id]['color'] for v_id in v_ids]
     )
 
-def metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v_ids: list[V_ID]):
+def metadata_history(pl_dl_history: PL_DownloadHistory, pl_info: PL_InfoDict, v_ids: list[V_ID], include_urls: bool = True):
     """ Does not handle manipulations """
-    _print_per_id(pl_info, v_ids, *_metadata_history(pl_dl_history, pl_info, v_ids))
+    _print_per_id(pl_info, v_ids, *_metadata_history(pl_dl_history, v_ids), include_urls)
 
 
 

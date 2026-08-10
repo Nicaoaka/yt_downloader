@@ -75,7 +75,7 @@ def _merge_v_infos(
 
     for msg in _dedup_and_sort_unavail_msgs(unavailable_msgs):
         uanvail_epoch = yt_utils.to_readable_epoch(msg['epoch'] if msg['epoch'] is not None else yt_utils.DEFAULT_EPOCH())
-        text = f"{msg['type']}: {msg['msg']}"
+        text = msg['msg'] or f'[{msg['type']}]' # the type should be surrounded in the first square bracket []
         msgs = v_timeline.setdefault(uanvail_epoch, {}).setdefault('unavailable', [])
         if text not in msgs:
             msgs.append(text)
