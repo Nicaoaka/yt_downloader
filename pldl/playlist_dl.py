@@ -705,6 +705,10 @@ class PlaylistDL:
                       display.ACTION_TAG[action].rendered,
                       utils.hex(pl_v_display, display.ACTION_TAG[action].color))
 
+                # non `DownloadErrors` exceptions do not indicate that a download will fail in the future
+                # - is relying on the fallback okay for now, or should something special be used?
+                # - drop the dl_info?
+                # - make the result `CANCELLED` while keeping the dl_info?
                 v_info, errors, success = yt_utils.download_video(
                     entry['id'],
                     opts=opts,
