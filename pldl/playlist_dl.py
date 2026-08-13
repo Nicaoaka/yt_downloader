@@ -930,14 +930,13 @@ class PlaylistDL:
         Returned object is also stored in `self._infos.pl_info.data`
         """
         if not self._infos.raw_v_infos:
-            utils.WARNING("No raw_v_infos were found. Videos can be downloaded using self.download_v_infos()")
-
-        clean_info_json = self.opts.get('clean_infojson') or False
+            utils.WARNING("No raw_v_infos were found. Raw video infos can be added with " \
+                          "download_v_infos(), download_v_info_generic(), or add_raw_v_infos().")
         
         pl_info = self._make_pl_info(
             self._infos.base_info.data,
             [v_info for v_infos in self._infos.raw_v_infos.data for v_info in v_infos],
-            clean_info_json)
+            self.opts.get('clean_infojson') or False)
         self._infos.pl_info = _InfosEntry(pl_info, self._pl_outtmpls['pl_infojson'], is_written=False, metadata_key='latest_pl_info')
 
         if write or (write is USE_CONFIG and self._config.write_pl_info):
@@ -961,10 +960,12 @@ class PlaylistDL:
             init = base_info
             pl_infos = []
 
-        if not self._infos.pl_info:
-            self.make_pl_info()
-        if self._infos.pl_info:
-            pl_infos.append(yt_utils.copy_and_sanitize_info(self._infos.pl_info.data))
+        # Don't use stored `pl_info`
+        # Recreating the pl_info is fast enough, so this is okay
+        pl_infos.append(self._make_pl_info(
+            self._infos.base_info.data,
+            [v_info for v_infos in self._infos.raw_v_infos.data for v_info in v_infos],
+            self.opts.get('clean_infojson') or False))
         
         return merge_infos.merge_pl_infos(pl_infos, field_updater, update_filter, init)
             
