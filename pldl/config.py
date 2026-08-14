@@ -30,9 +30,13 @@ class Config_IdentType(StrEnum):
 
 
 def wrapper_match_filter_builder(
-    max_extracts: float = 25,
-    max_downloads: float = 5,
-    quit_when_maxed = False, # if True, not all unavailable vids will be seen
+    # these should never be 0, besides when quit_when_maxed is False 
+    max_extracts: float = float('inf'),
+    max_downloads: float = float('inf'),
+    max_fails: float = float('inf'),
+
+    # if True, not all unavailable vids will be seen and some overrides will not be reached
+    quit_when_maxed: bool = False,
 
     extract_match: Callable[[V_InfoDict], bool]|None = None,
     download_match: Callable[[V_InfoDict], bool] = lambda v: (
@@ -72,21 +76,29 @@ def wrapper_match_filter_builder(
         curr_dl_ids = yt_utils.ids_from_pl_download_info(curr_dl_info)
         likely_unavailable = pl_v_info.get('view_count') in (0, None)
 
+        EXT_IS_MAXED = len(curr_dl_ids['extract']) >= max_extracts
+        DL_IS_MAXED = len(curr_dl_ids['download']) >= max_downloads
+        FAIL_IS_MAXED = len(curr_dl_ids['fail']) >= max_fails
+
+        if quit_when_maxed:
+            if EXT_IS_MAXED:
+                _print("Maxed extract")
+                return DL_Action.QUIT
+            if DL_IS_MAXED:
+                _print("Maxed downloads")
+                return DL_Action.QUIT
+            if FAIL_IS_MAXED:
+                _print("Maxed fails")
+                return DL_Action.QUIT
+
+
+        
         # See DL_Action definition for order (order is top to bottom)
         # A v_id should only appear in one dl_action in the override anyway
         for action in DL_Action:
             if v_id in overrides.get(action, []):
                 _print(f"{action} override")
                 return action
-
-        # Max limits
-        if quit_when_maxed and any((
-                len(curr_dl_ids['extract']) >= max_extracts and max_extracts > 0,
-                len(curr_dl_ids['download']) >= max_downloads and max_downloads > 0,
-                max_downloads == max_extracts == 0,
-            )):
-            _print("Maxed")
-            return DL_Action.QUIT
 
         # Skip if failed and still in the backoff time
         # Applies to both download and extract
@@ -102,18 +114,20 @@ def wrapper_match_filter_builder(
         # download takes priority
         # unavailable ignores maxes
         if v_id not in history_ids['download'] or v_id not in ytdlp_ids:
+            # not affected by download max
             if yt_unavailable_action == DL_Action.DOWNLOAD and likely_unavailable:
                 _print("likely unavailable is DOWNLOAD")
                 return DL_Action.DOWNLOAD
-            if len(curr_dl_ids['download']) < max_downloads and download_match(pl_v_info):
+            if not DL_IS_MAXED and download_match(pl_v_info):
                 _print("download match")
                 return DL_Action.DOWNLOAD
 
         if v_id not in history_ids['extract']:
+            # not affected by extract max
             if yt_unavailable_action == DL_Action.EXTRACT and likely_unavailable:
                 _print("likely unavailable is EXTRACT")
                 return DL_Action.EXTRACT
-            if len(curr_dl_ids['extract']) < max_extracts and extract_match(pl_v_info):
+            if not EXT_IS_MAXED and extract_match(pl_v_info):
                 _print("extract match")
                 return DL_Action.EXTRACT
 
