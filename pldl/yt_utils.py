@@ -466,7 +466,7 @@ def to_readable_epoch(epoch: int) -> str:
     if abs(epoch) <= 3600 * 24:
         return MALFORMED_EPOCH_FMT.replace('{}', str(epoch))
     
-    formatted = datetime.datetime.fromtimestamp(abs(epoch)).strftime(READABLE_EPOCH_FMT)
+    formatted = datetime.datetime.fromtimestamp(abs(epoch)).astimezone(None).strftime(READABLE_EPOCH_FMT)
     if is_negative:
         return MALFORMED_EPOCH_FMT.replace('{}', '-'+formatted)
     return formatted
@@ -488,14 +488,15 @@ def from_readable_epoch(readable: str) -> int:
         is_negative = -1 if bool(match.groups()[0]) else 1
     
     try:
-        epoch = int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).timestamp())
+        epoch = int(datetime.datetime.strptime(readable, READABLE_EPOCH_FMT).astimezone(None).timestamp())
         return is_negative * epoch
-    except: ...
+    except Exception:  # noqa: BLE001 - don't raise
+        ...
 
     try:
         return int(readable)
-    except: ...
-    raise ValueError(f"{readable} is not a recognized readable epoch")
+    except ValueError:
+        raise ValueError(f"{readable} is not a recognized readable epoch")
 
 # basic validations
 
