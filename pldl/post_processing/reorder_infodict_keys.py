@@ -1,5 +1,7 @@
 __all__ = [
-    'reorder_v_infodict', 'reorder_pl_infodict', 'reorder_merge_info',
+    'reorder_merge_info',
+    'reorder_pl_infodict',
+    'reorder_v_infodict',
 ]
 
 """
@@ -8,10 +10,9 @@ This is based on keys from `pldl_type` and `pldl_type_extensions`
 Reordering was done using Claude
 """
 
-from pldl.yt_utils import from_readable_epoch
 from pldl.pldl_types import *
 from pldl.utils.utils import dict_reorder_keys
-
+from pldl.yt_utils import from_readable_epoch
 
 V_START = [
     # identity

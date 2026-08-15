@@ -1,4 +1,4 @@
-__all__ = [
+__all__ = [  # noqa: RUF022
     'FalsySentinel',
 
     'hex',
@@ -26,15 +26,16 @@ __all__ = [
 Only depends on python std lib
 """
 
-from pathlib import Path
-import os
-import time
-from typing import Iterable, Any, Callable, Literal, Hashable, Mapping
-import json
 import copy
+import json
+import os
 import re
-import traceback
 import sys
+import time
+import traceback
+from collections.abc import Callable, Hashable, Iterable
+from pathlib import Path
+from typing import Any, Literal
 
 
 def get_caller_function(offset: int = 0):
@@ -73,8 +74,8 @@ def hex(text, fg: str|None = None, bg: str|None = None, reset: bool=True):
 def _rgb(text, fg: tuple[int, int, int]|None = None, bg: tuple[int, int, int]|None = None, reset: bool=True):
     """ Add ANSI commands to text (Select Graphic Rendition) """
     sgr_cmd = '\033[{}m'
-    set_fg = sgr_cmd.format(f'38;2;{';'.join(map(lambda i:f'{i:03}', fg))}') if fg else ''
-    set_bg = sgr_cmd.format(f'48;2;{';'.join(map(lambda i:f'{i:03}', bg))}') if bg else ''
+    set_fg = sgr_cmd.format(f'38;2;{';'.join(f'{i:03}' for i in fg)}') if fg else ''
+    set_bg = sgr_cmd.format(f'48;2;{';'.join(f'{i:03}' for i in bg)}') if bg else ''
     reset_cmd = sgr_cmd.format('0') if reset else ''
     return set_fg \
          + set_bg \
@@ -127,11 +128,12 @@ def numbered_list(an_iterable: Iterable[Any], start_number: int = 1, indent: int
     _list = list(an_iterable)
     max_n = start_number + len(_list)
     max_n_len = len(str(max_n))
-    try:
-        if sort_elems:
-            _list.sort()
-    except Exception:
-        ...
+
+    # Allow sort to raise exception if list is unsortable
+    # Since `sort_elems` must be manually enabled, the caller should be notified
+    if sort_elems:
+        _list.sort()
+    
     numbered_lines = []
     for i, elem in enumerate(_list, start=start_number):
         num_str = str(i).rjust(max_n_len)
@@ -157,7 +159,7 @@ def input_string(
         case_sensitive: bool = True,
         attempts: int = -1,
         default: str|type[__NO_DEFAULT] = __NO_DEFAULT,
-        use_default_for: set[str] = set(),
+        use_default_for: set[str] | None = None,
         show_hints: bool = True,
     ) -> str:
     """ returns one of the string options or default if ran out of attempts
@@ -165,6 +167,8 @@ def input_string(
     input() is called directly after `query_message`. So a new line or space is recommended
     """
 
+    if use_default_for is None:
+        use_default_for = set()
     HINT_COLOR = "#76A0A3"
     INPUT_COLOR = "#6BF5FF"
     WARN_COLOR = "#FF1515"
@@ -178,7 +182,7 @@ def input_string(
     if use_default_for and default is __NO_DEFAULT:
         raise ValueError("Entered use_default_for requires a default")
 
-    option_map = dict()
+    option_map = {}
     if not case_sensitive:
         option_map = {s.lower(): s for s in options}
         if not case_sensitive and len(option_map) != len(set(options)):
@@ -245,21 +249,21 @@ def dict_without_keys(d: dict, keys: Iterable):
 
 def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
     """ does not support defaultdict """
-    res = dict()
+    res = {}
     for k in keys:
         if k not in d and default is KeyError:
             raise KeyError(k) # mimic normal key error
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-def dict_reorder_keys[K: Hashable](d: dict[K, Any], /, start_order: list[K] = [], end_order: list[K] = []) -> None:
+def dict_reorder_keys[K: Hashable](d: dict[K, Any], /, start_order: list[K] = [], end_order: list[K] = []) -> None:  # noqa: B006 - init lists are not mutated
     """
     Reorders keys in `d` in-place according to `order`.
 
     Keys not in `order` are left at the bottom in their original relative order.
     """
 
-    extra_keys = [k for k in d.keys() if k not in (start_order + end_order)]
+    extra_keys = [k for k in d if k not in (start_order + end_order)]
 
     for k in start_order:
         if k in d:
@@ -284,7 +288,7 @@ def merge_objs(obj1: Any, obj2: Any, make_copy: bool, copy_fallback: Callable[[A
             return o
         try:
             return copy.deepcopy(o)
-        except:
+        except TypeError, RecursionError, copy.Error:
             return copy_fallback(o)
 
     def _merge_objs(a, b):
@@ -308,7 +312,7 @@ def merge_objs(obj1: Any, obj2: Any, make_copy: bool, copy_fallback: Callable[[A
 def get_missing_typeddict_keys(data: dict, typeddict) -> list[str]:
     """ data may contain extra keys """
     if not isinstance(data, dict):
-        raise ValueError("data wasn't of type dict")
+        raise ValueError("data wasn't of type dict")  # noqa: TRY004
     return sorted(set(typeddict.__required_keys__) - set(data.keys()))
 
 
@@ -428,7 +432,7 @@ def _get_unused_name(dst: Path, auto_rename: bool = True, msg: str = "") -> Path
     dst_dir = dst.parent
     dst_name = dst.name
     if not dst_dir.exists():
-        raise FileNotFoundError(f"dst_dir does not exist")
+        raise FileNotFoundError("dst_dir does not exist")
     if not dst_dir.is_dir():
         raise ValueError(f"dst_dir should be a directory. {dst_dir = }")
     
@@ -442,7 +446,7 @@ def _get_unused_name(dst: Path, auto_rename: bool = True, msg: str = "") -> Path
             print(f"Enter the new name for {dst_name} (include extension):")
         if not auto_rename:
             if i > 1:
-                print(f"{repr(dst_name)} is already in use. Try again.")
+                print(f"{dst_name!r} is already in use. Try again.")
             dst_name = input()
         else:
             dst_name = f"{stem} ({i}){ext}"
@@ -512,7 +516,7 @@ def sanitize_str(s, data: dict, sanitizer: Callable[[str], str]|None = None) -> 
 
     return sanitizer(s % data)
 
-def safely_resolve_path(path: Path|str, part_data: list[dict]|dict = {}, part_sanitizer: Callable[[str], str]|None = None) -> Path:
+def safely_resolve_path(path: Path|str, part_data: list[dict]|dict|None = None, part_sanitizer: Callable[[str], str]|None = None) -> Path:
     """ Sanitizes and resolves path, can be given part data.
 
     Args:
@@ -528,6 +532,8 @@ def safely_resolve_path(path: Path|str, part_data: list[dict]|dict = {}, part_sa
     Returns:
         Path: Resolved Path
     """
+    if part_data is None:
+        part_data = {}
     if isinstance(path, str):
         path = Path(path)
     if part_sanitizer is None:

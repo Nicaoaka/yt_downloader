@@ -1,4 +1,4 @@
-__all__ = [
+__all__ = [  # noqa: RUF022
     'DEFAULT_EPOCH', 'READABLE_EPOCH_FMT', 'MALFORMED_EPOCH_FMT',
     
     'get_v_id_from_yt_url', 'get_pl_id_from_yt_url', 'is_id_like',
@@ -21,20 +21,22 @@ __all__ = [
     'validate_metdata_config_sync',
 ]
 
-import re
 import datetime
 import os
-from typing import TYPE_CHECKING, Any, Callable
+import re
+from collections.abc import Callable
 from enum import IntEnum
+from typing import TYPE_CHECKING, Any
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from pldl.utils import utils
-from pldl.pldl_types import *
 from pldl import pldl_types
+from pldl.pldl_types import *
+from pldl.utils import utils
+
 if TYPE_CHECKING:
-    from pldl.config import PlaylistDL_Config
+    from pldl.config import PlaylistDL_Config  # noqa: TC004 - circular import
 
 
 DEFAULT_EPOCH: Callable[[],int] = lambda: -utils.epoch_now()
@@ -51,14 +53,14 @@ def get_v_id_from_yt_url(url_or_id: str) -> str|None:
     from yt_dlp.extractor.youtube import YoutubeIE
     try:
         return YoutubeIE._match_id(url_or_id)
-    except:
+    except:  # noqa: E722 - do not error
         return None
 
 def get_pl_id_from_yt_url(url_or_id: str) -> str|None:
     from yt_dlp.extractor.youtube import YoutubePlaylistIE
     try:
         return YoutubePlaylistIE._match_id(url_or_id)
-    except:
+    except:  # noqa: E722 - do not error
         return None
 
 def is_id_like(id: str, is_video=False) -> bool:
@@ -126,7 +128,7 @@ class PL_InfoLevel(IntEnum):
     NORMAL = 3
     MERGE = 4
 
-def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDict[V_InfoDict]:
+def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params|None = None) -> PL_InfoDict[V_InfoDict]:
     """ Get basic info from a youtube playlist, it must be available on youtube.
 
     Args:
@@ -137,6 +139,8 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
     Returns:
         PL_InfoDict: Flat playlist info
     """
+    if opts is None:
+        opts = {}
     with YoutubeDL(opts | {
         'skip_download': 'True',
         'extract_flat': 'in_playlist',
@@ -157,7 +161,7 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params = {}) -> PL_InfoDic
 
 def download_video(
         v_id: str,
-        opts: YT_DLP_Params = {},
+        opts: YT_DLP_Params | None = None,
         yt: bool = True,
         wa: bool = True,
         download: bool = True,
@@ -177,6 +181,8 @@ def download_video(
         - list of Exception objects
         - if extraction was successful
     """
+    if opts is None:
+        opts = {}
     if not is_id_like(v_id, is_video=True):
         raise ValueError(f"{v_id} does not resemble a video id")
     
@@ -199,7 +205,7 @@ def download_video(
                 'type': 'youtube',
             })
             errors.append(yt_err)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - catch any yt_dlp exception
             errors.append(e)
     if wa:
         try:
@@ -218,7 +224,7 @@ def download_video(
                 'type': 'web.archive:youtube',
             })
             errors.append(wa_err)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - catch any yt_dlp exception
             errors.append(e)
     info['info_level'] = V_InfoLevel.NONE.name
     return info, errors, False
@@ -241,7 +247,7 @@ def download_video_generic(url: str, opts: YT_DLP_Params, download: bool) -> tup
             'type': utils.get_domain(url) or url,
         }]
         return (info, dl_err, False)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - catch any yt_dlp exception
         info['unavailable_msgs'] = [{
             'epoch': now,
             'msg': repr(e),
@@ -303,8 +309,10 @@ def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
 
 # Path helpers
 
-def ytdlp_eval_tmpl(tmpl: str, info: ANY_InfoDict, alt_info: ANY_InfoDict = {}) -> str:
+def ytdlp_eval_tmpl(tmpl: str, info: ANY_InfoDict, alt_info: ANY_InfoDict|None = None) -> str:
     """ Creates a deepcopy with `alt_info` overriding `info` to call yt_dlp's ``evaluate_outtmpl()`` """
+    if alt_info is None:
+        alt_info = {}
     return YoutubeDL().evaluate_outtmpl(
         tmpl,
         copy_and_sanitize_info(info | alt_info, wrap=True), # type: ignore
@@ -528,7 +536,7 @@ def validate_metdata_config_sync(metadata: Metadata, config: PlaylistDL_Config):
                 f"Path: {meta_path}")
         if os.path.relpath(metadata['path_tmpls'][k], metadata['path_tmpls']['Playlist']) != config.path_tmpls[k]:
             raise KeyError(
-                f"Changed `path_tmpls`: {repr(k)}:\n"
+                f"Changed `path_tmpls`: {k!r}:\n"
                 f"metadata: {metadata['path_tmpls'][k]}\n"
                 f"config:   {config.path_tmpls[k]}\n"
                 f"Path: {meta_path}")
@@ -537,7 +545,9 @@ def validate_metdata_config_sync(metadata: Metadata, config: PlaylistDL_Config):
 class __V_InfoDict_NoReqs(V_InfoDict, total=False):
     id: ...
 
-def min_v_info(id: str, info_level: V_InfoLevel, other_info: __V_InfoDict_NoReqs = {}) -> V_InfoDict:
+def min_v_info(id: str, info_level: V_InfoLevel, other_info: __V_InfoDict_NoReqs|None = None) -> V_InfoDict:
+    if other_info is None:
+        other_info = {}
     return {
         **other_info,
         'id': id,
@@ -548,7 +558,9 @@ class __PL_InfoDict_NoReqs(PL_InfoDict, total=False):
     id: ...
     entries: ...
 
-def min_pl_info(id: str, info_level: PL_InfoLevel, other_info: __PL_InfoDict_NoReqs = {}) -> PL_InfoDict:
+def min_pl_info(id: str, info_level: PL_InfoLevel, other_info: __PL_InfoDict_NoReqs|None = None) -> PL_InfoDict:
+    if other_info is None:
+        other_info = {}
     return {
         **other_info,
         'id': id,

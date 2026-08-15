@@ -1,12 +1,11 @@
-from collections import Counter, defaultdict
 import re
+from collections import Counter, defaultdict
 
 from yt_dlp.utils import DownloadError
 
+from pldl import yt_utils
 from pldl.pldl_types import *
 from pldl.utils import utils
-from pldl import yt_utils
-
 
 
 def pl_v_ids(pl_info: PL_InfoDict) -> None:
@@ -29,7 +28,7 @@ def pl_v_ids(pl_info: PL_InfoDict) -> None:
         print(f"{str(i).rjust(_max_index_len)}. {id}")
 
 class _Tag:
-    __slots__ = ("text", "color", "rendered")
+    __slots__ = ("text", "color", "rendered")  # noqa: RUF023
 
     def __init__(self, text: str, color: str, width: int = 8):
         self.text = text
@@ -138,7 +137,9 @@ def _warn_if_duplicates(v_ids: list[V_ID]):
         f"{duplicates}",
         caller_offset=1)
 
-def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str], ident_colors: list[str|None] = [], include_urls: bool = False, warn_duplicates: bool = True):
+def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str], ident_colors: list[str | None] | None = None, include_urls: bool = False, warn_duplicates: bool = True):
+    if ident_colors is None:
+        ident_colors = []
     if len(v_ids) != len(id_prints):
         raise ValueError(f"v_ids and id_prints ({len(v_ids)} != {len(id_prints)}) must have same length")
     if len(ident_colors) not in (0, len(v_ids)):
@@ -295,7 +296,7 @@ def _make_pl_dl_info_combos() -> PL_DownloadInfo:
     errors = []
     try:
         raise ValueError("Hello")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         errors = [e]
     infos: PL_DownloadInfo = []
     for with_errors in [True, False]:

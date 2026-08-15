@@ -1,17 +1,21 @@
 __all__ = [
-    'YT_Flat_V_InfoDict', 'YT_V_InfoDict', 'WA_V_InfoDict',
-    'YT_Flat_PL_V_InfoDict', 'YT_PL_V_InfoDict', 'WA_PL_V_InfoDict',
-    'YT_Flat_PL_InfoDict', 'YT_PL_InfoDict',
+    'WA_PL_V_InfoDict',
+    'WA_V_InfoDict',
+    'YT_Flat_PL_InfoDict',
+    'YT_Flat_PL_V_InfoDict',
+    'YT_Flat_V_InfoDict',
+    'YT_PL_InfoDict',
+    'YT_PL_V_InfoDict',
+    'YT_V_InfoDict',
 ]
 
-from typing import TypedDict, Literal, NotRequired, Required, Any, TYPE_CHECKING
+from typing import Any, Literal, NotRequired, Required, TypedDict
+
 from pldl.pldl_types import (
+    _PL_InfoDict_Addons,
     _PL_V_RelInfo,
     _V_InfoDict_Addons,
-    _PL_InfoDict_Addons,
 )
-
-
 
 # 
 # V_InfoDict

@@ -1,4 +1,6 @@
-__all__ = [
+from __future__ import annotations
+
+__all__ = [  # noqa: RUF022
     'V_ID', 'PL_ID', 'READABLE_EPOCH_STR', 'YT_DLP_Params',
 
     'YT_DLP_InfoDict', 'V_InfoDict', 'PL_InfoDict', 'ANY_InfoDict',
@@ -17,16 +19,25 @@ __all__ = [
     'NO_VALUE',
 ]
 
+from collections.abc import Callable, Iterable
 from enum import StrEnum, auto
-from typing import get_args, TypedDict, Literal, NotRequired, Required, Any, Callable, Iterable, TYPE_CHECKING
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NotRequired,
+    Required,
+    TypedDict,
+    get_args,
+)
+
 if TYPE_CHECKING:
-    from _typeshed import Incomplete
     from yt_dlp import _Params
     # from yt_dlp.utils import PagedList
 
+from _typeshed import Incomplete
+
 from pldl.utils.utils import FalsySentinel
-
-
 
 type V_ID = str
 type PL_ID = str

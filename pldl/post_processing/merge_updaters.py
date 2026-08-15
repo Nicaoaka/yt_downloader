@@ -11,7 +11,8 @@ Return:
 'info_level' and 'unavailable_msgs' should not be written to.
 """
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from pldl.pldl_types import *
 
@@ -59,7 +60,7 @@ def maximizer(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: b
             info[k] = v
             return True
         return False
-    except Exception: # not sure what errors may appear
+    except Exception:  # noqa: BLE001 - not sure what errors may appear
         return fill_absent(info, k, v, is_latest)
 
 

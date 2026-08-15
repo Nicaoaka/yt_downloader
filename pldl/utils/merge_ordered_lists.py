@@ -40,7 +40,7 @@ __all__ = ['merge_ordered_lists']
 
 import heapq
 from collections import defaultdict
-from typing import Hashable, Iterable
+from collections.abc import Hashable, Iterable
 
 
 class DynamicTopoSort[T: Hashable]:
@@ -413,7 +413,7 @@ def merge_ordered_lists[T: Hashable](_lists: Iterable[Iterable[T]]) -> list[T]:
     5.  (Map ints back to original items)
     """
 
-    lists, item_to_node, node_to_item = _create_nodes(_lists)
+    lists, _item_to_node, node_to_item = _create_nodes(_lists)
     if len(node_to_item) == 0:
         return []
     if len(node_to_item) == 1:

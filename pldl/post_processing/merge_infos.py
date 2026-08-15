@@ -1,19 +1,20 @@
 __all__ = [
-    'merge_v_infos', 'merge_pl_infos',
+    'merge_pl_infos',
+    'merge_v_infos',
 ]
 
-from collections import defaultdict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from pldl.pldl_types import *
-from pldl.utils import utils, merge_ordered_lists
 from pldl import yt_utils
+from pldl.pldl_types import *
+from pldl.utils import merge_ordered_lists, utils
 
 
 def _dedup_and_sort_unavail_msgs(msgs: list[UnavailableMsg]):
     return sorted(
         # Use tuple() to focus on the values themselves instead of the dict_value object
-        utils.dedup(msgs, hash=lambda x: tuple((x['epoch'], x['msg'], x['type']))),
+        utils.dedup(msgs, hash=lambda x: (x['epoch'], x['msg'], x['type'])),
         key=lambda info: (info['epoch'] or 0) \
                         +(0.2 if info['type'] == 'yt' else
                           0.1 if info['type'] == 'wa' else
@@ -123,7 +124,7 @@ def merge_v_infos(
         field_updater,
         update_filter,
         _init_v_info or {'id': v_infos[-1]['id'], 'info_level': yt_utils.V_InfoLevel.NONE.name},
-        _init_v_timeline or dict())
+        _init_v_timeline or {})
 
 
 def _get_v_infos(pl_v_ids: list[V_ID], pl_infos: list[PL_InfoDict], pl_index_to_omit: int|None = None) -> dict[V_ID, list[V_InfoDict]]:

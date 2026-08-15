@@ -1,27 +1,23 @@
 __all__ = ['PlaylistDL']
 
-import os
 import copy
-from typing import Callable, Any, overload, Iterable, Literal
-import pprint
 import dataclasses
 import itertools
+import os
+import pprint
 import time
+from collections.abc import Callable, Iterable
+from typing import Literal, overload
 
-from pldl.utils import utils
-from pldl.config import PlaylistDL_Config, Config_IdentType
+from pldl import display, pldl_types, yt_utils
+from pldl.config import Config_IdentType, PlaylistDL_Config
 from pldl.pldl_types import *
-from pldl import (
-    pldl_types,
-    yt_utils,
-    display
-)
 from pldl.post_processing import (
     merge_infos,
     merge_updaters,
     reorder_infodict_keys,
 )
-
+from pldl.utils import utils
 
 
 @dataclasses.dataclass
@@ -301,16 +297,14 @@ class PlaylistDL:
                 is_written=False, metadata_key=None)
         
         # always try loading if not loaded
-        if not self._infos._merge_flat:
-            if data := self.load('_merge_flat', None):
-                self._infos._merge_flat = _InfosEntry(data,
-                    pl_outtmpl=self._pl_outtmpls['_merged_flat_infojson'],
-                    is_written=True, metadata_key='_merge_flat')
-        if not self._infos.merge_info:
-            if data := self.load('latest_merge_info', None):
-                self._infos.merge_info = _InfosEntry(data,
-                    pl_outtmpl=self._pl_outtmpls['merge_infojson'],
-                    is_written=True, metadata_key='latest_merge_info')
+        if not self._infos._merge_flat and (data := self.load('_merge_flat', None)):
+            self._infos._merge_flat = _InfosEntry(data,
+                pl_outtmpl=self._pl_outtmpls['_merged_flat_infojson'],
+                is_written=True, metadata_key='_merge_flat')
+        if not self._infos.merge_info and (data := self.load('latest_merge_info', None)):
+            self._infos.merge_info = _InfosEntry(data,
+                pl_outtmpl=self._pl_outtmpls['merge_infojson'],
+                is_written=True, metadata_key='latest_merge_info')
 
 
 
@@ -391,7 +385,7 @@ class PlaylistDL:
             self,
             info: _InfosEntry|None,
             collision_policy: utils.CollisionPolicies,
-            alt_info: ANY_InfoDict = {},
+            alt_info: ANY_InfoDict|None = None,
             delete_prev: bool = False,
             _name: str = '',
     ) -> tuple[str, int]|None:
@@ -400,6 +394,8 @@ class PlaylistDL:
         including `alt_info = {'epoch': ...}` is recommended.
         """
 
+        if alt_info is None:
+            alt_info = {}
         if info is None:
             utils.ERROR("Info entry was not found")
             return None
@@ -464,10 +460,12 @@ class PlaylistDL:
     def write_info_debug(
             self,
             info: _InfosEntry|None,
-            alt_info: ANY_InfoDict = {},
+            alt_info: ANY_InfoDict|None = None,
             on_collision: Literal['rm new', 'rm old', 'mov new', 'mov old'] = 'mov new',
             pl_outtmpl_override: str|None = None,
     ):
+        if alt_info is None:
+            alt_info = {}
         if info is None:
             utils.WARNING("info was None")
             return
@@ -643,7 +641,7 @@ class PlaylistDL:
 
         choice = utils.input_string(
             list(DL_MAP_NO_USER.keys()),
-            f"Pick a Download Option: ",
+            "Pick a Download Option: ",
             prefix_options=True,
         )
         return DL_MAP_NO_USER[choice]
@@ -652,7 +650,7 @@ class PlaylistDL:
     def _download_v_infos(
             pl_info: PL_InfoDict[V_InfoDict],
             wrapper_match_filter: Callable[[V_InfoDict, PL_DownloadInfo], DL_Action]|None = None,
-            opts: YT_DLP_Params = {},
+            opts: YT_DLP_Params|None = None,
             try_yt_if_unavailable: bool = True,
             wa: bool = True,
     ) -> tuple[list[V_InfoDict], PL_DownloadInfo]:
@@ -668,6 +666,8 @@ class PlaylistDL:
             try_yt_if_unavailable (bool, optional): Try Youtube even if it seems unavailable. Defaults to True.
             wa (bool, optional): Use archive.org if YouTube failed (fallback). Defaults to True.
         """
+        if opts is None:
+            opts = {}
         extracted_v_infos: list[V_InfoDict] = []
         pl_dl_info: PL_DownloadInfo = []
 
@@ -737,9 +737,9 @@ class PlaylistDL:
                     v_info.setdefault('id', entry['id'])
                     v_info.setdefault('epoch', utils.epoch_now())
                     extracted_v_infos.append(v_info)
-        except KeyboardInterrupt:
+        except KeyboardInterrupt: # keep alive
             print(utils.hex("    KEYBOARD INTERRUPT    ", bg='#ffffff'))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - keep alive
             print(utils.format_exception(e))
         
         return extracted_v_infos, pl_dl_info
@@ -823,7 +823,7 @@ class PlaylistDL:
               '\n')
         return v_info, dl_info
 
-    def download_v_info_generic(self, v_id: str, any_yt_dlp_url: str, download: bool, opts: YT_DLP_Params = {}, write: bool|type[USE_CONFIG] = USE_CONFIG, cookiefile: str|None = None):
+    def download_v_info_generic(self, v_id: str, any_yt_dlp_url: str, download: bool, opts: YT_DLP_Params|None = None, write: bool|type[USE_CONFIG] = USE_CONFIG, cookiefile: str|None = None):
         """
         Only video downloads are added to metadata history.
         Added to raw_v_infos if DownloadError or there is a result.
@@ -831,6 +831,8 @@ class PlaylistDL:
 
         Returns what was recieved from yt_dlp
         """
+        if opts is None:
+            opts = {}
         sleep_1_second()
 
         if v_id not in self.get_v_ids(self._infos.base_info):
@@ -1452,6 +1454,12 @@ class PlaylistDL:
     # Cleanup
     # 
 
+    def write_merge_flat(self):
+        if not self._infos._merge_flat:
+            utils.WARNING("_merge_flat was not found")
+            return
+        self.write_info(self._infos._merge_flat, collision_policy='rm old', delete_prev=True)
+
     def write_metadata_file(self):
         utils.json_dump(self._metadata, self._pl_outtmpls['metadata'], on_collision='rm old')
         print(utils.hex(f"Updated metadata: {self._pl_outtmpls['metadata']}", fg="#637f86"))
@@ -1463,11 +1471,9 @@ class PlaylistDL:
             print(utils.hex(f"Emptied cookie file: {self._config.cookie_file}", fg="#ff60bd"))
 
     def close(self):
-        if self._infos._merge_flat:
-            if not self.write_info(self._infos._merge_flat, collision_policy='rm old', delete_prev=True):
-                utils.ERROR("_merge_flat failed to write.")
         if self._config.empty_cookies:
             self.empty_cookies()
+        self.write_merge_flat()
         
         self.write_metadata_file() # should be LAST
 

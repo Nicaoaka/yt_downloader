@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 __all__ = [
-    'PlaylistDL_Config', 'Config_IdentType',
+    'Config_IdentType',
+    'PlaylistDL_Config',
     'wrapper_match_filter_builder',
 ]
 
-import os
 import dataclasses
-from typing import Callable, Literal, Any, Iterable
+import os
+from collections.abc import Callable, Iterable
 from enum import StrEnum, auto
+from typing import Any, Literal
 
-from pldl.utils import utils
-from pldl.pldl_types import *
 from pldl import yt_utils
+from pldl.pldl_types import *
 from pldl.post_processing import filters
+from pldl.utils import utils
+
 
 class Config_IdentType(StrEnum):
     """
@@ -43,7 +46,7 @@ def wrapper_match_filter_builder(
                ((v.get('view_count') or 0) < 100_000) \
             and (v.get('duration') or 0) <=  5 * 60),
 
-    overrides: dict[DL_Action, Iterable[V_ID]] = {},
+    overrides: dict[DL_Action, Iterable[V_ID]] | None = None,
 
     fail_backoff_time = 7 * 24 * 3600,
 
@@ -53,6 +56,8 @@ def wrapper_match_filter_builder(
 ):
     """ If `extract_match` is None (default), then it is the opposite of `download_match` """
 
+    if overrides is None:
+        overrides = {}
     if extract_match is None:
         extract_match = lambda pl_v_info: not download_match(pl_v_info)
 
@@ -232,7 +237,7 @@ def default_dl_info_filter(dl_info: DownloadInfo) -> bool:
 
     The default will return False for operations that were cancelled.
     """
-    return not dl_info['result'] == DL_Result.CANCELLED
+    return dl_info['result'] != DL_Result.CANCELLED
 
 def default_field_updater(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
     from pldl.post_processing import merge_updaters
@@ -292,7 +297,7 @@ class PlaylistDL_Config:
             PL_DownloadHistory,     ID_DownloadInfo,
             YT_DLP_DownloadArchive, YT_DLP_DownloadArchive_IDs,
         ], DL_Action,
-    ] = wrapper_match_filter_builder()
+    ] = dataclasses.field(default=wrapper_match_filter_builder())
     yt_dlp_match_filter: Callable[..., str | None] = dataclasses.field(default=default_yt_dlp_match_filter)
     
     # --- yt-dlp params ---
@@ -337,12 +342,12 @@ class PlaylistDL_Config:
         # opts
         if 'match_filter' in self.opts:
             raise ValueError(
-                f"'match_filter' can not be set in `config.opts`.\n"
-                f"Set `config.yt_dlp_match_filter` instead.")
+                "'match_filter' can not be set in `config.opts`.\n"
+                "Set `config.yt_dlp_match_filter` instead.")
         if 'cookiefile' in self.opts:
             raise ValueError(
-                f"'cookiefile' can not be set in `config.opts`.\n"
-                f"Set `config.cookie_file` or set the cookiefile in API args instead.")
+                "'cookiefile' can not be set in `config.opts`.\n"
+                "Set `config.cookie_file` or set the cookiefile in API args instead.")
         for k in ('outtmpl', 'download_archive'):
             if k in self.opts:
                 raise ValueError(
@@ -350,13 +355,13 @@ class PlaylistDL_Config:
                     f"Set `config.path_tmpls` instead.")
         if 'paths' in self.opts and self.opts['paths'] and 'home' in self.opts['paths']:
             raise ValueError(
-                f"'home' can not be set in `config.opts['paths']`.\n"
-                f"Set `config.home` instead.")
+                "'home' can not be set in `config.opts['paths']`.\n"
+                "Set `config.home` instead.")
 
 def main():
-
+    
+    import pprint  # noqa: I001
     from pldl.utils.utils import hex
-    import pprint
 
     example = PlaylistDL_Config(
         ident='LL',

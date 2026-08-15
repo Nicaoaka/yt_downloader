@@ -1,6 +1,7 @@
-from typing import Iterable
+from collections.abc import Iterable
 
 from pldl.pldl_types import *
+
 
 def filter_v_info(v_info: V_InfoDict|dict, keys: Iterable) -> None:
     for k in keys:
