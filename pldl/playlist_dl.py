@@ -899,6 +899,8 @@ class PlaylistDL:
 
     def _make_pl_info(self, base_pl_info: PL_InfoDict, raw_v_infos: list[V_InfoDict], clean_info_json: bool):
         pl_info = yt_utils.copy_and_sanitize_info(base_pl_info, clean_info_json)
+        pl_info.pop('merge_timeline') # base_info may be merged (eg _merge_flat)
+
         if not raw_v_infos:
             return pl_info
 
@@ -917,7 +919,6 @@ class PlaylistDL:
                 field_updater=merge_updaters.COMMON_UPDATER,
                 update_filter=self._config.update_filter)
         
-        pl_info.pop('merge_timeline')
         yt_utils.fixup_pl_info(pl_info)
         return pl_info
 

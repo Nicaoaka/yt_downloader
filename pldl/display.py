@@ -177,8 +177,8 @@ def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str],
         print(ident, v_print, ident_alt)
 
 
-
-DOMAIN_FROM_ERROR = re.compile(r".*\[([^\[]+?)\].*|(?:\\u001b\[0;31mERROR:\\u001b\[0m )(\w+):?")
+ERR_TRUNC = 15
+UNKNOWN_IE_TRUNC = 15
 
 def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
     """
@@ -191,22 +191,19 @@ def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
     res: str = V_INFO_LEVEL[v_info_level].rendered
     had_fails = False
     for readable_epoch in sorted(v_tl.keys(), key=yt_utils.from_readable_epoch):
-        had_fails = False
         entry = v_tl[readable_epoch]
 
         if entry.get('unavailable'):
             excs = []
             for msg in entry.get('unavailable', []):
-                match = DOMAIN_FROM_ERROR.match(msg)
-                if match:
-                    unavail_type: str = match.groups()[0].strip().lower()
-                else:
-                    unavail_type = msg
+                unavail_type, is_ie = yt_utils.interpret_error_msg(msg)
+                if not is_ie:
+                    excs.append(utils.hex(utils.truncate(unavail_type, ERR_TRUNC, end="-"), "#FFEB91"))
+                    continue
                 match unavail_type:
-                    case 'download':                 excs.append(utils.hex("yt-dlp-misc", "#FFEB91"))
                     case 'youtube'|'yt':             excs.append(utils.hex('yt', "#FF9191"))
                     case 'web.archive:youtube'|'wa': excs.append(utils.hex('wa', "#6ABCFF"))
-                    case _: excs.append(utils.hex(utils.truncate(unavail_type, 11, end="-"), "#DC3CFC"))
+                    case _: excs.append(utils.hex(utils.truncate(unavail_type, UNKNOWN_IE_TRUNC, end="-"), "#DC3CFC"))
             res += " "+ " ".join(excs)
             had_fails = True
         
@@ -257,17 +254,14 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, v_ids: list[V_ID]) -> t
 
             excs = []
             for error in dl_info.get('errors', []):
-                match = DOMAIN_FROM_ERROR.match(str(error))
-                if not match:
+                unavail_type, is_ie = yt_utils.interpret_error_msg(str(error))
+                if not is_ie:
+                    excs.append(utils.hex(utils.truncate(unavail_type, ERR_TRUNC, end='-'), "#FFEB91"))
                     continue
-                ie = match.groups()[0]
-                match match.groups()[0]:
-                    # yt-dlp-misc errors do not indicate that a download will fail in the future
-                    # [download] Got error: HTTPSConnectionPool(host='rr1---sn-a5mekndl.googlevideo.com', port=443): Read timed out. (read timeout=20.0)
-                    case 'download':            excs.append(utils.hex("yt-dlp-misc", "#FFEB91"))
+                match unavail_type:
                     case 'youtube':             excs.append(utils.hex("yt", "#FF9191"))
                     case 'web.archive:youtube': excs.append(utils.hex("wa", "#6ABCFF"))
-                    case _:                     excs.append(utils.hex( ie,  "#DC3CFC"))
+                    case ie:                    excs.append(utils.hex(utils.truncate(ie, UNKNOWN_IE_TRUNC, end='-'),  "#DC3CFC"))
             if excs:
                 results[v_id]['str'] += " " + " ".join(excs)
 

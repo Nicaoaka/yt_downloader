@@ -13,7 +13,7 @@ __all__ = [  # noqa: RUF022
 
     'copy_and_sanitize_info', 'load_yt_archive',
     'ids_from_yt_dlp_archive', 'ids_from_pl_download_info', 'ids_from_history',
-    'get_pl_v_info', 'fixup_pl_info',
+    'get_pl_v_info', 'fixup_pl_info', 'interpret_error_msg',
 
     'get_epoch', 'get_latest_epoch', 'to_readable_epoch', 'from_readable_epoch',
 
@@ -432,6 +432,33 @@ def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
     if fixup_entries:
         _fixup_pl_v_infos(pl_info)
     pl_info['info_level'] = get_pl_info_level(pl_info).name
+
+MISC_ERRORS = {
+    'download': 'download',
+    'Postprocessing: Conversion failed!': 'postprocessing',
+    'unable to download video data: HTTP Error 403: Forbidden': 'HTTTP Error 403',
+}
+
+def interpret_error_msg(yt_dlp_error_msg: str) -> tuple[str, bool]:
+    """ returns the tag and if the tag is an ie key """
+    ident: str
+    is_ie = True
+
+    # Capture error tag, usually an ie
+    if (match := re.match(r".*\[([^\[]+?)\].*", yt_dlp_error_msg)) or \
+       (match := re.match(r"(?:\u001b\[0;31mERROR:\u001b\[0m )(.+)", yt_dlp_error_msg)):
+        ident = match.groups()[0]
+    else:
+        utils.WARNING(f"Unexpected yt_dlp error msg without tag:\n{yt_dlp_error_msg!r}")
+        ident = yt_dlp_error_msg
+        is_ie = False
+
+    ident = ident.strip()
+    if ident in MISC_ERRORS:
+        ident = MISC_ERRORS[ident]
+        is_ie = False
+    
+    return ident, is_ie
 
 
 
