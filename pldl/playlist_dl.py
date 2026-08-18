@@ -575,7 +575,7 @@ class PlaylistDL:
     
     def update_merge_flat_v_info(self, v_info: V_InfoDict):
         """ updates the keys in flat_info, adds v_timeline """
-        if yt_utils.get_v_info_level(v_info) == yt_utils.V_InfoLevel.NONE:
+        if yt_utils.get_v_info_level(v_info) == V_InfoLevel.NONE:
             return
         
         if not self._infos._merge_flat:
@@ -605,7 +605,7 @@ class PlaylistDL:
             self._config.update_filter,
             _init_v_info=init_v_info,
             _init_v_timeline=merge_flat_info.get('merge_timeline', {}).get(v_id, {}))
-        new_v_info['info_level'] = merge_flat_info['entries'][index].get('info_level', yt_utils.V_InfoLevel.NONE.name)
+        new_v_info['info_level'] = merge_flat_info['entries'][index].get('info_level', V_InfoLevel.NONE.name)
 
         for epoch in list(new_v_timeline.keys()):
             # this is very fragile, but it'll work
@@ -627,8 +627,8 @@ class PlaylistDL:
             return DL_Result.CACHED # None is returned if download cache or cancelled.
         
         match yt_utils.get_v_info_level(v_info):
-            case yt_utils.V_InfoLevel.DOWNLOAD: return DL_Result.DOWNLOAD
-            case yt_utils.V_InfoLevel.EXTRACT:  return DL_Result.EXTRACT
+            case V_InfoLevel.DOWNLOAD: return DL_Result.DOWNLOAD
+            case V_InfoLevel.EXTRACT:  return DL_Result.EXTRACT
             case _:
                 return DL_Result.UNRECOGNIZED
 
@@ -1134,7 +1134,7 @@ class PlaylistDL:
         Assumes validation is already done.
         Does NOT call fixup_pl_info - caller must call it after all operations.
         """
-        new_v_info = yt_utils.min_v_info(v_id, yt_utils.V_InfoLevel.NONE)
+        new_v_info = yt_utils.min_v_info(v_id, V_InfoLevel.NONE)
 
         self._infos.base_info.data['entries'].insert(index, copy.deepcopy(new_v_info))
 

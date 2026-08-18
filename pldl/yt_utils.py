@@ -6,7 +6,6 @@ __all__ = [  # noqa: RUF022
     'get_archiveorg_url_for_yt_dlp', 'get_archiveorg_url', 'get_archiveorg_video_url', 
     'get_v_display',
 
-    'V_InfoLevel', 'PL_InfoLevel',
     'extract_flat_info', 'download_video', 'download_video_generic',
     'get_v_info_level', 'get_pl_info_level',
 
@@ -25,7 +24,6 @@ import datetime
 import os
 import re
 from collections.abc import Callable
-from enum import IntEnum
 from typing import TYPE_CHECKING, Any
 
 from yt_dlp import YoutubeDL
@@ -114,19 +112,6 @@ def get_archiveorg_video_url(video_id: str) -> str:
 
 
 # Extractors
-
-class V_InfoLevel(IntEnum):
-    NONE = 0
-    FLAT = 1
-    EXTRACT = 2
-    DOWNLOAD = 3
-    
-class PL_InfoLevel(IntEnum):
-    NONE = 0
-    FLAT = 1
-    MERGE_FLAT = 2
-    NORMAL = 3
-    MERGE = 4
 
 def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params|None = None) -> PL_InfoDict[V_InfoDict]:
     """ Get basic info from a youtube playlist, it must be available on youtube.
@@ -296,6 +281,9 @@ def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
 def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
     if not pl_info:
         return PL_InfoLevel.NONE
+
+    if 'info_level' in pl_info:
+        return PL_InfoLevel[pl_info['info_level']]
     
     has_extracts = any(get_v_info_level(entry) >= V_InfoLevel.EXTRACT for entry in pl_info.get('entries', []))
     has_merge_timeline = 'merge_timeline' in pl_info
@@ -542,10 +530,8 @@ def validate_metdata_config_sync(metadata: Metadata, config: PlaylistDL_Config):
                 f"Path: {meta_path}")
 
 
-class __V_InfoDict_NoReqs(V_InfoDict, total=False):
-    id: ...
 
-def min_v_info(id: str, info_level: V_InfoLevel, other_info: __V_InfoDict_NoReqs|None = None) -> V_InfoDict:
+def min_v_info(id: str, info_level: V_InfoLevel, other_info: pldl_types._V_InfoDict_NoReqs|None = None) -> V_InfoDict:
     if other_info is None:
         other_info = {}
     return {
@@ -554,11 +540,7 @@ def min_v_info(id: str, info_level: V_InfoLevel, other_info: __V_InfoDict_NoReqs
         'info_level': info_level.name,
     }
 
-class __PL_InfoDict_NoReqs(PL_InfoDict, total=False):
-    id: ...
-    entries: ...
-
-def min_pl_info(id: str, info_level: PL_InfoLevel, other_info: __PL_InfoDict_NoReqs|None = None) -> PL_InfoDict:
+def min_pl_info(id: str, info_level: PL_InfoLevel, other_info: pldl_types._PL_InfoDict_NoReqs|None = None) -> PL_InfoDict:
     if other_info is None:
         other_info = {}
     return {

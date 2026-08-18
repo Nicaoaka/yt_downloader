@@ -5,6 +5,8 @@ __all__ = [  # noqa: RUF022
 
     'YT_DLP_InfoDict', 'V_InfoDict', 'PL_InfoDict', 'ANY_InfoDict',
 
+    'V_InfoLevel', 'PL_InfoLevel',
+
     'YT_DLP_DownloadArchive', 'YT_DLP_DownloadArchive_IDs',
 
     'CustomOuttmpl', 'PL_Resolved_CustomOuttmpl',
@@ -20,7 +22,7 @@ __all__ = [  # noqa: RUF022
 ]
 
 from collections.abc import Callable, Iterable
-from enum import StrEnum, auto
+from enum import IntEnum, StrEnum, auto
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -32,10 +34,10 @@ from typing import (
 )
 
 if TYPE_CHECKING:
+    from _typeshed import Incomplete
     from yt_dlp import _Params
     # from yt_dlp.utils import PagedList
 
-from _typeshed import Incomplete
 
 from pldl.utils.utils import FalsySentinel
 
@@ -43,7 +45,6 @@ type V_ID = str
 type PL_ID = str
 type READABLE_EPOCH_STR = str
 type YT_DLP_Params = _Params
-
 
 
 # YT_DLP_InfoDict is `_InfoDict` copied from
@@ -185,6 +186,27 @@ class PL_InfoDict[ENTRY=V_InfoDict](YT_DLP_InfoDict[ENTRY], _PL_InfoDict_Addons)
 
 type ANY_InfoDict = V_InfoDict | PL_InfoDict | dict
 
+class _V_InfoDict_NoReqs(V_InfoDict, total=False):
+    id: ...
+
+class _PL_InfoDict_NoReqs(PL_InfoDict, total=False):
+    id: ...
+    entries: ...
+
+
+class V_InfoLevel(IntEnum):
+    NONE = 0
+    FLAT = 1
+    EXTRACT = 2
+    DOWNLOAD = 3
+
+
+class PL_InfoLevel(IntEnum):
+    NONE = 0
+    FLAT = 1
+    MERGE_FLAT = 2
+    NORMAL = 3
+    MERGE = 4
 
 
 # custom Types

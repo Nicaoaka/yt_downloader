@@ -123,7 +123,7 @@ def merge_v_infos(
         v_infos,
         field_updater,
         update_filter,
-        _init_v_info or {'id': v_infos[-1]['id'], 'info_level': yt_utils.V_InfoLevel.NONE.name},
+        _init_v_info or {'id': v_infos[-1]['id'], 'info_level': V_InfoLevel.NONE.name},
         _init_v_timeline or {})
 
 
@@ -228,7 +228,7 @@ def merge_pl_infos(
     def warn_non_init_merge():
         non_init_merge_infos = []
         for pl_info in pl_infos:
-            if yt_utils.get_pl_info_level(pl_info) == yt_utils.PL_InfoLevel.MERGE:
+            if yt_utils.get_pl_info_level(pl_info) == PL_InfoLevel.MERGE:
                 non_init_merge_infos.append(pl_info)
         if non_init_merge_infos:
             from pldl.post_processing.reorder_infodict_keys import reorder_merge_info

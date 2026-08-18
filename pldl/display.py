@@ -61,11 +61,11 @@ RESULT_TAG: dict[DL_Result, _Tag] = {
 # Derived/outcome tags (not 1:1 with a DL_Result - depend on action+result combo)
 IMPOSSIBLE = _Tag("IMP!", "#0000ac")
 
-V_INFO_LEVEL: dict[yt_utils.V_InfoLevel, _Tag] = {
-    yt_utils.V_InfoLevel.NONE     : _Tag("n", "#2b1d1d", 3),
-    yt_utils.V_InfoLevel.FLAT     : _Tag("F", "#838383", 3),
-    yt_utils.V_InfoLevel.EXTRACT  : _Tag("EXTR", "#4ec9b0"),
-    yt_utils.V_InfoLevel.DOWNLOAD : _Tag("DWLD", "#6a9955"),
+V_INFO_LEVEL: dict[V_InfoLevel, _Tag] = {
+    V_InfoLevel.NONE     : _Tag("n", "#2b1d1d", 3),
+    V_InfoLevel.FLAT     : _Tag("F", "#838383", 3),
+    V_InfoLevel.EXTRACT  : _Tag("EXTR", "#4ec9b0"),
+    V_InfoLevel.DOWNLOAD : _Tag("DWLD", "#6a9955"),
 }
 
 def download_result_tag(dl: DownloadInfo) -> _Tag:
@@ -177,6 +177,9 @@ def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str],
         print(ident, v_print, ident_alt)
 
 
+
+DOMAIN_FROM_ERROR = re.compile(r".*\[([^\[]+?)\].*|(?:\\u001b\[0;31mERROR:\\u001b\[0m )(\w+):?")
+
 def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
     """
     Does not detect manipulation
@@ -184,7 +187,7 @@ def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
     Creates rows like:
      n  yt  EXTR   yt|wa  FAIL  
     """
-    v_info_level = yt_utils.V_InfoLevel.NONE
+    v_info_level = V_InfoLevel.NONE
     res: str = V_INFO_LEVEL[v_info_level].rendered
     had_fails = False
     for readable_epoch in sorted(v_tl.keys(), key=yt_utils.from_readable_epoch):
@@ -194,7 +197,7 @@ def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
         if entry.get('unavailable'):
             excs = []
             for msg in entry.get('unavailable', []):
-                match = re.match(r".*\[([^\[]+?)\].*", msg)
+                match = DOMAIN_FROM_ERROR.match(msg)
                 if match:
                     unavail_type: str = match.groups()[0].strip().lower()
                 else:
@@ -209,13 +212,13 @@ def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
         
         if match := re.match(r'(.+) -> (.+)', entry.get('better_info', '')):
             name = match.groups()[1]
-            if name in yt_utils.V_InfoLevel._member_names_:
-                new_level = yt_utils.V_InfoLevel[name]
+            if name in V_InfoLevel._member_names_:
+                new_level = V_InfoLevel[name]
                 if new_level > v_info_level:
                     res += V_INFO_LEVEL[new_level].rendered
                     v_info_level = new_level
 
-    if had_fails and v_info_level not in (yt_utils.V_InfoLevel.EXTRACT, yt_utils.V_InfoLevel.DOWNLOAD):
+    if had_fails and v_info_level not in (V_InfoLevel.EXTRACT, V_InfoLevel.DOWNLOAD):
         return res +""+ RESULT_TAG[DL_Result.FAIL].rendered, RESULT_TAG[DL_Result.FAIL].color
     return res, V_INFO_LEVEL[v_info_level].color
 
@@ -241,8 +244,8 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, v_ids: list[V_ID]) -> t
 
     v_id_set = set(v_ids)
     results: dict[V_ID, dict] = defaultdict(lambda: {
-        'str': V_INFO_LEVEL[yt_utils.V_InfoLevel.NONE].rendered,
-        'best_info_level': yt_utils.V_InfoLevel.NONE,
+        'str': V_INFO_LEVEL[V_InfoLevel.NONE].rendered,
+        'best_info_level': V_InfoLevel.NONE,
         'failing': False,
         'color': None})
     
@@ -254,7 +257,7 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, v_ids: list[V_ID]) -> t
 
             excs = []
             for error in dl_info.get('errors', []):
-                match = re.match(r".*\[([^\[]+?)\].*", str(error))
+                match = DOMAIN_FROM_ERROR.match(str(error))
                 if not match:
                     continue
                 ie = match.groups()[0]
@@ -272,13 +275,13 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, v_ids: list[V_ID]) -> t
             results[v_id]['str'] += RESULT_TAG[dl_result].rendered
 
             # color
-            info_level = yt_utils.V_InfoLevel.DOWNLOAD if dl_result == DL_Result.DOWNLOAD else \
-                     yt_utils.V_InfoLevel.EXTRACT if dl_result == DL_Result.EXTRACT else \
-                     yt_utils.V_InfoLevel.NONE # don't assume flat
+            info_level = V_InfoLevel.DOWNLOAD if dl_result == DL_Result.DOWNLOAD else \
+                     V_InfoLevel.EXTRACT if dl_result == DL_Result.EXTRACT else \
+                     V_InfoLevel.NONE # don't assume flat
             if info_level > results[v_id]['best_info_level']:
                 results[v_id]['best_info_level'] = info_level
                 results[v_id]['color'] = V_INFO_LEVEL[info_level].color
-            if results[v_id]['best_info_level'] <= yt_utils.V_InfoLevel.FLAT and dl_info.get('errors'):
+            if results[v_id]['best_info_level'] <= V_InfoLevel.FLAT and dl_info.get('errors'):
                 results[v_id]['color'] = RESULT_TAG[DL_Result.FAIL].color
 
     return (
