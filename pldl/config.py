@@ -49,6 +49,8 @@ def wrapper_match_filter_builder(
     overrides: dict[DL_Action, Iterable[V_ID]] | None = None,
 
     fail_backoff_time = 7 * 24 * 3600,
+    ignore_ambiguous_dl_errors: bool = True,
+    quit_on_403: bool = True,
 
     yt_unavailable_action: DL_Action | None = DL_Action.DOWNLOAD,
 
@@ -66,6 +68,15 @@ def wrapper_match_filter_builder(
     
     _print = lambda s: print(utils.hex('>', fg="#FF9F21"), utils.hex(s, fg="#FFC478")) if debug else \
              lambda *args, **kwargs: None
+
+    def prev_dl_had_403(curr_dl_info: PL_DownloadInfo) -> bool:
+        if not curr_dl_info or 'errors' not in curr_dl_info[-1]:
+            return False
+        
+        for e in curr_dl_info[-1]['errors']:
+            if yt_utils.interpret_error_msg(str(e)) == ('http_403', False):
+                return True
+        return False
 
     def wrapper_match_filter(
         pl_v_info: V_InfoDict,
@@ -85,6 +96,12 @@ def wrapper_match_filter_builder(
         DL_IS_MAXED = len(curr_dl_ids['download']) >= max_downloads
         FAIL_IS_MAXED = len(curr_dl_ids['fail']) >= max_fails
 
+
+
+        if quit_on_403 and prev_dl_had_403(curr_dl_info):
+            _print("Signs of rate limiting (HTTP 403)")
+            return DL_Action.QUIT
+
         if quit_when_maxed:
             if EXT_IS_MAXED:
                 _print("Maxed extract")
@@ -97,7 +114,7 @@ def wrapper_match_filter_builder(
                 return DL_Action.QUIT
 
 
-        
+
         # See DL_Action definition for order (order is top to bottom)
         # A v_id should only appear in one dl_action in the override anyway
         for action in DL_Action:
@@ -107,12 +124,26 @@ def wrapper_match_filter_builder(
 
         # Skip if failed and still in the backoff time
         # Applies to both download and extract
+        yt_err = None
+        wa_err = None
         for epoch in history:
             if yt_utils.from_readable_epoch(epoch) < (utils.epoch_now() - fail_backoff_time):
                 continue
-            for dl_info in history[str(epoch)]:
-                if dl_info['id'] == v_id and dl_info['result'] == DL_Result.FAIL:
-                    _print(f"Previous fail at {epoch}\n\t{dl_info.get('errors')}")
+            for dl_info in history[epoch]:
+                if dl_info['id'] != v_id or dl_info['result'] != DL_Result.FAIL:
+                    continue
+
+                if not ignore_ambiguous_dl_errors:
+                    _print(f"Previous fail at {epoch!r}\n\t{dl_info.get('errors')}")
+                    return DL_Action.SKIP
+
+                for e in dl_info.get('errors', []):
+                    ident, _is_ie = yt_utils.interpret_error_msg(str(e))
+                    match ident:
+                        case 'youtube': yt_err = (epoch, str(e))
+                        case 'web.archive:youtube': wa_err = (epoch, str(e))
+                if yt_err and wa_err:
+                    _print(f"Previous fails:\nyt: {yt_err}\nwa: {wa_err}")
                     return DL_Action.SKIP
 
         # if a v_info could be downloaded or extracted,
@@ -159,12 +190,27 @@ def default_yt_dlp_match_filter(v_info: V_InfoDict, *, incomplete: bool) -> str 
 
 
 def default_opts() -> YT_DLP_Params:
+    def retry_sleep_func(n: int) -> int:
+        return min(2 ** n, 120) # wait exponentially longer, capped at 120x
+    
     return {
         'quiet': False,
         'verbose': False,
+
         'sleep_interval': 3,
         'max_sleep_interval': 10,
-        'ratelimit': 3_000_000,
+        'sleep_interval_requests': 1,
+
+        'retries': 3,
+        'retry_sleep_functions': {
+            'http': retry_sleep_func,      # type: ignore (default?)
+            'fragment': retry_sleep_func,
+            'extractor': retry_sleep_func, # type: ignore (file_access?)
+        },
+
+        'ratelimit': 5_000_000, # is this necessary?
+        'max_downloads': 20, # hardcap per session
+
         'remote_components': {'ejs:npm'},
 
         'format': 'ba+bv/b',

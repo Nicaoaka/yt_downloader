@@ -42,6 +42,8 @@ config = PlaylistDL_Config(
         },
 
         fail_backoff_time = 7 * 24 * 3600,
+        ignore_ambiguous_dl_errors = True,
+        quit_on_403 = True,
 
         yt_unavailable_action = DL_Action.EXTRACT,
     ),
@@ -49,5 +51,5 @@ config = PlaylistDL_Config(
 
 with PlaylistDL(config) as pldl:
     pldl.download(delete_prev_pl=True, delete_prev_merge=True)
-    pldl.display_metadata_history()
     pldl.display_pl_merge_timeline(pldl._infos.merge_info)
+    pldl.display_metadata_history()

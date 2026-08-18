@@ -433,32 +433,46 @@ def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
         _fixup_pl_v_infos(pl_info)
     pl_info['info_level'] = get_pl_info_level(pl_info).name
 
+
+# Technical/transient errors that don't confirm if the video is unavailable.
 MISC_ERRORS = {
-    'download': 'download',
-    'Postprocessing: Conversion failed!': 'postprocessing',
-    'unable to download video data: HTTP Error 403: Forbidden': 'HTTTP Error 403',
+    r'.*Read timed out.*timeout=[\d\.]+': 'timed_out',
+    r'^Postprocessing.*': 'postprocessing',
+    r'.*HTTP Error 403: Forbidden': 'http_403',
 }
 
+# Errors that confirm that the video is actually unavailable on that platform.
+UNAVAILABLE_PATTERNS = (
+    r'.*[Vv]ideo unavailable.*',                              # yt: unavailable / takedown / terminated
+    r'.*has been removed for violating.*Terms of Service.*',  # yt: ToS removal (doesn't say "unavailable")
+    r'.*[Pp]rivate video\..*',                                # yt: private
+    r'.*not archived or indexed.*',                           # wa: not indexed
+)
+
+
 def interpret_error_msg(yt_dlp_error_msg: str) -> tuple[str, bool]:
-    """ returns the tag and if the tag is an ie key """
-    ident: str
-    is_ie = True
+    """ returns (reason, is_unavailable) """
 
-    # Capture error tag, usually an ie
-    if (match := re.match(r".*\[([^\[]+?)\].*", yt_dlp_error_msg)) or \
-       (match := re.match(r"(?:\u001b\[0;31mERROR:\u001b\[0m )(.+)", yt_dlp_error_msg)):
-        ident = match.groups()[0]
+    tag = ""
+    body = yt_dlp_error_msg
+
+    if match := re.match(r".*\[([^\[]+?)\].*", yt_dlp_error_msg):
+        tag = match.group(1)
+
+    if match := re.match(r"(?:\u001b\[0;31mERROR:\u001b\[0m )(.+)", yt_dlp_error_msg):
+        body = match.group(1)
     else:
-        utils.WARNING(f"Unexpected yt_dlp error msg without tag:\n{yt_dlp_error_msg!r}")
-        ident = yt_dlp_error_msg
-        is_ie = False
+        utils.WARNING(f"Unexpected yt_dlp error msg without ANSI prefix:\n{yt_dlp_error_msg!r}")
 
-    ident = ident.strip()
-    if ident in MISC_ERRORS:
-        ident = MISC_ERRORS[ident]
-        is_ie = False
-    
-    return ident, is_ie
+    if known_err := utils.regex_map(MISC_ERRORS, body, None):
+        return known_err, False
+
+    if any(re.match(p, body) for p in UNAVAILABLE_PATTERNS):
+        return tag or body, True
+
+    formatted_err = utils.hex(repr(yt_dlp_error_msg)[1:-1], fg="#E02B2B")
+    utils.WARNING(f"Unrecognized yt_dlp error msg, treating as NOT confirmed-unavailable:\n'''{formatted_err}'''")
+    return tag or body, False
 
 
 

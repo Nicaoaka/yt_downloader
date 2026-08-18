@@ -12,6 +12,7 @@ __all__ = [  # noqa: RUF022
     'get_missing_typeddict_keys', 'dedup', 'merge_objs',
     'has_content', 'first_non_default',
     'position_to_index',
+    'regex_map',
 
     'json_load', 'json_dump',
     'handle_collision',
@@ -378,6 +379,19 @@ def position_to_index(position: int, len_: int) -> int:
         
     return clamped
 
+
+def regex_map[T, U](m: dict[str, T], s: str, default: U|type[RAISE_EXC] = RAISE_EXC) -> T|U:
+    """
+    dict key insertion order matters
+    
+    keys can also be `re.Pattern[str]`
+    """
+    for k, v in m.items():
+        if re.match(k, s):
+            return v
+    if default is RAISE_EXC:
+        raise KeyError(f"No regex matched: {s!r}")
+    return default # type: ignore
 
 
 # File helpers
