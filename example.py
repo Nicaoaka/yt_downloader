@@ -8,7 +8,7 @@ config = PlaylistDL_Config(
     ident_type=Config_IdentType.PL_ID_OR_URL,
     # ident=r'Liked videos [LL]\_metadata.json',
     # ident_type=Config_IdentType.METADATA_PATH,
-    home='', # (current working directory)
+    home='', # (current directory of terminal)
 
     cookie_file='secrets/cookie_file.txt',
     cookies_for_pl=True,
@@ -43,7 +43,7 @@ config = PlaylistDL_Config(
 
         fail_backoff_time = 7 * 24 * 3600,
         ignore_ambiguous_dl_errors = True,
-        quit_on_403 = True,
+        http_403_backoff_time = 3 * 24 * 3600,
 
         yt_unavailable_action = DL_Action.EXTRACT,
     ),
