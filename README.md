@@ -1,5 +1,15 @@
-Throughout the repo, some words are frequently shortened.
-Especially, 'video' to 'v' and 'playlist' to 'pl'.
+This project heavily relies on [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+
+# Setup
+
+```ps
+pip install -U "yt-dlp[default]
+```
+`yt-dlp` should be updated every so often to keep downloading working.
+
+If you need cookies for your private playlists (e.g. Liked List, Watch Later),
+you need to get your YouTube Cookies. The way I do it is through this chrome extension:
+[Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc).
 
 # Usage
 
