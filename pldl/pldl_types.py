@@ -171,8 +171,8 @@ class _PL_V_RelInfo(TypedDict, total=False):
 
 class _V_InfoDict_Addons(TypedDict, total=False):
     info_level: str
-    yt_unavailable_msg: str|None
-    wa_unavailable_msg: str|None
+    # yt_unavailable_msg: str|None # use 'unavailable_msgs' instead
+    # wa_unavailable_msg: str|None # use 'unavailable_msgs' instead
     unavailable_msgs: list[UnavailableMsg]
     playlist_epoch: int
 

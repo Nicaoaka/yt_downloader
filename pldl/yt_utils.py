@@ -183,7 +183,7 @@ def download_video(
                 info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
                 return info, errors, True
         except DownloadError as yt_err:
-            info['yt_unavailable_msg'] = yt_err.msg
+            # info['yt_unavailable_msg'] = yt_err.msg
             info.setdefault('unavailable_msgs', []).append({
                 'epoch': utils.epoch_now(),
                 'msg': yt_err.msg,
@@ -202,7 +202,7 @@ def download_video(
                 info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
                 return info, errors, True
         except DownloadError as wa_err:
-            info['wa_unavailable_msg'] = wa_err.msg
+            # info['wa_unavailable_msg'] = wa_err.msg
             info.setdefault('unavailable_msgs', []).append({
                 'epoch': utils.epoch_now(),
                 'msg': wa_err.msg,
