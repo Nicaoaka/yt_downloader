@@ -37,14 +37,6 @@ if TYPE_CHECKING:
     from pldl.config import PlaylistDL_Config  # noqa: TC004 - circular import
 
 
-DEFAULT_EPOCH: Callable[[],int] = lambda: -utils.epoch_now()
-READABLE_EPOCH_FMT = '%Y-%m-%d__%H-%M-%S' # For formats, see datetime.strftime()
-MALFORMED_EPOCH_FMT = '{} (malformed)'
-
-assert MALFORMED_EPOCH_FMT.strip() != '{}', "MALFORMED_EPOCH_FMT must include non space characters eg '{}-bad'"
-assert MALFORMED_EPOCH_FMT.count('{}') == 1, "MALFORMED_EPOCH_FMT must include ONE {} to sub for EPOCH_FMT"
-assert MALFORMED_EPOCH_FMT.count('__epoch_fmt_sub') == 0, "MALFORMED_EPOCH_FMT cannot include '__epoch_fmt_sub' for internal reasons"
-
 # YouTube and InternetWebArchive id/url
 
 def get_v_id_from_yt_url(url_or_id: str) -> str|None:
@@ -477,6 +469,15 @@ def interpret_error_msg(yt_dlp_error_msg: str) -> tuple[str, bool]:
 
 
 # epoch stuff
+
+# DO NOT CHANGE THESE!
+DEFAULT_EPOCH: Callable[[],int] = lambda: -utils.epoch_now()
+READABLE_EPOCH_FMT = '%Y-%m-%d__%H-%M-%S' # For formats, see datetime.strftime()
+MALFORMED_EPOCH_FMT = '{} (malformed)'
+
+assert MALFORMED_EPOCH_FMT.strip() != '{}', "MALFORMED_EPOCH_FMT must include non space characters eg '{}-bad'"
+assert MALFORMED_EPOCH_FMT.count('{}') == 1, "MALFORMED_EPOCH_FMT must include ONE {} to sub for EPOCH_FMT"
+assert MALFORMED_EPOCH_FMT.count('__epoch_fmt_sub') == 0, "MALFORMED_EPOCH_FMT cannot include '__epoch_fmt_sub' for internal reasons"
 
 def get_epoch(info: V_InfoDict|PL_InfoDict|dict) -> int:
     return info.get('epoch', DEFAULT_EPOCH())
