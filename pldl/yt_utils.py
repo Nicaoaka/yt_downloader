@@ -483,16 +483,18 @@ def get_epoch(info: V_InfoDict|PL_InfoDict|dict) -> int:
     return info.get('epoch', DEFAULT_EPOCH())
 
 def get_latest_epoch(pl_info: PL_InfoDict) -> int:
-    """ Max 'epoch' in pl_info and its entries.
+    """
+    Max 'epoch' in pl_info and its entries.
 
-    A negative epoch means the epoch wasn't found or all were malformed. """
-    latest: int = max(
-        pl_info.get('epoch', -float('inf')),
-        *(entry.get('epoch', -float('inf')) for entry in pl_info['entries']),
-        DEFAULT_EPOCH()) # type: ignore - default always overrides 
-    if latest <= DEFAULT_EPOCH():
+    A negative epoch means the epoch wasn't found or all were malformed.
+    """
+    latest = max(
+        pl_info.get('epoch', float('-inf')),
+        *(entry.get('epoch', float('-inf')) for entry in pl_info['entries']))
+    if latest == float('-inf'):
+        latest = DEFAULT_EPOCH()
         utils.WARNING(f"All epochs are malformed or missing: {latest}")
-    return latest
+    return int(latest)
 
 
 def to_readable_epoch(epoch: int) -> str:
