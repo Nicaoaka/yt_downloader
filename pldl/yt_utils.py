@@ -256,7 +256,6 @@ def _has_download_info(info: V_InfoDict | dict) -> bool:
     return bool(info.get("requested_downloads"))
 
 def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
-    """ Webarchive could appear at Download or Extract """
     if not v_info:
         return V_InfoLevel.NONE
     
@@ -274,9 +273,6 @@ def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
     if not pl_info:
         return PL_InfoLevel.NONE
 
-    if 'info_level' in pl_info:
-        return PL_InfoLevel[pl_info['info_level']]
-    
     has_extracts = any(get_v_info_level(entry) >= V_InfoLevel.EXTRACT for entry in pl_info.get('entries', []))
     has_merge_timeline = 'merge_timeline' in pl_info
     match has_extracts, has_merge_timeline:

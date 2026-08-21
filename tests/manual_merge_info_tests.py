@@ -1,274 +1,179 @@
-import pprint
-import json
-import sys
 import random
 
-import pldl.utils.utils as utils
-from pldl.pldl_types import *
-from pldl.post_processing import merge_pl_infos, merge_v_infos
+from pldl import *
+from pldl.config import default_update_filter
+
 
 def rand(chance: float) -> bool:
     return random.random() < chance
 
-PL = {
-    "id": "PL_ID",
-    "title": "PL TITLE",
-    # "availability": "private",
-    # "channel_follower_count": None,
-    # "description": "PL Desc",
-    # "tags": ['pl_tag'],
-    # "modified_date": "20260625",
-    # "view_count": None,
-    # "playlist_count": 4,
-    "channel": "PL Channel",
-    # "channel_id": "PLChannelID",
-    "uploader_id": "@PLChannelDisplay",
-    "uploader": "PL Channel Username",
-    # "channel_url": "https://www.youtube.com/channel/PLChannelID",
-    # "uploader_url": "https://www.youtube.com/@PLChannelDisplay",
-    # "_type": "playlist",
-    # "extractor_key": "YoutubeTab",
-    # "extractor": "youtube:tab",
-    # "webpage_url": "https://www.youtube.com/playlist?list=PL_ID",
-    # "original_url": "https://www.youtube.com/watch?v=FIRST_V_ID&list=PL_ID&index=1",
-    # "webpage_url_basename": "playlist",
-    # "webpage_url_domain": "youtube.com",
-    # "release_year": None,
-    "epoch": 12345
+PL: PL_InfoDict = {'id': "1", 'entries': []}
+V: V_InfoDict = {'id': '00000-00001'}
+
+UNAVAILABLE_MSGS: dict[str, UnavailableMsg] = {
+    'yt-dlp misc': { # not sure what went wrong
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m Postprocessing: Conversion failed!",
+    },
+    'timedout': { # (throttling)
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m \r[download] Got error: HTTPSConnectionPool(host='rr1---sn-a5mekndl.googlevideo.com', port=443): Read timed out. (read timeout=20.0)"
+    },
+    'forbidden': { # (also throttling?)
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m unable to download video data: HTTP Error 403: Forbidden"
+    },
+    'yt--terminated_acc': {
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m [youtube] C5uMV-iK3Ps: Video unavailable. This video is no longer available because the YouTube account associated with this video has been terminated.",
+    },
+    'yt--removed_vid': {
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m [youtube] 1yipP37b58c: This video has been removed for violating YouTube's Terms of Service",
+    },
+    'yt--unavailable': {
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m [youtube] dvyG8KWrB_E: Video unavailable. This video is not available",
+    },
+    'yt--unavailable-short': {
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m [youtube] PSrU6IQ9-Gs: Video unavailable",
+    },
+    'yt--private': {
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m [youtube] qMuLtIC4w64: Private video. Sign in if you've been granted access to this video. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies"
+    },
+    'yt--takedown': {
+        'type': 'yt', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m [youtube] rGDim_zxiqQ: Video unavailable. It was removed following a copyright removal request by Sony Music Entertainment (Japan) Inc."
+    },
+    'wa--not_indexed': {
+        'type': 'wa', 'epoch': 0,
+        'msg': "\u001b[0;31mERROR:\u001b[0m [web.archive:youtube] x5PZVROWgYM: The requested video is not archived or indexed"
+    },
 }
+global_epoch = utils.epoch_now()
 
-FLAT_UNAVAIL = {
-    # "_type": "url",
-    # "ie_key": "Youtube",
-    "id": "v_id",
-    # "url": "https://www.youtube.com/watch?v=v_id",
-    # "title": "v title",
-    # "description": None,
-    # "duration": None,
-    # "channel_id": None,
-    "channel": None,
-    # "channel_url": None,
-    # "uploader": None,
-    # "uploader_id": None,
-    # "uploader_url": None,
-    # "thumbnails": [
-    # {
-    #     "url": "https://i.ytimg.com/img/no_thumbnail.jpg",
-    #     "height": 90,
-    #     "width": 120
-    # },
-    # {
-    #     "url": "https://i.ytimg.com/img/no_thumbnail.jpg",
-    #     "height": 180,
-    #     "width": 320
-    # },
-    # {
-    #     "url": "https://i.ytimg.com/img/no_thumbnail.jpg",
-    #     "height": 360,
-    #     "width": 480
-    # }
-    # ],
-    # "timestamp": None,
-    # "release_timestamp": None,
-    # "availability": None,
-    # "view_count": None,
-    # "live_status": None,
-    # "channel_is_verified": None,
-    # "__x_forwarded_for_ip": None,
-
-    # "playlist_id": "PL_ID",
-    # "playlist": "PL TITLE",
-    # "playlist_count": 1,
-    # "n_entries": 2,
-    # "playlist_index": 3,
-    # "playlist_autonumber": 4,
-    # "playlist_title": "PL TITLE",
-    # "playlist_channel": "PLChannel",
-    # "playlist_channel_id": "PLChannelID",
-    # "playlist_uploader": "PL Channel Username",
-    # "playlist_uploader_id": "@PLChannelDisplay",
-    # "playlist_webpage_url": "https://www.youtube.com/playlist?list=PL_ID"
-}
-
-ARBITRARY = "ArBiTrArY"
-global_epoch = 0
 def reset():
     global global_epoch
     global_epoch = utils.epoch_now()
 
-class DEFAULT: ...
 def v(
-        id,
-        avail_yt: bool = True,
-        ext:   bool = True,
-        dl:    bool = False,
-        yt: bool=False,
-        wa: bool=False,
-        epoch:int|None|type[DEFAULT]=DEFAULT,
-        **overrides,
+        id: str,
+        info_level: yt_utils.V_InfoLevel = V_InfoLevel.FLAT,
+        unavailable_msgs: list[UnavailableMsg]|None=None,
+        epoch: int|None = None,
+        info: pldl_types._V_InfoDict_NoReqs = {},  # noqa: B006
 ) -> V_InfoDict:
-    global global_epoch
-    global_epoch += 1
-    res = {**FLAT_UNAVAIL, 'id': f'{id} (v_id)'}
-    if epoch is not None:
-        res['epoch'] = global_epoch if epoch is DEFAULT else epoch
-    if avail_yt:    res['channel'] = 'AVAIL_YT'
-    if ext:         res['extractor'] = 'EXTRACT'
-    if dl:          res['requested_downloads'] = 'DOWNLOADED'
-    if yt:  res['yt_unavailable_msg'] = f'{res['epoch']} YouTube'
-    if wa:  res['wa_unavailable_msg'] = f'{res['epoch']} WebArchive'
-    return res | overrides # type: ignore
 
-def pl(entries, epoch:int|None|type[DEFAULT]=DEFAULT, **overrides) -> PL_InfoDict:
-    global global_epoch
-    global_epoch += 1
-    res = {**PL, **overrides, 'entries': entries}
-    if epoch is not None:
-        res['epoch'] = global_epoch if epoch is DEFAULT else epoch
-    return res # type: ignore
+    if epoch is None:
+        global global_epoch
+        epoch = global_epoch
+        global_epoch += 1
 
-import os
-TEST_HOME = 'test/merge_pl'
-os.makedirs(TEST_HOME, exist_ok=True)
-def record(data, name):
-    with open(f'{TEST_HOME}/{name.replace(" ", "_")}.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=4, default=str, ensure_ascii=False)
+    res: V_InfoDict = {'id': f'{id}', 'info_level': info_level.name, 'epoch': epoch, **info}
+    if unavailable_msgs:
+        um = unavailable_msgs.copy()
+        for m in um:
+            m['epoch'] = epoch
+        res['unavailable_msgs'] = um
+    return res
 
+def pl(
+        id: str,
+        entries: list[V_InfoDict],
+        info_level: PL_InfoLevel = PL_InfoLevel.FLAT,
+        epoch: int|None = None,
+        info: pldl_types._PL_InfoDict_NoReqs = {},  # noqa: B006
+) -> PL_InfoDict:
 
-
-def test_v_basic():
-    res = merge_v_infos([
-        v(1),
-    ])
-    record(res, 'basic v')
-
-def test_v_better_past():
-    res = merge_v_infos([
-        v(1, avail_yt=True,  ext=True,  dl=True),
-        v(1, avail_yt=True,  ext=True,  dl=False),
-        v(1, avail_yt=True,  ext=False, dl=False),
-        v(1, avail_yt=False, ext=False, dl=False),
-    ])
-    record(res, 'better past')
-
-def test_v_unavail():
-    res = merge_v_infos([
-        v(1, yt=True),
-        v(1, wa=True),
-        v(1),
-        v(1, wa=True),
-        v(1, yt=True),
-        v(1, yt=True, wa=True),
-    ])
-    record(res, 'unavailable video')
-
-def test_on_new():
-    res = merge_pl_infos([
-        pl([v(1)]),
-        pl([v(2)]),
-        pl([v(3)]),
-    ])
-    record(res, 'on new')
-
-def test_steps():
-    res = merge_pl_infos([
-        pl([v(1)]),
-        pl([v(2), v(1)]),
-        pl([v(3), v(2), v(1)]),
-    ])
-    record(res, 'steps')
-
-def test_unavailable():
-    res = merge_pl_infos([
-        pl([v(1, dl=True)]),
-        pl([v(1, yt=True)]),
-        pl([v(1, yt=True)]),
-        pl([v(1, yt=True, wa=True)]),
-    ])
-
-    record(res, 'unavailable')
-
-def test_iterations():
-    res = merge_pl_infos([
-        pl([v(1, yt=True, wa=True)]),
-        pl([v(1, yt=True)]),
-    ])
-    res = merge_pl_infos([
-        res,
-        pl([v(1, dl=True)]),
-    ])
-    record(res, 'iterations')
-
-def test_no_change_iterations():
-    pls = [
-        pl([v(x) for x in range(5)])
-        for _ in range(20)
-    ]
-    res = pls[0]
-    for _pl in pls[1:]:
-        res = merge_pl_infos([res, _pl])
-
-    res = merge_pl_infos([res, pl([v(x) for x in range(6)])])
+    if epoch is None:
+        global global_epoch
+        epoch = global_epoch
+        global_epoch += 1
     
-    record(res, 'no_change_iterations')
+    res: PL_InfoDict = {'id': id, 'entries': entries, 'info_level': info_level.name, 'epoch': epoch, **info}
+    return res
 
-def test_stale():
-    res = merge_pl_infos([
-        pl([v(1, is_stale=1000)]),
-        pl([v(1, is_stale=1000)]),
-    ])
-    res = merge_pl_infos([
-        res,
-        pl([v(1, is_stale=False)]),
-    ])
-    record(res, 'stale')
 
-def test_large_list():
-    pls = [
-        pl([v(x, rand(0.5), rand(0.5), rand(0.5), rand(0.5), rand(0.5)) for x in range(20)])
-        for _ in range(5)
-    ]
-    res = pls[0]
-    for _pl in pls[1:]:
-        res = merge_pl_infos([res, _pl])
+def test_merging_mfs():
+    new_ids = list(range(1, 6))
+    normal_ids = list(range(6, 11))
 
-    res = merge_pl_infos([res, pl([v(x) for x in range(6)])])
+    old = pl(
+        id='test',
+        entries=[
+            v(f'{i}', V_InfoLevel.FLAT)
+            for i in normal_ids
+        ],
+        info_level=PL_InfoLevel.FLAT,
+    )
+
+    new = pl(
+        id='test',
+        entries=[
+            v(f'{i}', V_InfoLevel.DOWNLOAD)
+            for i in new_ids+normal_ids
+        ],
+        info_level=PL_InfoLevel.NORMAL,
+    )
+
+    _merge_pl_infos = lambda pl_infos, init: post_processing.merge_pl_infos(pl_infos, post_processing.merge_updaters.COMMON_UPDATER, default_update_filter, _init_merge_info=init)
+
+
+    old_mf = _merge_pl_infos([old], None)
+    new_mf = _merge_pl_infos([new, old_mf], None)
+
+    utils.json_dump(old_mf, 'old-mf.json', 'rm old', indent=4)
+    utils.json_dump(new_mf, 'new-mf.json', 'rm old', indent=4)
+
+def test_merge_unavailable_msgs():
+
+    old = pl(
+        id='test',
+        entries=[v('video', unavailable_msgs=[UNAVAILABLE_MSGS['forbidden']])])
+
+    # multiple unavailable_msgs at different times
+    new1 = pl(
+        id='test',
+        entries=[v('video', unavailable_msgs=[UNAVAILABLE_MSGS['yt--takedown']])])
     
-    record(res, 'large list')
-
-def test_real():
-    res = {}
-    d = ''
-    for _p in os.listdir(d):
-        p = os.path.join(d, _p)
-        if not res:
-            res = utils.json_load(p)
-            continue
-        res = merge_pl_infos([res, utils.json_load(p)]) # type: ignore
-    record(res, 'jyes')
-
-def main():
-    tests = [
-        test_v_basic,
-        test_v_better_past,
-        test_v_unavail,
-        test_on_new,
-        test_steps,
-        test_unavailable,
-        test_iterations,
-        test_no_change_iterations,
-        test_stale,
-        test_large_list,
-        test_real,
-    ]
+    # same unavailable_msg at same time
+    new1a = pl(
+        id='test',
+        entries=[v('video', unavailable_msgs=[UNAVAILABLE_MSGS['yt--takedown']], epoch=yt_utils.get_epoch(new1))])
     
-    for t in tests:
-        try:
-            reset()
-            t()
-        except Exception as e:
-            print(utils.format_exception(e))
-            print()
+    # same unavailable_msg at different time
+    new2 = pl(
+        id='test',
+        entries=[v('video', unavailable_msgs=[UNAVAILABLE_MSGS['yt--takedown']])])
 
-if __name__ == "__main__":
-    main()
+    utils.json_dump(
+        post_processing.merge_pl_infos(
+            [new1, new1a, new2],
+            post_processing.merge_updaters.COMMON_UPDATER,
+            default_update_filter,
+            _init_merge_info=old),
+        'merged-unavailable.json', 'rm old', indent=4)
+
+def test_from_real():
+
+    # res = post_processing.merge_v_infos(
+    #     utils.json_load(r"merge-test/v_infos.json"),
+    #     post_processing.merge_updaters.COMMON_UPDATER,
+    #     default_update_filter,
+    # )
+    # utils.json_dump(res, 'merge-test/v-output.json', 'rm old', indent=4)
+
+    res = post_processing.merge_pl_infos(
+        utils.json_load(r"merge-test/pl_infos.json"),
+        post_processing.merge_updaters.COMMON_UPDATER,
+        default_update_filter,
+        utils.json_load(r"merge-test/init-no-merge.json")
+    )
+
+    display.pl_merge_timeline(res, [entry['id'] for entry in res['entries']])
+    utils.json_dump(res, 'merge-test/output.json', 'rm old', indent=4)
+
+# test_merge_unavailable_msgs()
+test_from_real()

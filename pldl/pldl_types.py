@@ -17,7 +17,7 @@ __all__ = [  # noqa: RUF022
     'ID_DownloadInfo',
 
     'UnavailableMsg',
-    'V_MergeTimeline', 'PL_MergeTimeline',
+    'V_MergeTimelineEntry', 'V_MergeTimeline', 'PL_MergeTimeline',
     'NO_VALUE',
 ]
 
@@ -195,6 +195,7 @@ class _PL_InfoDict_NoReqs(PL_InfoDict, total=False):
 
 
 class V_InfoLevel(IntEnum):
+    # values must be >= 0
     NONE = 0
     FLAT = 1
     EXTRACT = 2
@@ -304,6 +305,7 @@ class UnavailableMsg(TypedDict):
     type:  str
 
 class V_MergeTimelineEntry(TypedDict):
+    info_level:  NotRequired[str] # V_InfoLevel
     better_info: NotRequired[str] # "{merge_V_InfoLevel.name} -> {new_V_InfoLevel.name}"
     unavailable: NotRequired[list[str]]
     updates:     NotRequired[dict[str, str]]

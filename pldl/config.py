@@ -42,10 +42,10 @@ def wrapper_match_filter_builder(
     # if True, not all unavailable vids will be seen and some overrides will not be reached
     quit_when_maxed: bool = False,
 
-    extract_match: Callable[[V_InfoDict], bool]|None = None,
     download_match: Callable[[V_InfoDict], bool] = lambda v: (
                ((v.get('view_count') or 0) < 100_000) \
             and (v.get('duration') or 0) <=  5 * 60),
+    extract_match: Callable[[V_InfoDict], bool]|None = None,
 
     overrides: dict[DL_Action, Iterable[V_ID]] | None = None,
 

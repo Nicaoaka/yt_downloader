@@ -6,7 +6,7 @@ __all__ = [  # noqa: RUF022
     'WARN_COLOR', 'WARNING',
     'ERR_COLOR', 'ERROR',
     'truncate', 'numbered_list', 'clear',
-    'input_string',
+    'color_bool', 'color_input', 'input_string',
 
     'dict_without_keys', 'dict_with_keys', 'dict_reorder_keys',
     'get_missing_typeddict_keys', 'dedup', 'merge_objs',
@@ -34,7 +34,7 @@ import re
 import sys
 import time
 import traceback
-from collections.abc import Callable, Hashable, Iterable
+from collections.abc import Callable, Hashable, Iterable, Mapping, MutableMapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -153,6 +153,16 @@ def clear(one_less_new_line: bool = False):
 
 # Input helpers
 
+def color_bool(boolean: bool, text: str | None = None) -> str:
+    return hex(text or int(boolean), fg="#28E48F" if boolean else "#E64631")
+
+def color_input(inp_color: str):
+    try:
+        print(hex('', inp_color, reset=False), end='') # set color
+        return input()
+    finally:
+        print(hex(''), end='') # reset color
+
 def input_string(
         options: list[str],
         query_message: str = "",
@@ -211,11 +221,7 @@ def input_string(
 
         # prompt user
         print(hint_header + query_message, end='')
-        try:
-            print(hex('', INPUT_COLOR, reset=False), end='') # set color
-            inp = input()
-        finally:
-            print(hex(''), end='') # reset color
+        inp = color_input(INPUT_COLOR)
 
         if inp in options:
             return inp
@@ -257,8 +263,10 @@ def dict_with_keys(d: dict, keys: Iterable, default: Any = KeyError):
         res[k] = copy.deepcopy(d.get(k, default))
     return res
 
-def dict_reorder_keys[K: Hashable](d: dict[K, Any], /, start_order: list[K] = [], end_order: list[K] = []) -> None:  # noqa: B006 - init lists are not mutated
+def dict_reorder_keys[K: Hashable](d: MutableMapping[K, Any]|Mapping[K, Any], /, start_order: list[K] = [], end_order: list[K] = []) -> None:  # noqa: B006 - init lists are not mutated
     """
+    `d` must be mutable (eg a dict or typeddict).
+    
     Reorders keys in `d` in-place according to `order`.
 
     Keys not in `order` are left at the bottom in their original relative order.
@@ -268,13 +276,13 @@ def dict_reorder_keys[K: Hashable](d: dict[K, Any], /, start_order: list[K] = []
 
     for k in start_order:
         if k in d:
-            d[k] = d.pop(k)
+            d[k] = d.pop(k) # type: ignore
     for k in extra_keys:
         if k in d:
-            d[k] = d.pop(k)
+            d[k] = d.pop(k) # type: ignore
     for k in end_order:
         if k in d:
-            d[k] = d.pop(k)
+            d[k] = d.pop(k) # type: ignore
 
 def merge_objs(obj1: Any, obj2: Any, make_copy: bool, copy_fallback: Callable[[Any], Any] = str) -> Any:
     """

@@ -59,6 +59,7 @@ def sleep_1_second():
     print()
 
 
+
 class USE_CONFIG(utils.FalsySentinel):
     pass
 
@@ -566,7 +567,7 @@ class PlaylistDL:
         self._infos._merge_flat = _InfosEntry(
             merge_infos.merge_pl_infos(
                 flat_infos,
-                merge_updaters.COMMON_UPDATER,
+                merge_updaters.FLAT_MERGE_UPDATER,
                 update_filter=self._config.update_filter,
                 _init_merge_info=init_merge_flat),
             self._pl_outtmpls['_merged_flat_infojson'],
@@ -592,16 +593,9 @@ class PlaylistDL:
             return
         init_v_info = None if index is None else merge_flat_info['entries'][index]
 
-        update_flat_keys = merge_updaters.builder({
-            ('id', 'title', 'live_status', 'availability', 'channel', 'channel_id', 'channel_url', 'uploader',
-             'uploader_id', 'uploader_url', 'creators', 'view_count', 'timestamp', 'epoch', 'duration',
-             'thumbnails', 'url', '_type', 'ie_key', '__x_forwarded_for_ip', 'info_level', 'playlist_epoch'):
-            merge_updaters.latest_not_none_and_not_same
-        }, default_func=lambda *_: False)
-
         new_v_info, new_v_timeline = merge_infos.merge_v_infos(
             [v_info],
-            update_flat_keys,
+            merge_updaters.FLAT_MERGE_UPDATER,
             self._config.update_filter,
             _init_v_info=init_v_info,
             _init_v_timeline=merge_flat_info.get('merge_timeline', {}).get(v_id, {}))
@@ -874,16 +868,19 @@ class PlaylistDL:
         return v_info
 
 
-    def add_raw_v_infos(self, _raw_v_infos: list[list[V_InfoDict]]) -> list[V_InfoDict]:
+    # FIXME: Should update metadata and merge_flat
+    def add_raw_v_infos(self, raw_v_infos: list[list[V_InfoDict]]) -> list[V_InfoDict]:
         """ Returns the `raw_v_infos` that were added to `self._infos.raw_v_infos.data` """
 
-        raw_v_infos: list[V_InfoDict] = [
-            v_info for raw_v_info in _raw_v_infos
+        # raise NotImplementedError()
+        
+        _raw_v_infos: list[V_InfoDict] = [
+            v_info for raw_v_info in raw_v_infos
                    for v_info in raw_v_info]
         added = []
 
         v_ids = set(self.get_v_ids(self._infos.base_info))
-        for i, v_info in enumerate(raw_v_infos):
+        for i, v_info in enumerate(_raw_v_infos):
             v_display = yt_utils.get_v_display(v_info)
             if not v_info.get('id'):
                 utils.WARNING(f"SKIPPED: {i} {v_display} has no id")
@@ -895,7 +892,11 @@ class PlaylistDL:
         self._infos.raw_v_infos.data.append(added)
         self._infos.raw_v_infos.is_written = False
         return added
-    
+
+    # TODO: should update metadata, merge_flat, see update_merge_flat_pl_info()
+    def add_raw_flat_infos(self, raw_flat_infos: PL_InfoDict):
+        raise NotImplementedError()
+
 
     def _make_pl_info(self, base_pl_info: PL_InfoDict, raw_v_infos: list[V_InfoDict], clean_info_json: bool):
         pl_info = yt_utils.copy_and_sanitize_info(base_pl_info, clean_info_json)
@@ -969,6 +970,9 @@ class PlaylistDL:
             self._infos.base_info.data,
             [v_info for v_infos in self._infos.raw_v_infos.data for v_info in v_infos],
             self.opts.get('clean_infojson') or False))
+
+        # utils.json_dump(yt_utils.copy_and_sanitize_info(init), 'merge-test/init.json')
+        # utils.json_dump(yt_utils.copy_and_sanitize_info(pl_infos), 'merge-test/pl_infos.json')
         
         return merge_infos.merge_pl_infos(pl_infos, field_updater, update_filter, init)
             

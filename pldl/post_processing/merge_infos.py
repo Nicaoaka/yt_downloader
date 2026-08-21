@@ -3,6 +3,7 @@ __all__ = [
     'merge_v_infos',
 ]
 
+from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
@@ -34,30 +35,44 @@ def _merge_v_infos(
 
     if merge_info and not v_infos:
         return merge_info, v_timeline
-    
+
+    # latest_epochs need to be stored on a key by key basis because
+    # lower info_level lists (usu flat) can have a higher epoch than
+    # higher info_level lists (usu download) while being seen first
+    latest_epochs: defaultdict[str, float] = defaultdict(lambda: float('-inf'))
+
+    # special keys
     merge_info_level = yt_utils.get_v_info_level(merge_info)
     unavailable_msgs: list[UnavailableMsg] = []
 
     for v_info in yt_utils.copy_and_sanitize_info(v_infos):
         unavailable_msgs.extend(v_info.get('unavailable_msgs', []))
-
-        # nothing below should aggregate init info
-
-        epoch = yt_utils.to_readable_epoch(yt_utils.get_epoch(v_info))
-        timeline_entry = v_timeline.setdefault(epoch, {})
         
-        # updating v_info
-        is_latest = yt_utils.get_epoch(v_info) >= yt_utils.get_epoch(v_infos[-1])
+        curr_epoch = yt_utils.get_epoch(v_info)
+        entry_key = yt_utils.to_readable_epoch(curr_epoch)
+        timeline_entry: V_MergeTimelineEntry = v_timeline.setdefault(entry_key, {})
+        
 
         updates = {}
         for k in v_info.keys() | merge_info.keys():
-            if k == 'info_level':
-                continue
+            if k in ('info_level', 'unavailable_msgs'):
+                continue # handled separately
             v = v_info.get(k, NO_VALUE)
+
+            is_latest = curr_epoch >= latest_epochs[k]
+            if is_latest:
+                latest_epochs[k] = curr_epoch
+            
             report_update = field_updater(merge_info, k, v, is_latest)
+
             if report_update and update_filter(k):
                 # doesn't truncate, could be added to update_filter maybe
-                updates[k] = v
+                updates[str(k)] = str(v)
+
+            # Debug: show keys and if it was added to 'updates'
+            # a = report_update
+            # b = update_filter(k)
+            # print(f"{k:<25}   {utils.color_bool(a)} {utils.color_bool(b)}   {utils.color_bool(a and b)}")
 
         # better_info
         new_info_level = yt_utils.get_v_info_level(v_info)
@@ -69,19 +84,42 @@ def _merge_v_infos(
             merge_info_level = new_info_level
 
         if updates:
-            timeline_updates = timeline_entry.setdefault('updates', {})
-            timeline_updates |= updates
+            timeline_entry['updates'] = utils.merge_objs(timeline_entry.get('updates', {}), updates, True)
         if not timeline_entry:
-            v_timeline.pop(epoch)
+            v_timeline.pop(entry_key)
+        else:
+            timeline_entry['info_level'] = merge_info_level.name
 
-    for msg in _dedup_and_sort_unavail_msgs(unavailable_msgs):
+    unavailable_msgs = _dedup_and_sort_unavail_msgs(unavailable_msgs)
+    for msg in unavailable_msgs:
         uanvail_epoch = yt_utils.to_readable_epoch(msg['epoch'] if msg['epoch'] is not None else yt_utils.DEFAULT_EPOCH())
         text = msg['msg'] or f'[{msg['type']}]' # the type should be surrounded in the first square bracket []
         msgs = v_timeline.setdefault(uanvail_epoch, {}).setdefault('unavailable', [])
         if text not in msgs:
             msgs.append(text)
 
+    merge_info['unavailable_msgs'] = unavailable_msgs
+
     return merge_info, v_timeline
+
+def _merge_v_sort_key(v_info: V_InfoDict) -> int:
+    """
+    sort by 'info_level' then 'epoch'
+    
+    [V_InfoLevel: large int] [epoch: int]
+    """
+    epoch = yt_utils.get_epoch(v_info)
+    try:
+        info_level = V_InfoLevel[v_info.get('info_level', V_InfoLevel.NONE.name)]
+    except KeyError:
+        info_level = V_InfoLevel.NONE
+    except Exception as e:  # noqa: BLE001
+        utils.WARNING(f"Unexpected error:\n{utils.format_exception(e)}")
+        info_level = V_InfoLevel.NONE
+
+    # assumes all values of V_InfoLevel are >= 0
+    LARGE_TIME_DELTA = 10**12 # ~31,688 years
+    return (info_level.value * LARGE_TIME_DELTA) + epoch
 
 def merge_v_infos(
         v_infos: list[V_InfoDict],
@@ -117,13 +155,21 @@ def merge_v_infos(
         raise ValueError(f"Multiple video ids found: {ids}")
 
     v_infos = utils.dedup(v_infos, id)
-    v_infos = sorted(v_infos, key=yt_utils.get_epoch) # oldest to newest
+
+    v_infos = sorted(v_infos, key=_merge_v_sort_key)
+
+    # DEBUG: Shows v_info order
+    # print(v_infos[0]['id'], v_infos[0].get('title'))
+    # for v_info in v_infos:
+    #     print(_merge_v_sort_key(v_info), yt_utils.get_epoch(v_info), v_info.get('info_level'))
+    # print(_init_v_timeline or {})
+    # print()
 
     return _merge_v_infos(
         v_infos,
         field_updater,
         update_filter,
-        _init_v_info or {'id': v_infos[-1]['id'], 'info_level': V_InfoLevel.NONE.name},
+        _init_v_info or {'info_level': V_InfoLevel.NONE.name}, # type: ignore - let 'id' show up in 'updates'
         _init_v_timeline or {})
 
 

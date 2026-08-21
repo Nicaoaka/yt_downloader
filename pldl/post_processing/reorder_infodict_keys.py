@@ -5,15 +5,16 @@ __all__ = [
 ]
 
 """
-This is based on keys from `pldl_type` and `pldl_type_extensions`
+This is based on keys from `pldl_types` and `pldl_type_extensions`
 
 Reordering was done using Claude
 """
 
+from pldl import yt_utils
 from pldl.pldl_types import *
 from pldl.utils.utils import dict_reorder_keys
-from pldl.yt_utils import from_readable_epoch
 
+# from pldl.pldl_types import YT_DLP_InfoDict
 V_START = [
     # identity
     'id',
@@ -139,7 +140,9 @@ V_START = [
     '__last_playlist_index',
     'playlist_autonumber',
 ]
+# from pldl.pldl_types import _PL_V_RelInfo
 
+# from pldl.pldl_types import _V_InfoDict_Addons
 V_END = [
     # custom fields
     'info_level',
@@ -149,7 +152,7 @@ V_END = [
     'playlist_epoch',
 ]
 
-
+# from pldl.pldl_types import YT_DLP_InfoDict
 PL_START = [
     # identity
     'id',
@@ -194,14 +197,16 @@ PL_START = [
     'extractor_key',
 ]
 
+# from pldl.pldl_types import _PL_InfoDict_Addons
 PL_END = [
     # custom fields
     'info_level',
     'merge_timeline',
 ]
 
-
+# from pldl.pldl_types import V_MergeTimelineEntry
 V_TIMELINE_ENTRY_ORDER = [
+    'info_level',
     'better_info',
     'unavailable',
     'updates',
@@ -209,18 +214,29 @@ V_TIMELINE_ENTRY_ORDER = [
 
 
 def reorder_v_infodict(v_info: V_InfoDict|dict) -> None:
-    dict_reorder_keys(v_info, V_START, V_END) # type: ignore
+    dict_reorder_keys(v_info, V_START, V_END)
 
 def reorder_pl_infodict(pl_info: PL_InfoDict):
     for v_info in pl_info['entries']:
         reorder_v_infodict(v_info)
-    dict_reorder_keys(pl_info, PL_START, PL_END) # type: ignore
+    dict_reorder_keys(pl_info, PL_START, PL_END)
 
 def reorder_merge_info(pl_info: PL_InfoDict):
     if 'merge_timeline' in pl_info:
-        for v_timeline in pl_info['merge_timeline'].values():
+        from pldl.post_processing.merge_infos import _merge_v_sort_key
+        for v_id, v_timeline in pl_info['merge_timeline'].items():
             for timeline_entry in v_timeline.values():
-                dict_reorder_keys(timeline_entry, V_TIMELINE_ENTRY_ORDER) # type: ignore - tiemline_entry is a dict
-            dict_reorder_keys(v_timeline, sorted(v_timeline.keys(), key=from_readable_epoch))
+                dict_reorder_keys(timeline_entry, V_TIMELINE_ENTRY_ORDER)
+
+            mapped_v_timeline_keys: list[tuple[V_InfoDict, READABLE_EPOCH_STR]] = []
+            for r_epoch, entry in v_timeline.items():
+                mapped_v_timeline_keys.append(({
+                    'id': v_id,
+                    'epoch': yt_utils.from_readable_epoch(r_epoch), 
+                    'info_level': entry.get('info_level', V_InfoLevel.NONE.name) # default to ignoring info_level
+                }, r_epoch))
+            mapped_v_timeline_keys.sort(key=lambda info_tl_entry: _merge_v_sort_key(info_tl_entry[0]))
+            sorted_v_timeline_keys = [r_epoch for _, r_epoch in mapped_v_timeline_keys]
+            dict_reorder_keys(v_timeline, sorted_v_timeline_keys)
         dict_reorder_keys(pl_info['merge_timeline'], [entry['id'] for entry in pl_info['entries']])
     reorder_pl_infodict(pl_info)
