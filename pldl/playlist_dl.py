@@ -190,22 +190,23 @@ class PlaylistDL:
             f"Detected download state mismatch:\n"
             f"yt_dlp-missing:  {utils.hex(yt_dlp_missing, fg=utils.WARN_COLOR)}\n"
             f"history-missing: {utils.hex(hist_missing,   fg=utils.WARN_COLOR)}")
-        if utils.input_string(['y', 'N'], 'Fix automatically? ', use_default_for={''}, default='y') == 'N':
+        if utils.input_string(['y', 'N'], 'Add missing downloads to both automatically? ', use_default_for={''}, default='y') == 'N':
             return
 
         now: READABLE_EPOCH_STR = yt_utils.to_readable_epoch(utils.epoch_now())
-        self._metadata['history'].setdefault(now, [])
-        for id in hist_missing:
-            self._metadata['history'][now].append({
-                'id': id,
+        metadata['history'].setdefault(now, [])
+        for v_id in hist_missing:
+            metadata['history'][now].append({
+                'id': v_id,
                 'title': None,
                 'action': DL_Action.DOWNLOAD,
                 'result': DL_Result.DOWNLOAD
             })
-        
+
         with open(self._pl_outtmpls['yt_dlp_archive'], 'a') as f:
-            for id in yt_dlp_missing:
-                f.write(f'pldl_sync_fix {id}\n')
+            for v_id in yt_dlp_missing:
+                yt_dlp_archive.append(('pldl_sync_fix', v_id))
+                f.write(f'pldl_sync_fix {v_id}\n')
 
 
     def __get_base_info_data(self, init_info: PL_InfoDict) -> PL_InfoDict:
