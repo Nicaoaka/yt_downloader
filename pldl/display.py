@@ -266,7 +266,9 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, v_ids: list[V_ID]) -> t
                 results[v_id]['str'] += " " + " ".join(excs)
 
             dl_result = DL_Result[dl_info['result'].upper()]
-            results[v_id]['str'] += RESULT_TAG[dl_result].rendered
+            results[v_id]['failing'] = dl_result == DL_Result.FAIL
+            if not results[v_id]['failing']:
+                results[v_id]['str'] += RESULT_TAG[dl_result].rendered
 
             # color
             info_level = V_InfoLevel.DOWNLOAD if dl_result == DL_Result.DOWNLOAD else \
@@ -277,6 +279,12 @@ def _metadata_history(pl_dl_history: PL_DownloadHistory, v_ids: list[V_ID]) -> t
                 results[v_id]['color'] = V_INFO_LEVEL[info_level].color
             if results[v_id]['best_info_level'] <= V_InfoLevel.FLAT and dl_info.get('errors'):
                 results[v_id]['color'] = RESULT_TAG[DL_Result.FAIL].color
+
+    for v_id in set(v_ids):
+        if results[v_id]['str'] == V_INFO_LEVEL[V_InfoLevel.NONE].rendered:
+            continue
+        if results[v_id]['failing']:
+            results[v_id]['str'] += RESULT_TAG[DL_Result.FAIL].rendered
 
     return (
         [results[v_id]['str'] for v_id in v_ids],
