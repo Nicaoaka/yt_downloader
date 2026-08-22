@@ -242,13 +242,13 @@ def default_opts() -> YT_DLP_Params:
         },
 
         'ratelimit': 5_000_000, # is this necessary?
-        'max_downloads': 10, # hardcap per session
+        # 'max_downloads': 10,  # use wrapper_match_filter_builder
 
         'remote_components': {'ejs:npm'},
 
-        'format': 'ba+bv/b',
-        'format_sort': ['abr', 'res:1080', 'vbr', '+size', ],
-        # default: lang,quality,res,fps,hdr:12,vcodec,channels,acodec,size,br,asr,proto,ext,hasaud,source,id
+        # Prefer non-HLS (DASH) streams to avoid PTS/merge issues with itag 232 etc.
+        'format': 'ba+bv[protocol!*=m3u8]/b[protocol!*=m3u8]/ba+bv/b',
+        'format_sort': ['abr', 'res:1080', 'vbr', '+size'],
 
         'postprocessors': [
             {'already_have_subtitle': False, 'key': 'FFmpegEmbedSubtitle'},
@@ -256,6 +256,12 @@ def default_opts() -> YT_DLP_Params:
              'add_metadata': True, 'key': 'FFmpegMetadata'},
             {'already_have_thumbnail': False, 'key': 'EmbedThumbnail'},
         ],
+
+        # Fallback safety net: if an HLS stream is unavoidable (no DASH equivalent),
+        # regenerate missing presentation timestamps so the merger doesn't choke.
+        'postprocessor_args': {
+            'ffmpeg': ['-fflags', '+genpts'],
+        },
 
         'clean_infojson': False,
         'writeautomaticsub': False,
