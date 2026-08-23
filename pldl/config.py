@@ -76,7 +76,7 @@ def wrapper_match_filter_builder(
 
     # will always quit if a 403 happens in the current session, unless set to None.
     # does this belong in PlaylistDL_Config?
-    http_403_backoff_time: int|None = 3 * 24 * 3600,
+    http_403_backoff_time: int = 3 * 24 * 3600,
     fail_backoff_time: int = 7 * 24 * 3600,
     ignore_ambiguous_dl_errors: bool = True,
     
@@ -92,9 +92,16 @@ def wrapper_match_filter_builder(
     if extract_match is None:
         extract_match = lambda pl_v_info: not download_match(pl_v_info)
 
-    if max_extracts < 0: raise ValueError("max_extracts must be >= 0")
-    if max_downloads < 0: raise ValueError("max_downloads must be >= 0")
-    
+    if max_downloads < 0:   raise ValueError(f"max_downloads must be >= 0 (got: {max_downloads})")
+    if max_extracts < 0:    raise ValueError(f"max_extracts must be >= 0 (got: {max_extracts})")
+    if max_fails < 1:       raise ValueError(f"max_fails must be >= 1 (got: {max_fails})")
+
+    if max_downloads == max_extracts == 0:
+        utils.WARNING("max_downloads and max_extracts are 0, will SKIP all videos by default without quitting.")
+
+    if http_403_backoff_time < 0: raise ValueError("Use 0 to indicate no backoff time.")
+    if fail_backoff_time < 0: raise ValueError("Use 0 to indicate no backoff time.")
+
     _print = lambda s: print(utils.hex('>', fg="#FF9F21"), utils.hex(s, fg="#FFC478")) if debug else \
              lambda *args, **kwargs: None
 
@@ -110,6 +117,8 @@ def wrapper_match_filter_builder(
     _checked_http_403_backoff = False
     def latest_http_403_error_epoch(history: PL_DownloadHistory) -> float:
         """ `float('-inf')` means http_403 was not found """
+        # TODO: This should be a function/property of PlaylistDL
+        # FIXME: Maybe sort keys to return early
         res = float('-inf')
         for readable_epoch, pl_dl_info in history.items():
             if pl_dl_info_had_http_403_error(pl_dl_info):
@@ -131,13 +140,15 @@ def wrapper_match_filter_builder(
 
 
         if http_403_backoff_time is not None:
-            # checked once on first pass
-            if not _checked_http_403_backoff:
-                _checked_http_403_backoff = True
+            if not _checked_http_403_backoff:    
+                _checked_http_403_backoff = True # checked once on first pass
+
                 latest_http_403 = latest_http_403_error_epoch(history)
-                if utils.epoch_now() - latest_http_403 < http_403_backoff_time:
+                time_since_latest_403 = utils.epoch_now() - latest_http_403
+                if time_since_latest_403 < http_403_backoff_time:
                     _print("Signs of rate limiting (http_403) in history at "
-                           + yt_utils.to_readable_epoch(int(latest_http_403)))
+                           + yt_utils.to_readable_epoch(int(latest_http_403))
+                           + f" (delta = {time_since_latest_403} seconds)")
                     return DL_Action.QUIT
             
             # new dl_info's are appended to the end of curr_dl_info 
@@ -148,22 +159,20 @@ def wrapper_match_filter_builder(
         
         curr_pl_dl_ids = yt_utils.ids_from_pl_download_info(curr_pl_dl_info)
 
-        EXT_IS_MAXED = len(curr_pl_dl_ids['extract']) >= max_extracts
-        DL_IS_MAXED = len(curr_pl_dl_ids['download']) >= max_downloads
+        DL_IS_MAXED =   len(curr_pl_dl_ids['download']) >= max_downloads and max_downloads != 0
+        EXT_IS_MAXED =  len(curr_pl_dl_ids['extract']) >= max_extracts and max_extracts != 0
         FAIL_IS_MAXED = len(curr_pl_dl_ids['fail']) >= max_fails
 
         if quit_when_maxed:
-            if EXT_IS_MAXED:
-                _print(f"Maxed extract ({max_extracts})")
-                return DL_Action.QUIT
             if DL_IS_MAXED:
                 _print(f"Maxed downloads ({max_downloads})")
+                return DL_Action.QUIT
+            if EXT_IS_MAXED:
+                _print(f"Maxed extract ({max_extracts})")
                 return DL_Action.QUIT
             if FAIL_IS_MAXED:
                 _print(f"Maxed fails ({max_fails})")
                 return DL_Action.QUIT
-
-
 
         v_id = pl_v_info['id']
         likely_unavailable = pl_v_info.get('view_count') in (0, None)
@@ -174,7 +183,6 @@ def wrapper_match_filter_builder(
             if v_id in overrides.get(action, []):
                 _print(f"{action} override")
                 return action
-
 
         # Skip if failed and still in the backoff time
         # Applies to both download and extract
