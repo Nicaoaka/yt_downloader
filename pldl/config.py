@@ -3,6 +3,7 @@ from __future__ import annotations
 __all__ = [
     'Config_IdentType',
     'PlaylistDL_Config',
+    'v_dl_order_manip_builder',
     'wrapper_match_filter_builder',
 ]
 
@@ -11,12 +12,15 @@ import os
 import random
 from collections.abc import Callable, Iterable
 from enum import StrEnum, auto
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pldl import yt_utils
 from pldl.pldl_types import *
 from pldl.post_processing import filters
 from pldl.utils import utils
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparison
 
 
 class Config_IdentType(StrEnum):
@@ -32,6 +36,27 @@ class Config_IdentType(StrEnum):
     PL_INFO_PATH  = auto() # abs/rel path, is not effected by home
     METADATA_PATH = auto() # abs/rel path, is not effected by home 
 
+type V_DL_OrderManip = Callable[[
+    list[tuple[int, V_InfoDict]]
+], Iterable[tuple[int, V_InfoDict]]]
+type WrapperMatchFilter = Callable[[
+    V_InfoDict,
+    PL_DownloadInfo,
+    PL_DownloadHistory,     ID_DownloadInfo,
+    YT_DLP_DownloadArchive, YT_DLP_DownloadArchive_IDs,
+], DL_Action]
+
+
+def v_dl_order_manip_builder(key: Callable[[V_InfoDict], SupportsRichComparison], reverse: bool = False) -> V_DL_OrderManip:
+    """ Uses key to sort the video infos """
+    def v_dl_order_manip(pos_infos: list[tuple[int, V_InfoDict]]):
+        v_infos = [info[1] for info in pos_infos]
+        return utils.sort_by_other(
+            pos_infos,
+            v_infos,
+            key=lambda tup: key(tup[0]),
+            reverse=reverse)
+    return v_dl_order_manip
 
 def wrapper_match_filter_builder(
     # these should never be 0, besides when quit_when_maxed is False 
@@ -375,14 +400,9 @@ class PlaylistDL_Config:
     field_updater: Callable[[V_InfoDict | dict, str, Any | type[NO_VALUE], bool], bool] = default_field_updater
     update_filter: Callable[[str], bool] = default_update_filter
 
-    # --- control hooks (override per-instance as needed) ---
-    wrapper_match_filter: Callable[[
-            V_InfoDict,
-            PL_DownloadInfo,
-            PL_DownloadHistory,     ID_DownloadInfo,
-            YT_DLP_DownloadArchive, YT_DLP_DownloadArchive_IDs,
-        ], DL_Action,
-    ] = dataclasses.field(default=wrapper_match_filter_builder())
+    # --- control hooks ---
+    video_dl_order_manip: V_DL_OrderManip|None = None
+    wrapper_match_filter: WrapperMatchFilter = dataclasses.field(default=wrapper_match_filter_builder())
     yt_dlp_match_filter: Callable[..., str | None] = dataclasses.field(default=default_yt_dlp_match_filter)
     
     # --- yt-dlp params ---

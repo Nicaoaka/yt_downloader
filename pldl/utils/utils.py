@@ -13,6 +13,7 @@ __all__ = [  # noqa: RUF022
     'has_content', 'first_non_default',
     'position_to_index',
     'regex_map',
+    'sort_by_other',
 
     'json_load', 'json_dump',
     'handle_collision',
@@ -36,7 +37,10 @@ import time
 import traceback
 from collections.abc import Callable, Hashable, Iterable, Mapping, MutableMapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparison  # noqa: TC004
 
 
 def get_caller_function(offset: int = 0):
@@ -400,6 +404,17 @@ def regex_map[T, U](m: dict[str, T], s: str, default: U|type[RAISE_EXC] = RAISE_
     if default is RAISE_EXC:
         raise KeyError(f"No regex matched: {s!r}")
     return default # type: ignore
+
+def sort_by_other[T, K](
+        main: list[T],
+        other: list[K],
+        /, *,
+        key: Callable[[tuple[K, T]], SupportsRichComparison]|None = None,
+        reverse: bool = False
+) -> list[T]:
+    if len(main) != len(other):
+        raise ValueError(f"main[{len(main)}] and other[{len(other)}] must have same len")
+    return [x for _, x in sorted(zip(other, main), key=key, reverse=reverse)]
 
 
 # File helpers

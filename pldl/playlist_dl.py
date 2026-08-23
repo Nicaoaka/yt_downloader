@@ -10,7 +10,12 @@ from collections.abc import Callable, Iterable
 from typing import Literal, overload
 
 from pldl import display, pldl_types, yt_utils
-from pldl.config import Config_IdentType, PlaylistDL_Config
+from pldl.config import (
+    Config_IdentType,
+    PlaylistDL_Config,
+    V_DL_OrderManip,
+    WrapperMatchFilter,
+)
 from pldl.pldl_types import *
 from pldl.post_processing import (
     merge_infos,
@@ -644,10 +649,11 @@ class PlaylistDL:
     @staticmethod
     def _download_v_infos(
             pl_info: PL_InfoDict[V_InfoDict],
-            wrapper_match_filter: Callable[[V_InfoDict, PL_DownloadInfo], DL_Action]|None = None,
-            opts: YT_DLP_Params|None = None,
-            try_yt_if_unavailable: bool = True,
-            wa: bool = True,
+            wrapper_match_filter: Callable[[V_InfoDict, PL_DownloadInfo], DL_Action],
+            opts: YT_DLP_Params|None,
+            try_yt_even_if_unavailable: bool,
+            wa: bool,
+            order_manip: V_DL_OrderManip|None,
     ) -> tuple[list[V_InfoDict], PL_DownloadInfo]:
         """
         Extract (and download) videos. Return the extracted v_infos and download_info
@@ -658,31 +664,42 @@ class PlaylistDL:
                 Returns a download action to control the current playlist download.
                 Defaults to None; this will extract and download every video not in the yt-dlp download archive.
             opts (YT_DLP_Params, optional): Extra opts used by ``download_video()``. Defaults to {}.
-            try_yt_if_unavailable (bool, optional): Try Youtube even if it seems unavailable. Defaults to True.
+            try_yt_even_if_unavailable (bool, optional): Try Youtube even if it seems unavailable. Defaults to True.
             wa (bool, optional): Use archive.org if YouTube failed (fallback). Defaults to True.
+            order_manip (Callable[[Iterable], Iterable], optional): Change video iteration order. Defaults to in order.
         """
         if opts is None:
             opts = {}
+        default_order = order_manip is None
+        if default_order:
+            order_manip = lambda x: x # no manipulation
+        
         extracted_v_infos: list[V_InfoDict] = []
         pl_dl_info: PL_DownloadInfo = []
 
-        N = len(pl_info['entries'])
+        def get_pl_v_display(entry_pos: int, entry: V_InfoDict):
+            num_entries = len(pl_info['entries'])
+            stable_pos = f"{entry_pos:{len(str(num_entries))}}"
+            if default_order:
+                i_of_N = f"{stable_pos}/{num_entries}"
+                return f"[{i_of_N}] {yt_utils.get_v_display(entry)}"
+            else:
+                return f"[{stable_pos}] {yt_utils.get_v_display(entry)}"
+
         try:
-            for i, entry in enumerate(pl_info['entries']):
-                action = DL_Action.DOWNLOAD
-                if wrapper_match_filter is not None:
-                    action = wrapper_match_filter(entry, pl_dl_info)
+            for entry_pos, v_info in order_manip(list(enumerate(pl_info['entries'], start=1))):
                 
-                i_of_N = f"{i+1:{len(str(N))}}/{N}"
-                pl_v_display = f"[{i_of_N}] {yt_utils.get_v_display(entry)}"
+                action = wrapper_match_filter(v_info, pl_dl_info)
+
+                pl_v_display = get_pl_v_display(entry_pos, v_info)
 
                 if action == DL_Action.USER:
-                    action = PlaylistDL._get_action_from_user(entry)
+                    # DL_Action.USER should not be the action in dl_info, so overwrite `action`
+                    action = PlaylistDL._get_action_from_user(v_info)
 
-                # do not add DL_Action.USER to dl_info
                 pl_dl_info.append({
-                    'id': entry['id'],
-                    'title': entry.get('title'),
+                    'id': v_info['id'],
+                    'title': v_info.get('title'),
                     'action': action,
                     'result': DL_Result.CANCELLED,
                 })
@@ -700,68 +717,83 @@ class PlaylistDL:
                       display.ACTION_TAG[action].rendered,
                       utils.hex(pl_v_display, display.ACTION_TAG[action].color))
 
-                # TODO: non `DownloadErrors` exceptions do not indicate that a download will fail in the future
-                # - is relying on the fallback okay for now, or should something special be used?
-                # - drop the dl_info?
-                # - make the result `CANCELLED` while keeping the dl_info?
-                v_info, errors, success = yt_utils.download_video(
-                    entry['id'],
-                    opts=opts,
-                    yt = try_yt_if_unavailable or yt_utils._maybe_available_on_yt(entry),
-                    wa = wa,
-                    download = (action == DL_Action.DOWNLOAD)
-                )
+                new_v_info, errors, success = yt_utils.download_video(
+                    v_info['id'],
+                    opts     = opts,
+                    yt       = try_yt_even_if_unavailable or yt_utils._maybe_available_on_yt(v_info),
+                    wa       = wa,
+                    download = (action == DL_Action.DOWNLOAD))
 
-                if v_info:
-                    pl_v_display = f"[{i_of_N}] {yt_utils.get_v_display(entry | v_info)}"
+                if new_v_info:
+                    new_v_info.setdefault('id', v_info['id'])
+                    new_v_info.setdefault('epoch', utils.epoch_now())
+                    new_v_info.setdefault('info_level', V_InfoLevel.NONE.name) # adding custom tags is okay
+                    extracted_v_infos.append(new_v_info)
                 
                 pl_dl_info[-1] = {
-                    'id': entry['id'],
-                    'title': (v_info or {}).get('title') or entry.get('title'),
+                    'id': v_info['id'],
+                    'title': (new_v_info or {}).get('title') or v_info.get('title'),
                     'action': action,
-                    'result': PlaylistDL._get_dl_result(v_info, success),
+                    'result': PlaylistDL._get_dl_result(new_v_info, success),
                 }
+
                 if errors:
                     pl_dl_info[-1]['errors'] = errors
 
+                if new_v_info:
+                    # rebuild in case of more info (eg extracted title)
+                    pl_v_display = get_pl_v_display(entry_pos, new_v_info)
                 result_tag = display.download_result_tag(pl_dl_info[-1])
-                print(result_tag.rendered, utils.hex(pl_v_display, result_tag.color)+
-                      '\n')
-                
-                if v_info:
-                    v_info.setdefault('id', entry['id'])
-                    v_info.setdefault('epoch', utils.epoch_now())
-                    extracted_v_infos.append(v_info)
-        except KeyboardInterrupt: # keep alive
+                print(result_tag.rendered, utils.hex(pl_v_display, result_tag.color) + '\n')
+
+        except KeyboardInterrupt: # quit, but keep alive
             print(utils.hex("    KEYBOARD INTERRUPT    ", bg='#ffffff'))
         except Exception as e:  # noqa: BLE001 - keep alive
             print(utils.format_exception(e))
         
         return extracted_v_infos, pl_dl_info
 
-    def download_v_infos(self, write: bool|type[USE_CONFIG] = USE_CONFIG, cookiefile: str|None|type[USE_CONFIG] = USE_CONFIG):
+    def download_v_infos(
+            self,
+            write: bool|type[USE_CONFIG] = USE_CONFIG,
+            cookiefile: str|None|type[USE_CONFIG] = USE_CONFIG,
+            wrapper_match_filter: WrapperMatchFilter|type[USE_CONFIG] = USE_CONFIG,
+            opts: YT_DLP_Params|type[USE_CONFIG] = USE_CONFIG,
+            try_yt_even_if_unavailable: bool = True,
+            wa: bool = True,
+            order_manip: V_DL_OrderManip|None|type[USE_CONFIG] = USE_CONFIG,
+    ):
         """ Returns the newly downloaded portion of the raw v_infos """
         sleep_1_second()
 
         history_ids = yt_utils.ids_from_history(self._metadata['history'])
         yt_dlp_archive_ids = yt_utils.ids_from_yt_dlp_archive(self._yt_dlp_archive)
-
+        _wrapper_match_filter: WrapperMatchFilter = wrapper_match_filter if wrapper_match_filter is not USE_CONFIG \
+                                               else self._config.wrapper_match_filter # type: ignore
+        _opts: YT_DLP_Params = (
+            self.opts if opts is USE_CONFIG else opts | {
+            'cookiefile': cookiefile if cookiefile is not USE_CONFIG else \
+                          self._config.cookie_file if self._config.cookies_for_vids else \
+                          None}) # type: ignore
+        _order_manip: V_DL_OrderManip|None = order_manip if order_manip is not USE_CONFIG else \
+                                            self._config.video_dl_order_manip # type: ignore
+    
         print("\n ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n"
                 "  Downloading Playlist Videos \n"
                 " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n")
-        
+
         v_infos, pl_dl_info = PlaylistDL._download_v_infos(
             self._infos.base_info.data,
-            lambda pl_v_info, pl_dl_info: self._config.wrapper_match_filter(
-                pl_v_info, pl_dl_info,
+            lambda pl_v_info, curr_pl_dl_info: _wrapper_match_filter(
+                pl_v_info, curr_pl_dl_info,
                 self._metadata['history'], history_ids,
                 self._yt_dlp_archive, yt_dlp_archive_ids),
-            opts=self.opts | {
-                'cookiefile': cookiefile if cookiefile is not USE_CONFIG else \
-                              self._config.cookie_file if self._config.cookies_for_vids else \
-                              None}) # type: ignore
+            opts=_opts,
+            try_yt_even_if_unavailable=try_yt_even_if_unavailable,
+            wa=wa,
+            order_manip=_order_manip)
         
-        self._infos.raw_v_infos.data.append(v_infos) # type: ignore - V_InfoDict
+        self._infos.raw_v_infos.data.append(v_infos)
         self._infos.raw_v_infos.is_written = False
 
         print("\n"
@@ -873,7 +905,7 @@ class PlaylistDL:
     def add_raw_v_infos(self, raw_v_infos: list[list[V_InfoDict]]) -> list[V_InfoDict]:
         """ Returns the `raw_v_infos` that were added to `self._infos.raw_v_infos.data` """
 
-        # raise NotImplementedError()
+        raise NotImplementedError()
         
         _raw_v_infos: list[V_InfoDict] = [
             v_info for raw_v_info in raw_v_infos
@@ -1007,10 +1039,15 @@ class PlaylistDL:
 
 
 
-    def download(self, delete_prev_pl: bool = False, delete_prev_merge: bool = False):
+    def download(
+            self,
+            order_manip: V_DL_OrderManip|None|type[USE_CONFIG] = USE_CONFIG,
+            delete_prev_pl: bool = False,
+            delete_prev_merge: bool = False,
+    ):
         """ Calls the download functions based on configs """
         if self._config.write_raw_v_infos:
-            self.download_v_infos()
+            self.download_v_infos(order_manip=order_manip)
         if self._config.write_pl_info:
             self.make_pl_info(delete_prev=delete_prev_pl)
         if self._config.write_merge:

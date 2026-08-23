@@ -108,6 +108,31 @@ class Tests(unittest.TestCase):
             [100, -100, 'hello', None, '', get_dict])
         self.assertListEqual(list(d.keys()), list(range(26)))
 
+    def test_sort_by_other(self):
+        self.assertListEqual(sort_by_other([1,2,3,4], [1,2,3,4]), [1,2,3,4])
+        self.assertListEqual(sort_by_other([1,2,3,4], [4,3,2,1]), [4,3,2,1])
+        self.assertListEqual(sort_by_other([1,2,3,4], [4,1,3,2]), [2,4,3,1])
+        
+        self.assertListEqual(sort_by_other([1,2,3,4], [1,2,3,4], reverse=True), [4,3,2,1])
+
+        self.assertListEqual(
+            sort_by_other(
+                [1,2,3,4],
+                [{'x': 4}, {'x': 3}, {'x': 2}, {}],
+                key=lambda x: x[0].get('x', 1)),
+            [4,3,2,1])
+        
+        self.assertListEqual(
+            sort_by_other(
+                [1,2,3,4],
+                [{'x': 4}, {'x': 3}, {'x': 2}, {}],
+                key=lambda x: x[0].get('x', 1),
+                reverse=True),
+            [1,2,3,4])
+
+        with self.assertRaises(ValueError) as cm:
+            sort_by_other([1,2,3,4], [1,2,3,4,5])
+        self.assertEqual(cm.exception.args[0], "main[4] and other[5] must have same len")
 
 
 def main():
