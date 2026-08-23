@@ -70,8 +70,8 @@ def is_id_like(id: str, is_video=False) -> bool:
 
 def get_v_display(v_info: V_InfoDict|dict) -> str:
     # some titles and channel names are empty strings
-    title = utils.first_non_default(v_info, ['title', 'alt_title'], default_values=[None], default_return='???') # type: ignore
-    creator = utils.first_non_default(v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=['', None], default_return='???') # type: ignore
+    title = utils.first_non_default(v_info, ['title', 'alt_title'], default_values=[None], default_return='???')
+    creator = utils.first_non_default(v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=['', None], default_return='???')
     return f"[{v_info['id']}] {title} by {creator}"
 
 def get_yt_video_url(video_id: str) -> str:

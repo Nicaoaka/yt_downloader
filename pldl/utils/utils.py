@@ -351,7 +351,7 @@ def has_content(obj: Any) -> bool:
     return True
 
 def first_non_default(
-        d: dict, 
+        d: Mapping, 
         keys: list,
         /, *,
         default_values: list,

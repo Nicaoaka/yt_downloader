@@ -159,19 +159,24 @@ def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str],
     for i, (v_id, v_print, _color) in enumerate(zip(v_ids, id_prints, ident_colors), start=1):
         pl_v_info: V_InfoDict = pl_info['entries'][pl_ids[v_id]] if v_id in pl_ids else {'id': v_id}
         ident = utils.hex(f"{i:>4}. {v_id}", fg=_color)
-        extractor = utils.first_non_default(pl_v_info, ['extractor_key', 'extractor', 'ie_key'], default_values=[None], default_return=None) # type: ignore - pl_v_info is a dict
+        extractor: str|None = utils.first_non_default(
+            pl_v_info, ['extractor_key', 'extractor', 'ie_key'],
+            default_values=[None], default_return=None)
+
+        # videos that failed both will use their youtube url.
         url = (
             '' if extractor is None else
             yt_utils.get_yt_video_url(v_id) if extractor.lower() in ('youtube', 'yt') else
-            yt_utils.get_archiveorg_url(v_id) if extractor.lower() in ('YoutubeWebArchive', 'web.archive:youtube') else
-            ''
-        )
+            yt_utils.get_archiveorg_url(v_id) if extractor.lower() in 
+                ('youtubewebarchive', 'web.archive:youtube', 'wa') else
+            '')
+        
         if url: url = f" ({url})"
         if not include_urls: url = ""
         ident_alt = utils.hex(
-            utils.first_non_default(pl_v_info, ['title', 'alt_title'], default_values=[None], default_return='???') +  # type: ignore - pl_v_info is a dict
+            utils.first_non_default(pl_v_info, ['title', 'alt_title'], default_values=[None], default_return='???') +  
             " by " +
-            utils.first_non_default(pl_v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=[None], default_return='???') + # type: ignore - pl_v_info is a dict
+            utils.first_non_default(pl_v_info, ['channel', 'uploader_id', 'uploader', 'artist', 'creator'], default_values=[None], default_return='???') +
             url,
             fg=_color)
         print(ident, v_print, ident_alt)
