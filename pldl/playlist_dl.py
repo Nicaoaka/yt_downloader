@@ -5,7 +5,6 @@ import dataclasses
 import itertools
 import os
 import pprint
-import random
 import time
 from collections.abc import Callable, Iterable
 from typing import Literal, overload
@@ -61,7 +60,7 @@ def init_metadata(
 def sleep_random_seconds(lo: float, hi: float):
     x = utils.random_in_range(lo, hi)
     caller = utils.get_caller_function()
-    print(utils.hex(f"[{caller}] Sleeping for {x:.3} second ...", fg="#000436"), end='')
+    print(utils.hex(f"[{caller}] Sleeping for {x:.3} second ...", fg="#000436"), end='', flush=True)
     time.sleep(x)
     print()
 
@@ -549,7 +548,7 @@ class PlaylistDL:
 
         Always calls update_merge_flat_info().
         """
-        sleep_random_seconds(2,4)
+        sleep_random_seconds(1,2)
         raw_flat_info = yt_utils.extract_flat_info(pl_url_or_id=self.id,
             opts=self.opts | {
                 'cookiefile': cookiefile if cookiefile is not USE_CONFIG else \
@@ -690,9 +689,7 @@ class PlaylistDL:
                 return f"[{stable_pos}] {yt_utils.get_v_display(entry)}"
 
         try:
-            for entry_pos, v_info in order_manip(list(enumerate(pl_info['entries'], start=1))):
-                sleep_random_seconds(*sleep_interval)
-                
+            for entry_pos, v_info in order_manip(list(enumerate(pl_info['entries'], start=1))):                
                 action = wrapper_match_filter(v_info, pl_dl_info)
 
                 pl_v_display = get_pl_v_display(entry_pos, v_info)
@@ -717,6 +714,7 @@ class PlaylistDL:
                           utils.hex(pl_v_display, display.ACTION_TAG[action].color))
                     continue
 
+                sleep_random_seconds(*sleep_interval)
                 print('\n'+
                       display.ACTION_TAG[action].rendered,
                       utils.hex(pl_v_display, display.ACTION_TAG[action].color))
@@ -768,7 +766,7 @@ class PlaylistDL:
             order_manip: V_DL_OrderManip|None|type[USE_CONFIG] = USE_CONFIG,
     ):
         """ Returns the newly downloaded portion of the raw v_infos """
-        sleep_random_seconds(2,4)
+        sleep_random_seconds(1,2)
 
         history_ids = yt_utils.ids_from_history(self._metadata['history'])
         yt_dlp_archive_ids = yt_utils.ids_from_yt_dlp_archive(self._yt_dlp_archive)
@@ -865,7 +863,7 @@ class PlaylistDL:
 
         Returns what was recieved from yt_dlp
         """
-        sleep_random_seconds(2,4)
+        sleep_random_seconds(1,2)
         if opts is None:
             opts = {}
 
