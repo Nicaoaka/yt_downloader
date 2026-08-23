@@ -5,6 +5,7 @@ import dataclasses
 import itertools
 import os
 import pprint
+import random
 import time
 from collections.abc import Callable, Iterable
 from typing import Literal, overload
@@ -57,10 +58,11 @@ def init_metadata(
         'history': history or {},
     }
 
-def sleep_1_second():
+def sleep_random_seconds(lo: float, hi: float):
+    x = utils.random_in_range(lo, hi)
     caller = utils.get_caller_function()
-    print(utils.hex(f"[{caller}] Sleeping for 1 second ...", fg="#000436"), end='')
-    time.sleep(1)
+    print(utils.hex(f"[{caller}] Sleeping for {x:.3} second ...", fg="#000436"), end='')
+    time.sleep(x)
     print()
 
 
@@ -547,7 +549,7 @@ class PlaylistDL:
 
         Always calls update_merge_flat_info().
         """
-        sleep_1_second()
+        sleep_random_seconds(2,4)
         raw_flat_info = yt_utils.extract_flat_info(pl_url_or_id=self.id,
             opts=self.opts | {
                 'cookiefile': cookiefile if cookiefile is not USE_CONFIG else \
@@ -654,6 +656,7 @@ class PlaylistDL:
             try_yt_even_if_unavailable: bool,
             wa: bool,
             order_manip: V_DL_OrderManip|None,
+            sleep_interval: tuple[float, float],
     ) -> tuple[list[V_InfoDict], PL_DownloadInfo]:
         """
         Extract (and download) videos. Return the extracted v_infos and download_info
@@ -688,6 +691,7 @@ class PlaylistDL:
 
         try:
             for entry_pos, v_info in order_manip(list(enumerate(pl_info['entries'], start=1))):
+                sleep_random_seconds(*sleep_interval)
                 
                 action = wrapper_match_filter(v_info, pl_dl_info)
 
@@ -764,7 +768,7 @@ class PlaylistDL:
             order_manip: V_DL_OrderManip|None|type[USE_CONFIG] = USE_CONFIG,
     ):
         """ Returns the newly downloaded portion of the raw v_infos """
-        sleep_1_second()
+        sleep_random_seconds(2,4)
 
         history_ids = yt_utils.ids_from_history(self._metadata['history'])
         yt_dlp_archive_ids = yt_utils.ids_from_yt_dlp_archive(self._yt_dlp_archive)
@@ -791,7 +795,10 @@ class PlaylistDL:
             opts=_opts,
             try_yt_even_if_unavailable=try_yt_even_if_unavailable,
             wa=wa,
-            order_manip=_order_manip)
+            order_manip=_order_manip,
+            sleep_interval=(
+                self._config.opts.get('sleep_interval') or 0.2,
+                self._config.opts.get('max_sleep_interval') or 1))
         
         self._infos.raw_v_infos.data.append(v_infos)
         self._infos.raw_v_infos.is_written = False
@@ -858,9 +865,9 @@ class PlaylistDL:
 
         Returns what was recieved from yt_dlp
         """
+        sleep_random_seconds(2,4)
         if opts is None:
             opts = {}
-        sleep_1_second()
 
         if v_id not in self.get_v_ids(self._infos.base_info):
             raise ValueError(f"{v_id} is not in the loaded playlist")
