@@ -431,10 +431,11 @@ MISC_ERRORS = {
 
 # Errors that confirm that the video is actually unavailable on that platform.
 UNAVAILABLE_PATTERNS = (
-    r'.*[Vv]ideo unavailable.*',                              # yt: unavailable / takedown / terminated
-    r'.*has been removed for violating.*Terms of Service.*',  # yt: ToS removal (doesn't say "unavailable")
-    r'.*[Pp]rivate video\..*',                                # yt: private
-    r'.*not archived or indexed.*',                           # wa: not indexed
+    r'.*[Vv]ideo unavailable.*',                                # yt: unavailable / takedown / terminated
+    r'.*has been removed for violating.*Terms of Service.*',    # yt: ToS removal (doesn't say "unavailable")
+    r'.*[Pp]rivate video\..*',                                  # yt: private
+    r'.*[Pp]lease sign in.*',                                   # yt: private video
+    r'.*not archived or indexed.*',                             # wa: not indexed
 )
 
 
