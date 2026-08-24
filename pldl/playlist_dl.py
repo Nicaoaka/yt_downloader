@@ -92,6 +92,8 @@ class PlaylistDL:
             
             case Config_IdentType.PL_INFO_PATH:
                 pl_info: PL_InfoDict = utils.json_load(self._config.ident)
+                # TODO: This should require user confirmation.
+                # The user picked a specific pl_info, they should be told if it wont be used.
                 if self._need_refresh(yt_utils.get_epoch(pl_info)):
                     return extract_flat(pl_info['id'])
                 return pl_info
@@ -225,10 +227,11 @@ class PlaylistDL:
                 f"The passed in info will only be used for metadata identification."
                 f"To load using a specific infojson set: "
                 f"{utils.hex("config.base_info_type = 'any'", fg=utils.WARN_COLOR)}")
-        
+
+        # don't warn if different epochs. eg if you wrote some flat infos, but then stopped.
         p_latest = self._metadata['pointers'].get('latest_flat_info')
         p_merge  = self._metadata['pointers'].get('_merge_flat')
-        
+
         match self._config.base_info_type:
             case 'any':
                 return init_info
@@ -245,10 +248,14 @@ class PlaylistDL:
                 if self._infos._merge_flat: # updated from init flat_info extraction
                     return self._infos._merge_flat.data
                 if p_merge and not self._need_refresh(p_merge[1]):
-                    return self.load('_merge_flat')
+                    data = self.load('_merge_flat')
+                    self._infos._merge_flat = _InfosEntry(data,
+                        pl_outtmpl=self._pl_outtmpls['_merged_flat_infojson'],
+                        is_written=True, metadata_key='_merge_flat')
+                    return data
                 self.extract_flat_info() # has side effects on _merge_flat
                 if not self._infos._merge_flat:
-                    raise RuntimeError("_merge_flat should be written and set in self._infos")
+                    raise RuntimeError("_merge_flat should be set in self._infos")
                 return self._infos._merge_flat.data
 
 
@@ -305,14 +312,18 @@ class PlaylistDL:
                 is_written=False, metadata_key=None)
         
         # always try loading if not loaded
-        if not self._infos._merge_flat and (data := self.load('_merge_flat', None)):
-            self._infos._merge_flat = _InfosEntry(data,
-                pl_outtmpl=self._pl_outtmpls['_merged_flat_infojson'],
-                is_written=True, metadata_key='_merge_flat')
-        if not self._infos.merge_info and (data := self.load('latest_merge_info', None)):
-            self._infos.merge_info = _InfosEntry(data,
-                pl_outtmpl=self._pl_outtmpls['merge_infojson'],
-                is_written=True, metadata_key='latest_merge_info')
+        if not self._infos._merge_flat:
+            data = self.load('_merge_flat', None)
+            if data:
+                self._infos._merge_flat = _InfosEntry(data,
+                    pl_outtmpl=self._pl_outtmpls['_merged_flat_infojson'],
+                    is_written=True, metadata_key='_merge_flat')
+        if not self._infos.merge_info:
+            data = self.load('latest_merge_info', None)
+            if data:
+                self._infos.merge_info = _InfosEntry(data,
+                    pl_outtmpl=self._pl_outtmpls['merge_infojson'],
+                    is_written=True, metadata_key='latest_merge_info')
 
 
 
@@ -714,10 +725,10 @@ class PlaylistDL:
                           utils.hex(pl_v_display, display.ACTION_TAG[action].color))
                     continue
 
-                sleep_random_seconds(*sleep_interval)
                 print('\n'+
                       display.ACTION_TAG[action].rendered,
                       utils.hex(pl_v_display, display.ACTION_TAG[action].color))
+                sleep_random_seconds(*sleep_interval)
 
                 new_v_info, errors, success = yt_utils.download_video(
                     v_info['id'],
