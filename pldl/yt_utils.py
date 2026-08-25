@@ -121,6 +121,7 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params|None = None) -> PL_
     with YoutubeDL(opts | {
         'skip_download': 'True',
         'extract_flat': 'in_playlist',
+        'writethumbnail': False, # playlist thumbnail
     }) as ydl:
         flat_info: PL_InfoDict[V_InfoDict] = ydl.extract_info(pl_url_or_id, download=False) # type: ignore
 
