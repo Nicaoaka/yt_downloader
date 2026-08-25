@@ -159,15 +159,15 @@ def wrapper_match_filter_builder(
         
         curr_pl_dl_ids = yt_utils.ids_from_pl_download_info(curr_pl_dl_info)
 
-        DL_IS_MAXED =   len(curr_pl_dl_ids['download']) >= max_downloads and max_downloads != 0
-        EXT_IS_MAXED =  len(curr_pl_dl_ids['extract']) >= max_extracts and max_extracts != 0
+        DL_IS_MAXED =   len(curr_pl_dl_ids['download']) >= max_downloads
+        EXT_IS_MAXED =  len(curr_pl_dl_ids['extract']) >= max_extracts
         FAIL_IS_MAXED = len(curr_pl_dl_ids['fail']) >= max_fails
 
         if quit_when_maxed:
-            if DL_IS_MAXED:
+            if DL_IS_MAXED and max_downloads != 0:
                 _print(f"Maxed downloads ({max_downloads})")
                 return DL_Action.QUIT
-            if EXT_IS_MAXED:
+            if EXT_IS_MAXED and max_extracts != 0:
                 _print(f"Maxed extract ({max_extracts})")
                 return DL_Action.QUIT
             if FAIL_IS_MAXED:
