@@ -110,19 +110,28 @@ def download_info(dl: DownloadInfo, errors: bool) -> str:
         for e in dl['errors']:
             if isinstance(e, DownloadError):
                 # This is an expected error, so print focusing on the error msg.
-                line += ''.join(f"\n{utils.hex(f"yt_dlp.utils.DownloadError: {e.msg}", utils.EXC_COLOR)}")
+                line += "\n" + utils.hex(f"yt_dlp.utils.DownloadError: {e.msg}", utils.EXC_COLOR)
+            elif isinstance(e, BaseException):
+                line += "\n" + utils.format_exception(e)
             else:
-                line += ''.join(f"\n{utils.format_exception(e)}" for e in dl['errors'])
+                line += "\n" + utils.hex(f"yt_dlp.utils.DownloadError: {e}", utils.EXC_COLOR)
 
     return line
 
 
-def pl_download_info(pl_dl_info: PL_DownloadInfo, errors: bool) -> str:
+def pl_download_info(pl_dl_info: PL_DownloadInfo, errors: bool, header: bool) -> str:
+    res = ""
+    if header:
+        res += ("\n"
+                " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
+                "  Playlist Videos Download Info  \n"
+                " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ \n"
+                "\n")
     idx_width = len(str(len(pl_dl_info)))
     lines = []
     for i, dl_info in enumerate(pl_dl_info, start=1):
         lines.append(f"{i:>{idx_width}}. {download_info(dl_info, errors)}")
-    return '\n'.join(lines)
+    return res + '\n'.join(lines)
 
 
 def _warn_if_duplicates(v_ids: list[V_ID]):
@@ -307,7 +316,7 @@ def _make_pl_dl_info_combos() -> PL_DownloadInfo:
     try:
         raise ValueError("Hello")
     except Exception as e:  # noqa: BLE001
-        errors = [e]
+        errors = [str(e)]
     infos: PL_DownloadInfo = []
     for with_errors in [True, False]:
         for i, a in enumerate(DL_Action):

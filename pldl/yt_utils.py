@@ -11,20 +11,17 @@ __all__ = [  # noqa: RUF022
 
     'ytdlp_eval_tmpl',
 
-    'copy_and_sanitize_info', 'load_yt_archive',
+    'copy_and_sanitize_info',
     'ids_from_yt_dlp_archive', 'ids_from_pl_download_info', 'ids_from_history',
     'get_pl_v_info', 'fixup_pl_info', 'interpret_error_msg',
 
     'get_epoch', 'get_latest_epoch', 'to_readable_epoch', 'from_readable_epoch',
-
-    'validate_metdata_config_sync',
 ]
 
 import datetime
-import os
 import re
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
@@ -32,10 +29,6 @@ from yt_dlp.utils import DownloadError
 from pldl import pldl_types
 from pldl.pldl_types import *
 from pldl.utils import utils
-
-if TYPE_CHECKING:
-    from pldl.config import PlaylistDL_Config  # noqa: TC004 - circular import
-
 
 # YouTube and InternetWebArchive id/url
 
@@ -259,7 +252,8 @@ def _has_download_info(info: V_InfoDict | dict) -> bool:
 def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
     if not v_info:
         return V_InfoLevel.NONE
-    
+
+    # TODO: Should always derive info_level or use the kval?
     info_level_name: str = v_info.get('info_level') or ''
     if info_level_name.upper() in V_InfoLevel.__members__:
         return V_InfoLevel[info_level_name.upper()]
@@ -273,6 +267,8 @@ def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
 def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
     if not pl_info:
         return PL_InfoLevel.NONE
+
+    # FIXME: Why does this not early return using 'info_level'
 
     has_extracts = any(get_v_info_level(entry) >= V_InfoLevel.EXTRACT for entry in pl_info.get('entries', []))
     has_merge_timeline = 'merge_timeline' in pl_info
@@ -339,24 +335,7 @@ def copy_and_sanitize_info[T](_info_dict: T, remove_private_keys=False, wrap: bo
     
     return filter_fn(info_dict)
 
-def load_yt_archive(p: str|None) -> YT_DLP_DownloadArchive:
-    if not p or not os.path.exists(p):
-        return []
-    res = []
-    with open(p, 'r', encoding='utf-8') as f:
-        for line_no, line in enumerate(f, start=1):
-            if not line:
-                continue
-            items = line.split()
-            if len(items) != 2:
-                utils.WARNING(f"[yt_dlp archive] Unrecognized @ L{line_no}: {line}")
-                continue
-            ie_key, v_id = items
-            if not is_id_like(v_id, is_video=True):
-                utils.WARNING(f"[yt_dlp archive] Bad video id @ L{line_no}: {line}")
-                continue
-            res.append( (ie_key, v_id) )
-    return res
+
 
 def ids_from_yt_dlp_archive(l: YT_DLP_DownloadArchive) -> list[V_ID]:
     EXTRACTORS_WITH_YT_IDS = {'youtube', 'youtubewebarchive', '__pldl_yt_dlp_generic__'}
@@ -488,13 +467,13 @@ def get_latest_epoch(pl_info: PL_InfoDict) -> int:
     """
     latest = max(
         pl_info.get('epoch', float('-inf')),
-        *(entry.get('epoch', float('-inf')) for entry in pl_info['entries']))
+        max((entry.get('epoch', float('-inf')) for entry in pl_info['entries']), default=float('-inf')))
     if latest == float('-inf'):
         latest = DEFAULT_EPOCH()
         utils.WARNING(f"All epochs are malformed or missing: {latest}")
     return int(latest)
 
-
+# note: yt-dlp can handle 0 and negative epochs. It just keeps going into the past.
 def to_readable_epoch(epoch: int) -> str:
     # low epochs can be invalid because of timezones.
     # So, exclue the first 24 hours from the start of the epoch
@@ -535,41 +514,6 @@ def from_readable_epoch(readable: str) -> int:
         return int(readable)
     except ValueError:
         raise ValueError(f"{readable} is not a recognized readable epoch")
-
-# basic validations
-
-def validate_metdata_config_sync(metadata: Metadata, config: PlaylistDL_Config):
-    """ May raise KeyError, RuntimeError, or FileNotFoundError """
-
-    if missing := utils.get_missing_typeddict_keys(metadata, Metadata): # type: ignore - Metadata is a TypedDict
-        raise KeyError(f"Missing kvals: {missing}")
-
-    for p_key in pldl_types._MetadataPointers.__optional_keys__:
-        if metadata['pointers'].get(p_key) is None:
-            continue
-
-        rel_path, _epoch = metadata['pointers'][p_key]
-        real_path = os.path.join(config.home, rel_path)
-        utils.assert_file(real_path, f"{p_key} (metadata)", min_size=1)
-    
-    meta_path = os.path.join(config.home, metadata['path_tmpls'].get('Playlist', 'NA'), metadata['path_tmpls'].get('metadata', 'NA'))
-    for k in metadata['path_tmpls'].keys() | config.path_tmpls.keys():
-        if k == 'Playlist':
-            continue # can't be checked without info
-        if k not in metadata['path_tmpls']:
-            raise KeyError(
-                f"Missing key in metadata: {{{k!r}: {config.path_tmpls[k]!r}}}\n"
-                f"Path: {meta_path}")
-        if k not in config.path_tmpls:
-            raise KeyError(
-                f"Extra key in metdata: {{{k!r}: {metadata['path_tmpls'][k]!r}}}\n"
-                f"Path: {meta_path}")
-        if os.path.relpath(metadata['path_tmpls'][k], metadata['path_tmpls']['Playlist']) != config.path_tmpls[k]:
-            raise KeyError(
-                f"Changed `path_tmpls`: {k!r}:\n"
-                f"metadata: {metadata['path_tmpls'][k]}\n"
-                f"config:   {config.path_tmpls[k]}\n"
-                f"Path: {meta_path}")
 
 
 

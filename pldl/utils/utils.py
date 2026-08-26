@@ -14,7 +14,7 @@ __all__ = [  # noqa: RUF022
     'position_to_index',
     'regex_map',
     'sort_by_other',
-    'random_in_range', 'random_in_bell_curve',
+    'random_in_bell_curve',
 
     'json_load', 'json_dump',
     'handle_collision',
@@ -417,10 +417,6 @@ def sort_by_other[T, K](
     if len(main) != len(other):
         raise ValueError(f"main[{len(main)}] and other[{len(other)}] must have same len")
     return [x for _, x in sorted(zip(other, main), key=key, reverse=reverse)]
-
-def random_in_range(lo: float, hi: float) -> float:
-    if lo < hi: lo, hi = hi, lo
-    return random.random() * (hi - lo) + lo
 
 def random_in_bell_curve(lo: float, hi: float) -> float:
     if lo < hi: lo, hi = hi, lo

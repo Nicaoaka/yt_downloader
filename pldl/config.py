@@ -27,14 +27,11 @@ class Config_IdentType(StrEnum):
     """
     On the first run you must use `PL_ID_OR_URL`
 
-    Otherwise, the preferred type is
-    1. METADATA_PATH
-    2. PL_INFO_PATH
-    3. PL_ID_OR_URL
+    Otherwise, `METADATA_PATH` should be used when possible
     """
     PL_ID_OR_URL  = auto()
-    PL_INFO_PATH  = auto() # abs/rel path, is not effected by home
     METADATA_PATH = auto() # abs/rel path, is not effected by home 
+    PL_INFO_PATH  = auto() # abs/rel path, is not effected by home
 
 type V_DL_OrderManip = Callable[[
     list[tuple[int, V_InfoDict]]
@@ -79,7 +76,6 @@ def wrapper_match_filter_builder(
     http_403_backoff_time: int = 3 * 24 * 3600,
     fail_backoff_time: int = 7 * 24 * 3600,
     ignore_ambiguous_dl_errors: bool = True,
-    
 
     yt_unavailable_action: DL_Action | None = DL_Action.DOWNLOAD,
 
@@ -403,12 +399,10 @@ class PlaylistDL_Config:
     filter_merge_info:  Callable[[PL_InfoDict], None] = dataclasses.field(default=default_filter_merge_info)
     filter_all_info:    Callable[[PL_InfoDict|Any], None] = dataclasses.field(default=default_filter_all_info) # used after filter_flat, filter_normal, and filter_merge
 
+    # --- control hooks ---
     meta_dl_history_filter: Callable[[DownloadInfo], bool] = dataclasses.field(default=default_dl_info_filter)
-
     field_updater: Callable[[V_InfoDict | dict, str, Any | type[NO_VALUE], bool], bool] = default_field_updater
     update_filter: Callable[[str], bool] = default_update_filter
-
-    # --- control hooks ---
     video_dl_order_manip: V_DL_OrderManip|None = None
     wrapper_match_filter: WrapperMatchFilter = dataclasses.field(default=wrapper_match_filter_builder())
     yt_dlp_match_filter: Callable[..., str | None] = dataclasses.field(default=default_yt_dlp_match_filter)
@@ -419,15 +413,15 @@ class PlaylistDL_Config:
     # --- path templates ---
     path_tmpls: CustomOuttmpl = dataclasses.field(default_factory=default_path_tmpls)
 
-    # --- testing opts ---
-    _use_as_merge_flat: bool = False
+    # --- dev ---
+    _no_yt_dlp_downloads: bool = False # like a testing mode
 
     def __post_init__(self):
         """
         Validate inputs as much as possible.
 
         Cannot validate `paths_tmpls` here.
-        If the playist identifier is an ID, the Playlist folder can't be resolved,
+        If the playlist identifier is an ID, the Playlist folder can't be resolved,
         so any existing metadata file can't be loaded.
         So the 
         """
@@ -447,7 +441,8 @@ class PlaylistDL_Config:
             case Config_IdentType.METADATA_PATH:
                 if not os.path.exists(self.ident):
                     raise FileNotFoundError("Metadata path (ident) not found")
-                yt_utils.validate_metdata_config_sync(utils.json_load(self.ident), self)
+                from pldl.playlist_dl import PlaylistDL
+                PlaylistDL._validate_metadata_config_sync(utils.json_load(self.ident), self)
 
         # cookies
         utils.assert_file(self.cookie_file, 'cookie_file', min_size=1, None_is_ok=True)

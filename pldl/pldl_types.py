@@ -10,6 +10,7 @@ __all__ = [  # noqa: RUF022
     'YT_DLP_DownloadArchive', 'YT_DLP_DownloadArchive_IDs',
 
     'CustomOuttmpl', 'PL_Resolved_CustomOuttmpl',
+    'Rel_PL_Resolved_CustomOuttmpl', 'Abs_PL_Resolved_CustomOuttmpl',
     'Metadata',
     
     'DL_Action', 'DL_Result',
@@ -48,7 +49,7 @@ type YT_DLP_Params = _Params
 
 
 # YT_DLP_InfoDict is `_InfoDict` copied from
-# .../.vscode/extensions/ms-python.vscode-pylance-XXXX.XX.XX/dist/typeshed-fallback/stubs/yt-dlp/yt_dlp/extractpr/common.pyi
+# .../.vscode/extensions/ms-python.vscode-pylance-XXXX.XX.XX/dist/typeshed-fallback/stubs/yt-dlp/yt_dlp/extractor/common.pyi
 # yt_dlp version 2026.07.01.235203
 class YT_DLP_InfoDict[ENTRY=YT_DLP_InfoDict](TypedDict, total=False):
     id: Required[str]
@@ -211,7 +212,8 @@ class PL_InfoLevel(IntEnum):
 
 
 # custom Types
-type YT_DLP_DownloadArchive = list[tuple[str, str]]
+type ExtractorKey = str
+type YT_DLP_DownloadArchive = list[tuple[ExtractorKey, V_ID]]
 type YT_DLP_DownloadArchive_IDs = list[V_ID]
 
 # outtmpl doesn't include Home,
@@ -241,6 +243,8 @@ class CustomOuttmpl(_CustomOuttmpl):
 
 class PL_Resolved_CustomOuttmpl(_CustomOuttmpl):
     Playlist: str
+class Rel_PL_Resolved_CustomOuttmpl(PL_Resolved_CustomOuttmpl): __type_hinting_rel_path: NotRequired[None]
+class Abs_PL_Resolved_CustomOuttmpl(PL_Resolved_CustomOuttmpl): __type_hinting_abs_path: NotRequired[None]
 
 _MetadataFiles_Lit = Literal['latest_flat_info', 'latest_pl_info', 'latest_merge_info', '_merge_flat']
 class _MetadataPointers(TypedDict, total=False):
@@ -256,7 +260,7 @@ assert set(get_args(_MetadataFiles_Lit)) == set(_MetadataPointers.__optional_key
 
 class Metadata(TypedDict):
     id: str
-    path_tmpls: PL_Resolved_CustomOuttmpl
+    path_tmpls: Rel_PL_Resolved_CustomOuttmpl
     pointers: _MetadataPointers
     
     history: PL_DownloadHistory
@@ -284,7 +288,7 @@ class DownloadInfo(TypedDict):
     title: str | None
     action: DL_Action
     result: DL_Result
-    errors: NotRequired[list[Exception]]
+    errors: NotRequired[list[str]]
 
 type PL_DownloadInfo = list[DownloadInfo]
 type PL_DownloadHistory = dict[READABLE_EPOCH_STR, PL_DownloadInfo]
