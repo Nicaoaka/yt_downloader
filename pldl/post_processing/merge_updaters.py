@@ -1,5 +1,5 @@
 """
-Signiture (Callable[[V_InfoDict|dict, str, Any|type[NO_VALUE], bool], bool]):
+MergeFieldUpdater (Callable[[V_InfoDict|dict, str, Any|type[NO_VALUE], bool], bool]):
 Args:
     Merged_V_InfoDict (V_InfoDict|dict):
     key (str):
@@ -16,7 +16,7 @@ from typing import Any
 
 from pldl.pldl_types import *
 
-type Signature = Callable[[V_InfoDict | dict, str, Any | type[NO_VALUE], bool], bool]
+type MergeFieldUpdater = Callable[[V_InfoDict | dict, str, Any | type[NO_VALUE], bool], bool]
 
 
 def no_update(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
@@ -60,8 +60,8 @@ def latest_not_none(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_lat
     return False
 
 
-def builder(k_to_func: dict[tuple[str, ...], Signature], default_func: Signature) -> Signature:
-    flattened: dict[str, Signature] = {}
+def builder(k_to_func: dict[tuple[str, ...], MergeFieldUpdater], default_func: MergeFieldUpdater) -> MergeFieldUpdater:
+    flattened: dict[str, MergeFieldUpdater] = {}
     for keys, func in k_to_func.items():
         for k in keys:
             if k in flattened:

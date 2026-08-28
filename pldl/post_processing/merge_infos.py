@@ -42,7 +42,7 @@ def _merge_v_infos(
     latest_epochs: defaultdict[str, float] = defaultdict(lambda: float('-inf'))
 
     # special keys
-    merge_info_level = yt_utils.get_v_info_level(merge_info)
+    merge_info_level = yt_utils.derive_v_info_level(merge_info)
     unavailable_msgs: list[UnavailableMsg] = []
 
     for v_info in yt_utils.copy_and_sanitize_info(v_infos):
@@ -75,7 +75,8 @@ def _merge_v_infos(
             # print(f"{k:<25}   {utils.color_bool(a)} {utils.color_bool(b)}   {utils.color_bool(a and b)}")
 
         # better_info
-        new_info_level = yt_utils.get_v_info_level(v_info)
+        # check new merge_info V_InfoLevel (affected by field_updater)
+        new_info_level = yt_utils.derive_v_info_level(merge_info, warn=False)
         if merge_info_level < new_info_level:
             merge_info['info_level'] = new_info_level.name
             if update_filter('info_level'):
@@ -124,7 +125,7 @@ def _merge_v_sort_key(v_info: V_InfoDict) -> int:
 def merge_v_infos(
         v_infos: list[V_InfoDict],
         field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool],
-        update_filter: Callable[[str], bool],
+        update_filter: Callable[[str], bool] = lambda _: False,
         _init_v_info: V_InfoDict|None = None,
         _init_v_timeline: V_MergeTimeline|None = None,
     ) -> tuple[V_InfoDict, V_MergeTimeline]:
@@ -169,7 +170,7 @@ def merge_v_infos(
         v_infos,
         field_updater,
         update_filter,
-        _init_v_info or {'info_level': V_InfoLevel.NONE.name}, # type: ignore - let 'id' show up in 'updates'
+        _init_v_info or {'id': v_infos[0]['id'], 'info_level': V_InfoLevel.NONE.name},
         _init_v_timeline or {})
 
 
@@ -197,6 +198,7 @@ def _get_v_infos(pl_v_ids: list[V_ID], pl_infos: list[PL_InfoDict], pl_index_to_
 
 def _merge_pl_infos(
         pl_infos: list[PL_InfoDict],
+        extra_v_infos: list[V_InfoDict],
         field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool],
         update_filter: Callable[[str], bool],
         _init_merge_info: PL_InfoDict|None,
@@ -211,6 +213,9 @@ def _merge_pl_infos(
     id_to_infos = _get_v_infos(
         V_ID_ORDER, pl_infos,
         pl_index_to_omit=(None if _init_merge_info is None else pl_infos.index(_init_merge_info)))
+
+    for v_info in extra_v_infos:
+        id_to_infos[v_info['id']].append(v_info)
 
     _init_id_to_infos: dict[V_ID, V_InfoDict] = {}
     if _init_merge_info: _init_id_to_infos = {entry['id']: entry for entry in _init_merge_info['entries']}
@@ -238,13 +243,14 @@ def _merge_pl_infos(
 
 def merge_pl_infos(
         pl_infos: list[PL_InfoDict],
+        extra_v_infos: list[V_InfoDict],
         field_updater: Callable[[V_InfoDict, str, Any|type[NO_VALUE], bool], bool],
         update_filter: Callable[[str], bool],
         _init_merge_info: PL_InfoDict|None = None,
 ) -> PL_InfoDict:
     """
     Args:
-        pl_infos (list[PL_InfoDict]): The source pl_infos. List input order does not matter becaduse sorting is done at the start.
+        pl_infos (list[PL_InfoDict]): The source pl_infos. List input order does not matter because sorting is done at the start.
             All pl_infos should have the same playlist id.
         field_updater (Callable[[Merged_V_InfoDict, key, value, is_latest], did_update]):
             Specify the policy for how fields should be updated (see `Updater` for examples).
@@ -274,7 +280,7 @@ def merge_pl_infos(
     def warn_non_init_merge():
         non_init_merge_infos = []
         for pl_info in pl_infos:
-            if yt_utils.get_pl_info_level(pl_info) == PL_InfoLevel.MERGE:
+            if yt_utils.derive_pl_info_level(pl_info) == PL_InfoLevel.MERGE:
                 non_init_merge_infos.append(pl_info)
         if non_init_merge_infos:
             from pldl.post_processing.reorder_infodict_keys import reorder_merge_info
@@ -288,4 +294,4 @@ def merge_pl_infos(
         pl_infos.append(_init_merge_info)
     pl_infos = sorted(pl_infos, key=yt_utils.get_epoch)
 
-    return _merge_pl_infos(pl_infos, field_updater, update_filter, _init_merge_info)
+    return _merge_pl_infos(pl_infos, extra_v_infos, field_updater, update_filter, _init_merge_info)

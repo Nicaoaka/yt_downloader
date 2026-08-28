@@ -194,6 +194,9 @@ def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str],
 ERR_TRUNC = 15
 UNKNOWN_IE_TRUNC = 15
 
+# TODO: YOU ARE WRONG!!!
+# just make claude do it or something given the V_MergeTimeline
+# bozo -b
 def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
     """
     Does not detect manipulation

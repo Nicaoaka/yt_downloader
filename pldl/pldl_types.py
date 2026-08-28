@@ -247,21 +247,23 @@ class Rel_PL_Resolved_CustomOuttmpl(PL_Resolved_CustomOuttmpl): __type_hinting_r
 class Abs_PL_Resolved_CustomOuttmpl(PL_Resolved_CustomOuttmpl): __type_hinting_abs_path: NotRequired[None]
 
 _MetadataFiles_Lit = Literal['latest_flat_info', 'latest_pl_info', 'latest_merge_info', '_merge_flat']
-class _MetadataPointers(TypedDict, total=False):
+type MetadataPointer = list[str|int]|tuple[str, int]|None
+type KnownMetadataPointer = list[str|int]|tuple[str, int]
+class MetadataPointers(TypedDict, total=False):
     """
     ### will be lists instead of tuples!
     Tuples are used for better type checking, and values should be handled *immutably* anyway.
     """
-    latest_flat_info:  tuple[str, int]|None
-    latest_pl_info:    tuple[str, int]|None
-    latest_merge_info: tuple[str, int]|None
-    _merge_flat:       tuple[str, int]|None
-assert set(get_args(_MetadataFiles_Lit)) == set(_MetadataPointers.__optional_keys__), "Must have same key names"
+    latest_flat_info:  MetadataPointer
+    latest_pl_info:    MetadataPointer
+    latest_merge_info: MetadataPointer
+    _merge_flat:       MetadataPointer
+assert set(get_args(_MetadataFiles_Lit)) == set(MetadataPointers.__optional_keys__), "Must have same key names"
 
 class Metadata(TypedDict):
     id: str
     path_tmpls: Rel_PL_Resolved_CustomOuttmpl
-    pointers: _MetadataPointers
+    pointers: MetadataPointers
     
     history: PL_DownloadHistory
 

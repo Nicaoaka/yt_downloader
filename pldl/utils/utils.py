@@ -370,7 +370,7 @@ def first_non_default(
 
 def position_to_index(position: int, len_: int) -> int:
     """
-    Get clamped positive equivelent index [0, len_].
+    Get clamped positive equivalent index [0, len_].
 
     Behavior:
 

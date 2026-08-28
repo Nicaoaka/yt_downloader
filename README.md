@@ -25,6 +25,11 @@ Note that the video id should already be in the loaded base info of the Playlist
 You can see the current states of v_infos based on the `_metadata.json`'s history or a merge pl_info.
 You can use `display_metadata_history` or `display_pl_merge_timeline`.
 
+If you care about the data, I recommend keeping `write_flat` and `write_raw_v_infos` True.
+The other info type files can be generated anytime later, although you will need to add the past raw_v_infos.
+Note, 1 copy of merge flat will always be written.
+This is for video order and never dropping videos without playlist manipulation.
+
 # Structure
 ```
 .

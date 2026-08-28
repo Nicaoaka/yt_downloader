@@ -7,7 +7,7 @@ __all__ = [  # noqa: RUF022
     'get_v_display',
 
     'extract_flat_info', 'download_video', 'download_video_generic',
-    'get_v_info_level', 'get_pl_info_level',
+    'derive_v_info_level', 'derive_pl_info_level',
 
     'ytdlp_eval_tmpl',
 
@@ -127,7 +127,7 @@ def extract_flat_info(pl_url_or_id: str, opts: YT_DLP_Params|None = None) -> PL_
     for entry in flat_info['entries']:
         entry.setdefault('epoch', flat_info.get('epoch', now))
         entry.setdefault('playlist_epoch', flat_info.get('epoch', now))
-        entry['info_level'] = V_InfoLevel.FLAT.name
+        entry['info_level'] = derive_v_info_level(entry).name
     return flat_info
 
 def download_video(
@@ -249,34 +249,41 @@ def _has_extracted_info(info: V_InfoDict | dict) -> bool:
 def _has_download_info(info: V_InfoDict | dict) -> bool:
     return bool(info.get("requested_downloads"))
 
-def get_v_info_level(v_info: V_InfoDict|dict|None) -> V_InfoLevel:
+def derive_v_info_level(v_info: V_InfoDict|dict|None, warn: bool = True) -> V_InfoLevel:
     if not v_info:
         return V_InfoLevel.NONE
 
-    # TODO: Should always derive info_level or use the kval?
-    info_level_name: str = v_info.get('info_level') or ''
-    if info_level_name.upper() in V_InfoLevel.__members__:
-        return V_InfoLevel[info_level_name.upper()]
-    
-    utils.WARNING(f"No 'info_level' key found for video id={v_info.get('id')}. Using heuristics . . .", caller_offset=1)
-    if _has_download_info(v_info):     return V_InfoLevel.DOWNLOAD
-    if _has_extracted_info(v_info):    return V_InfoLevel.EXTRACT
-    if _maybe_available_on_yt(v_info): return V_InfoLevel.FLAT
-    return V_InfoLevel.NONE
+    expected = v_info.get('info_level', None)
+    res = None
 
-def get_pl_info_level(pl_info: PL_InfoDict|dict|None) -> PL_InfoLevel:
+    if _has_download_info(v_info):     res = V_InfoLevel.DOWNLOAD
+    elif _has_extracted_info(v_info):    res = V_InfoLevel.EXTRACT
+    elif _maybe_available_on_yt(v_info): res = V_InfoLevel.FLAT
+    else: res = V_InfoLevel.NONE
+
+    if expected is not None and res.name != expected and warn:
+        utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching PL_InfoLevel: {expected = } != {res.name} = got")
+
+    return res
+
+def derive_pl_info_level(pl_info: PL_InfoDict|dict|None, warn: bool = True) -> PL_InfoLevel:
     if not pl_info:
         return PL_InfoLevel.NONE
 
-    # FIXME: Why does this not early return using 'info_level'
-
-    has_extracts = any(get_v_info_level(entry) >= V_InfoLevel.EXTRACT for entry in pl_info.get('entries', []))
+    expected = pl_info.get('info_level', None)
+    has_extracts = any(derive_v_info_level(entry) >= V_InfoLevel.EXTRACT for entry in pl_info.get('entries', []))
     has_merge_timeline = 'merge_timeline' in pl_info
+    res = None
     match has_extracts, has_merge_timeline:
-        case False, False: return PL_InfoLevel.FLAT
-        case False,  True: return PL_InfoLevel.MERGE_FLAT
-        case  True, False: return PL_InfoLevel.NORMAL
-        case  True,  True: return PL_InfoLevel.MERGE
+        case False, False: res = PL_InfoLevel.FLAT
+        case False,  True: res = PL_InfoLevel.MERGE_FLAT
+        case  True, False: res = PL_InfoLevel.NORMAL
+        case  True,  True: res = PL_InfoLevel.MERGE
+
+    if expected is not None and res.name != expected and warn:
+        utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching PL_InfoLevel: {expected = } != {res.name} = got")
+
+    return res
 
 
 
@@ -395,11 +402,12 @@ def _fixup_pl_v_infos(pl_info: PL_InfoDict):
     for i, entry in enumerate(pl_info['entries']):
         entry.update(get_pl_v_info(pl_info, i)) # type: ignore
 
+# TODO: why is the info_level wrong?
 def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
     pl_info['playlist_count'] = len(pl_info['entries'])
     if fixup_entries:
         _fixup_pl_v_infos(pl_info)
-    pl_info['info_level'] = get_pl_info_level(pl_info).name
+    pl_info['info_level'] = derive_pl_info_level(pl_info).name
 
 
 # Technical/transient errors that don't confirm if the video is unavailable.
