@@ -90,18 +90,18 @@ def v_dl_order_manip_builder(key: Callable[[V_InfoDict], SupportsRichComparison]
         return utils.sort_by_other(
             pos_infos,
             v_infos,
-            key=lambda tup: key(tup[0]),
+            key=lambda v_info: key(v_info),
             reverse=reverse)
     return v_dl_order_manip
 
 def wrapper_match_filter_builder(
     # these should never be 0, besides when quit_when_maxed is False 
-    max_extracts: float = float('inf'),
-    max_downloads: float = float('inf'),
-    max_fails: float = float('inf'),
+    max_extracts: float = 10,
+    max_downloads: float = 10,
+    max_fails: float = 1,
 
     # if True, not all unavailable vids will be seen and some overrides will not be reached
-    quit_when_maxed: bool = False,
+    quit_when_maxed: bool = True,
 
     download_match: Callable[[V_InfoDict], bool] = lambda v: (
                ((v.get('view_count') or 0) < 100_000) \
@@ -271,6 +271,8 @@ def wrapper_match_filter_builder(
         return DL_Action.SKIP
 
     return wrapper_match_filter
+
+default_wrapper_match_filter = wrapper_match_filter_builder()
 
 def default_field_updater(info: V_InfoDict|dict, k: str, v: Any|type[NO_VALUE], is_latest: bool) -> bool:
     from pldl.post_processing import merge_updaters
@@ -1152,7 +1154,7 @@ class PlaylistDL:
 
     def download_v_infos(
             self,
-            wrapper_match_filter: WrapperMatchFilter,
+            wrapper_match_filter: WrapperMatchFilter = default_wrapper_match_filter,
             order_manip: V_DL_OrderManip|None = None,
             write: bool|type[USE_CONFIG] = USE_CONFIG,
             cookiefile: bool|str|type[USE_CONFIG] = USE_CONFIG,
@@ -1682,7 +1684,8 @@ class PlaylistDL:
         display.metadata_history(self._metadata['history'], info, PlaylistDL.get_v_ids(info), include_urls)
         print()
 
-    def display_pl_merge_timeline(self, info: _InfosEntry[PL_InfoDict]|PL_InfoDict|None, include_urls: bool = True):
+    @staticmethod
+    def display_pl_merge_timeline(info: _InfosEntry[PL_InfoDict]|PL_InfoDict|None, include_urls: bool = True):
         if info is None:
             # allow None for caller's convenience
             utils.WARNING("Info is None")

@@ -12,7 +12,7 @@ Reordering was done using Claude
 
 from pldl import yt_utils
 from pldl.pldl_types import *
-from pldl.utils.utils import dict_reorder_keys
+from pldl.utils.utils import dict_reorder_keys, sort_by_other
 
 # from pldl.pldl_types import YT_DLP_InfoDict
 V_START = [
@@ -224,19 +224,13 @@ def reorder_pl_infodict(pl_info: PL_InfoDict):
 def reorder_merge_info(pl_info: PL_InfoDict):
     if 'merge_timeline' in pl_info:
         from pldl.post_processing.merge_infos import _merge_v_sort_key
-        for v_id, v_timeline in pl_info['merge_timeline'].items():
+        for v_timeline in pl_info['merge_timeline'].values():
             for timeline_entry in v_timeline.values():
                 dict_reorder_keys(timeline_entry, V_TIMELINE_ENTRY_ORDER)
-
-            mapped_v_timeline_keys: list[tuple[V_InfoDict, READABLE_EPOCH_STR]] = []
-            for r_epoch, entry in v_timeline.items():
-                mapped_v_timeline_keys.append(({
-                    'id': v_id,
-                    'epoch': yt_utils.from_readable_epoch(r_epoch), 
-                    'info_level': entry.get('info_level', V_InfoLevel.NONE.name) # default to ignoring info_level
-                }, r_epoch))
-            mapped_v_timeline_keys.sort(key=lambda info_tl_entry: _merge_v_sort_key(info_tl_entry[0]))
-            sorted_v_timeline_keys = [r_epoch for _, r_epoch in mapped_v_timeline_keys]
-            dict_reorder_keys(v_timeline, sorted_v_timeline_keys)
+            merge_order = sort_by_other(
+                list(v_timeline.keys()),
+                [(t.get('info_level'), yt_utils.from_readable_epoch(e)) for e, t in v_timeline.items()],
+                key=lambda args: _merge_v_sort_key(*args))
+            dict_reorder_keys(v_timeline, merge_order)
         dict_reorder_keys(pl_info['merge_timeline'], [entry['id'] for entry in pl_info['entries']])
     reorder_pl_infodict(pl_info)

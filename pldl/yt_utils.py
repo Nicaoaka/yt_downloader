@@ -263,9 +263,9 @@ def derive_v_info_level(v_info: V_InfoDict|dict|None, check: bool = True) -> V_I
 
     if expected is not None and res.name != expected and check:
         if res == V_InfoLevel.NONE and expected == 'FLAT':
-            utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching PL_InfoLevel: {expected = } != {res.name} = got (possibly old unavail flat detected hardcoded to FlAT)")
+            utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching V_InfoLevel: {expected = } != {res.name} = got (possibly old unavail flat detected hardcoded to FlAT)")
         else:
-            utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching PL_InfoLevel: {expected = } != {res.name} = got")
+            utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching V_InfoLevel: {expected = } != {res.name} = got")
 
     return res
 

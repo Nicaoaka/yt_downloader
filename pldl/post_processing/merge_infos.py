@@ -101,26 +101,39 @@ def _merge_v_infos(
 
     merge_info['unavailable_msgs'] = unavailable_msgs
 
+    # RfS3-3A57OY - why is FLAT missing
+    # qMuLtIC4w64 - why is it NONE and not FLAT
+    # if v_infos[0]['id'] == 'RfS3-3A57OY':
+    #     epoch = yt_utils.to_readable_epoch(utils.epoch_now())
+    #     utils.json_dump(v_infos,    f'merge_test/{epoch}.v_infos.json',         indent=2)
+    #     utils.json_dump(merge_info, f'merge_test/{epoch}.merge_v_infos.json',   indent=2)
+    #     utils.json_dump(v_timeline, f'merge_test/{epoch}.v_timeline.json',      indent=2)
+    #     import time
+    #     time.sleep(1)
+
     return merge_info, v_timeline
 
-def _merge_v_sort_key(v_info: V_InfoDict) -> int:
+def _merge_v_sort_key(info_level: V_InfoLevel|str|None, epoch: int) -> int:
+    if info_level is None:
+        info_level = V_InfoLevel.NONE
+    try:
+        if isinstance(info_level, str):
+            info_level = V_InfoLevel[info_level]
+    except KeyError:
+        info_level = V_InfoLevel.NONE
+    
+    LARGE_TIME_DELTA = 10**12 # ~31,688 years
+    return (info_level.value * LARGE_TIME_DELTA) + epoch
+
+def _merge_v_sort_key_from_v_info(v_info: V_InfoDict|dict) -> int:
     """
     sort by 'info_level' then 'epoch'
     
     [V_InfoLevel: large int] [epoch: int]
     """
-    epoch = yt_utils.get_epoch(v_info)
-    try:
-        info_level = V_InfoLevel[v_info.get('info_level', V_InfoLevel.NONE.name)]
-    except KeyError:
-        info_level = V_InfoLevel.NONE
-    except Exception as e:  # noqa: BLE001
-        utils.WARNING(f"Unexpected error:\n{utils.format_exception(e)}")
-        info_level = V_InfoLevel.NONE
-
-    # assumes all values of V_InfoLevel are >= 0
-    LARGE_TIME_DELTA = 10**12 # ~31,688 years
-    return (info_level.value * LARGE_TIME_DELTA) + epoch
+    return _merge_v_sort_key(
+        v_info.get('info_level', V_InfoLevel.NONE.name),
+        yt_utils.get_epoch(v_info))
 
 def merge_v_infos(
         v_infos: list[V_InfoDict],
@@ -157,7 +170,7 @@ def merge_v_infos(
 
     v_infos = utils.dedup(v_infos, id)
 
-    v_infos = sorted(v_infos, key=_merge_v_sort_key)
+    v_infos = sorted(v_infos, key=_merge_v_sort_key_from_v_info)
 
     # DEBUG: Shows v_info order
     # print(v_infos[0]['id'], v_infos[0].get('title'))

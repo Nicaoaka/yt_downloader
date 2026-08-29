@@ -194,9 +194,8 @@ def _print_per_id(pl_info: PL_InfoDict, v_ids: list[V_ID], id_prints: list[str],
 ERR_TRUNC = 15
 UNKNOWN_IE_TRUNC = 15
 
-# TODO: YOU ARE WRONG!!!
-# just make claude do it or something given the V_MergeTimeline
-# bozo -b
+
+
 def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
     """
     Does not detect manipulation
@@ -204,11 +203,19 @@ def _v_merge_timeline(v_tl: V_MergeTimeline) -> tuple[str, str]:
     Creates rows like:
      n  yt  EXTR   yt|wa  FAIL  
     """
+    from pldl.post_processing import merge_infos
+
     v_info_level = V_InfoLevel.NONE
     res: str = V_INFO_LEVEL[v_info_level].rendered
     had_fails = False
-    for readable_epoch in sorted(v_tl.keys(), key=yt_utils.from_readable_epoch):
-        entry = v_tl[readable_epoch]
+
+    merge_order = utils.sort_by_other(
+        list(v_tl.values()),
+        [(t.get('info_level'), yt_utils.from_readable_epoch(e)) for e, t in v_tl.items()],
+        key=lambda args: merge_infos._merge_v_sort_key(*args)
+    )
+
+    for entry in merge_order:
 
         if entry.get('unavailable'):
             excs = []
@@ -244,7 +251,7 @@ def _pl_merge_timeline(pl_info: PL_InfoDict, v_ids: list[V_ID], warn_not_found: 
         if v_id in _results:
             continue
         if v_id not in pl_ids:
-            if warn_not_found: _results[v_id] = (utils.WARNING(f"{v_id} - not found", auto_print=False), None)
+            if warn_not_found: _results[v_id] = (utils.WARNING(f"{v_id} - not found", auto_print=False), utils.WARN_COLOR)
             else:              _results[v_id] = ('', None)
             continue
         _results[v_id] = _v_merge_timeline(pl_info.get('merge_timeline', {}).get(v_id, {}))

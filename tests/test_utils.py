@@ -1,6 +1,8 @@
 import unittest
+
 from pldl.utils.utils import *
 from pldl.yt_utils import *
+
 
 class Tests(unittest.TestCase):
 
@@ -39,11 +41,11 @@ class Tests(unittest.TestCase):
         self.assertEqual(has_content(""), False)
         self.assertEqual(has_content([]), False)
         self.assertEqual(has_content(set()), False)
-        self.assertEqual(has_content(dict()), False)
+        self.assertEqual(has_content({}), False)
         self.assertEqual(has_content([set()]), False)
-        self.assertEqual(has_content([dict()]), False)
+        self.assertEqual(has_content([{}]), False)
         self.assertEqual(has_content([[[[[[[]]]]]]]), False)
-        self.assertEqual(has_content([[], [dict()], [], set()]), False)
+        self.assertEqual(has_content([[], [{}], [], set()]), False)
 
         # any dict
         self.assertEqual(has_content('x'), True)
@@ -119,14 +121,14 @@ class Tests(unittest.TestCase):
             sort_by_other(
                 [1,2,3,4],
                 [{'x': 4}, {'x': 3}, {'x': 2}, {}],
-                key=lambda x: x[0].get('x', 1)),
+                key=lambda x: x.get('x', 1)),
             [4,3,2,1])
         
         self.assertListEqual(
             sort_by_other(
                 [1,2,3,4],
                 [{'x': 4}, {'x': 3}, {'x': 2}, {}],
-                key=lambda x: x[0].get('x', 1),
+                key=lambda x: x.get('x', 1),
                 reverse=True),
             [1,2,3,4])
 
