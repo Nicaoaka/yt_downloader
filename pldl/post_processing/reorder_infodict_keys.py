@@ -10,8 +10,12 @@ This is based on keys from `pldl_types` and `pldl_type_extensions`
 Reordering was done using Claude
 """
 
+from collections.abc import MutableMapping
+from typing import Any
+
 from pldl import yt_utils
 from pldl.pldl_types import *
+from pldl.utils import utils
 from pldl.utils.utils import dict_reorder_keys, sort_by_other
 
 # from pldl.pldl_types import YT_DLP_InfoDict
@@ -234,3 +238,8 @@ def reorder_merge_info(pl_info: PL_InfoDict):
             dict_reorder_keys(v_timeline, merge_order)
         dict_reorder_keys(pl_info['merge_timeline'], [entry['id'] for entry in pl_info['entries']])
     reorder_pl_infodict(pl_info)
+
+def reorder_by_readable_epoch(d: MutableMapping[READABLE_EPOCH_STR, Any]):
+    keys = list(d.keys())
+    order = utils.sort_by_other(keys, keys, key=yt_utils.from_readable_epoch)
+    dict_reorder_keys(d, order)

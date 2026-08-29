@@ -1707,7 +1707,7 @@ class PlaylistDL:
         self.write_info(self._infos._merge_flat, collision_policy='rm old', delete_prev=True)
 
     def write_metadata_file(self):
-        # TODO: Reorder 'history' keys by date
+        reorder_infodict_keys.reorder_by_readable_epoch(self._metadata['history'])
         utils.json_dump(self._metadata, self._pl_outtmpls['metadata'], on_collision='rm old')
         print(utils.hex(f"Updated metadata: {self._pl_outtmpls['metadata']}", fg="#637f86"))
 
