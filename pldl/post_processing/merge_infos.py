@@ -76,7 +76,7 @@ def _merge_v_infos(
 
         # better_info
         # check new merge_info V_InfoLevel (affected by field_updater)
-        new_info_level = yt_utils.derive_v_info_level(merge_info, warn=False)
+        new_info_level = yt_utils.derive_v_info_level(merge_info, check=False)
         if merge_info_level < new_info_level:
             merge_info['info_level'] = new_info_level.name
             if update_filter('info_level'):

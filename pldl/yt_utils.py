@@ -166,7 +166,7 @@ def download_video(
                 if _info is None:
                     return None, errors, True # already downloaded
                 info.update(_info) # type: ignore
-                info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
+                info['info_level'] = derive_v_info_level(info, check=False).name
                 return info, errors, True
         except DownloadError as yt_err:
             # info['yt_unavailable_msg'] = yt_err.msg
@@ -185,7 +185,7 @@ def download_video(
                 if _info is None:
                     return None, errors, True # already downloaded
                 info.update(_info) # type: ignore
-                info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
+                info['info_level'] = derive_v_info_level(info, check=False).name
                 return info, errors, True
         except DownloadError as wa_err:
             # info['wa_unavailable_msg'] = wa_err.msg
@@ -197,12 +197,12 @@ def download_video(
             errors.append(wa_err)
         except Exception as e:  # noqa: BLE001 - catch any yt_dlp exception
             errors.append(e)
-    info['info_level'] = V_InfoLevel.NONE.name
+    info['info_level'] = derive_v_info_level(info, check=False).name
     return info, errors, False
 
 def download_video_generic(url: str, opts: YT_DLP_Params, download: bool) -> tuple[V_InfoDict|None, Exception|DownloadError|None, bool]:
     """
-    Tries to downlaod the video given the url using yt_dlp
+    Tries to download the video given the url using yt_dlp
     Returns the resulting infodict and the download info
     """
     info: V_InfoDict = {'info_level': V_InfoLevel.NONE} # type: ignore - init
@@ -228,7 +228,7 @@ def download_video_generic(url: str, opts: YT_DLP_Params, download: bool) -> tup
     
     if not info:
         return (None, None, True)
-    info['info_level'] = (V_InfoLevel.DOWNLOAD if download else V_InfoLevel.EXTRACT).name
+    info['info_level'] = derive_v_info_level(info, check=False).name
     return (info, None, True)
 
 
@@ -249,24 +249,27 @@ def _has_extracted_info(info: V_InfoDict | dict) -> bool:
 def _has_download_info(info: V_InfoDict | dict) -> bool:
     return bool(info.get("requested_downloads"))
 
-def derive_v_info_level(v_info: V_InfoDict|dict|None, warn: bool = True) -> V_InfoLevel:
+def derive_v_info_level(v_info: V_InfoDict|dict|None, check: bool = True) -> V_InfoLevel:
     if not v_info:
         return V_InfoLevel.NONE
 
     expected = v_info.get('info_level', None)
     res = None
 
-    if _has_download_info(v_info):     res = V_InfoLevel.DOWNLOAD
+    if _has_download_info(v_info):       res = V_InfoLevel.DOWNLOAD
     elif _has_extracted_info(v_info):    res = V_InfoLevel.EXTRACT
     elif _maybe_available_on_yt(v_info): res = V_InfoLevel.FLAT
     else: res = V_InfoLevel.NONE
 
-    if expected is not None and res.name != expected and warn:
-        utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching PL_InfoLevel: {expected = } != {res.name} = got")
+    if expected is not None and res.name != expected and check:
+        if res == V_InfoLevel.NONE and expected == 'FLAT':
+            utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching PL_InfoLevel: {expected = } != {res.name} = got (possibly old unavail flat detected hardcoded to FlAT)")
+        else:
+            utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching PL_InfoLevel: {expected = } != {res.name} = got")
 
     return res
 
-def derive_pl_info_level(pl_info: PL_InfoDict|dict|None, warn: bool = True) -> PL_InfoLevel:
+def derive_pl_info_level(pl_info: PL_InfoDict|dict|None, check: bool = True) -> PL_InfoLevel:
     if not pl_info:
         return PL_InfoLevel.NONE
 
@@ -280,7 +283,7 @@ def derive_pl_info_level(pl_info: PL_InfoDict|dict|None, warn: bool = True) -> P
         case  True, False: res = PL_InfoLevel.NORMAL
         case  True,  True: res = PL_InfoLevel.MERGE
 
-    if expected is not None and res.name != expected and warn:
+    if expected is not None and res.name != expected and check:
         utils.WARNING(f"[from {utils.get_caller_function()}] Mismatching PL_InfoLevel: {expected = } != {res.name} = got")
 
     return res
@@ -398,16 +401,19 @@ def get_pl_v_info(pl_info: PL_InfoDict, v_idx: int):
         'playlist_epoch': get_epoch(pl_info)
     }
 
+def fixup_v_info(v_info: V_InfoDict):
+    v_info['info_level'] = derive_v_info_level(v_info, check=False).name
+
 def _fixup_pl_v_infos(pl_info: PL_InfoDict):
     for i, entry in enumerate(pl_info['entries']):
         entry.update(get_pl_v_info(pl_info, i)) # type: ignore
+        fixup_v_info(entry)
 
-# TODO: why is the info_level wrong?
 def fixup_pl_info(pl_info: PL_InfoDict, fixup_entries: bool = True):
     pl_info['playlist_count'] = len(pl_info['entries'])
     if fixup_entries:
         _fixup_pl_v_infos(pl_info)
-    pl_info['info_level'] = derive_pl_info_level(pl_info).name
+    pl_info['info_level'] = derive_pl_info_level(pl_info, check=False).name
 
 
 # Technical/transient errors that don't confirm if the video is unavailable.
@@ -484,7 +490,7 @@ def get_latest_epoch(pl_info: PL_InfoDict) -> int:
 # note: yt-dlp can handle 0 and negative epochs. It just keeps going into the past.
 def to_readable_epoch(epoch: int) -> str:
     # low epochs can be invalid because of timezones.
-    # So, exclue the first 24 hours from the start of the epoch
+    # So, exclude the first 24 hours from the start of the epoch
 
     is_negative = epoch < 0
 

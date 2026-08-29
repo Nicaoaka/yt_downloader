@@ -829,7 +829,6 @@ class PlaylistDL:
     def load(self, info_type: pldl_types._MetadataFiles_Lit, default: type[utils.RAISE_EXC] = utils.RAISE_EXC) -> PL_InfoDict: ...
     @overload
     def load[T](self, info_type: pldl_types._MetadataFiles_Lit, default: T) -> PL_InfoDict|T: ...
-
     def load[T](self, info_type: pldl_types._MetadataFiles_Lit, default: T|type[utils.RAISE_EXC] = utils.RAISE_EXC) -> PL_InfoDict|T:
         if info_type not in pldl_types.MetadataPointers.__optional_keys__:
             raise ValueError(f"Unknown {info_type = }")
@@ -1365,8 +1364,6 @@ class PlaylistDL:
 
         return merge_info_entry
 
-
-
     # 
     # Manipulation
     # Primarily effects base_info
@@ -1669,8 +1666,6 @@ class PlaylistDL:
             self._infos._merge_flat.data, v_id,
             update_str=f'<MOVE from={old_index+1} to={index+1}>')
 
-
-
     # 
     # Display
     # 
@@ -1700,8 +1695,6 @@ class PlaylistDL:
                 " ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\n")
         display.pl_merge_timeline(info, PlaylistDL.get_v_ids(info), include_urls, warn_not_found=True)
         print()
-
-
 
     # 
     # Cleanup
