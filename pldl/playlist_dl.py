@@ -95,22 +95,19 @@ def v_dl_order_manip_builder(key: Callable[[V_InfoDict], SupportsRichComparison]
     return v_dl_order_manip
 
 def wrapper_match_filter_builder(
-    # these should never be 0, besides when quit_when_maxed is False 
-    max_extracts: float = 10,
-    max_downloads: float = 10,
-    max_fails: float = 1,
+    max_extracts: float = 10,  # >= 0
+    max_downloads: float = 10, # >= 0
+    max_fails: float = 1,      # >= 1
 
-    # if True, not all unavailable vids will be seen and some overrides will not be reached
+    # if True, keep going through videos hitting all overrides
     quit_when_maxed: bool = True,
 
-    download_match: Callable[[V_InfoDict], bool] = lambda v: (
-               ((v.get('view_count') or 0) < 100_000) \
-            and (v.get('duration') or 0) <=  5 * 60),
+    download_match: Callable[[V_InfoDict], bool] = lambda v_info: (v_info.get('view_count') or 0) < 1_000_000,
     extract_match: Callable[[V_InfoDict], bool]|None = None,
 
     overrides: dict[DL_Action, Iterable[V_ID]] | None = None,
 
-    # will always quit if a 403 happens in the current session, unless set to None.
+    # will always quit if a 403 happens in the current session, unless set to 0.
     # does this belong in PlaylistDL_Config?
     http_403_backoff_time: int = 3 * 24 * 3600,
     fail_backoff_time: int = 7 * 24 * 3600,
@@ -132,7 +129,7 @@ def wrapper_match_filter_builder(
     if max_fails < 1:       raise ValueError(f"max_fails must be >= 1 (got: {max_fails})")
 
     if max_downloads == max_extracts == 0:
-        utils.WARNING("max_downloads and max_extracts are 0, will SKIP all videos by default without quitting.")
+        utils.WARNING("max_downloads and max_extracts are 0, only overrides will be used.")
 
     if http_403_backoff_time < 0: raise ValueError("Use 0 to indicate no backoff time.")
     if fail_backoff_time < 0: raise ValueError("Use 0 to indicate no backoff time.")
@@ -153,7 +150,6 @@ def wrapper_match_filter_builder(
     def latest_http_403_error_epoch(history: PL_DownloadHistory) -> float:
         """ `float('-inf')` means http_403 was not found """
         # TODO: This should be a function/property of PlaylistDL
-        # FIXME: Maybe sort keys to return early
         res = float('-inf')
         for readable_epoch, pl_dl_info in history.items():
             if pl_dl_info_had_http_403_error(pl_dl_info):
@@ -161,6 +157,9 @@ def wrapper_match_filter_builder(
                 res = epoch if res is None else max(res, epoch)
         return res
 
+    def should_backoff(timestamp: float, backoff_time: float) -> bool:
+        elapsed = utils.epoch_now() - timestamp
+        return backoff_time >= elapsed
 
     def wrapper_match_filter(
         pl_v_info: V_InfoDict,
@@ -173,24 +172,22 @@ def wrapper_match_filter_builder(
         
         nonlocal _checked_http_403_backoff, _print        
 
-
-        if http_403_backoff_time is not None:
+        if http_403_backoff_time > 0:
             if not _checked_http_403_backoff:    
                 _checked_http_403_backoff = True # checked once on first pass
 
                 latest_http_403 = latest_http_403_error_epoch(history)
                 time_since_latest_403 = utils.epoch_now() - latest_http_403
-                if time_since_latest_403 < http_403_backoff_time:
-                    _print("Signs of rate limiting (http_403) in history at "
-                           + yt_utils.to_readable_epoch(int(latest_http_403))
-                           + f" (delta = {time_since_latest_403} seconds)")
+                if should_backoff(latest_http_403, http_403_backoff_time):
+                    _print(f"[403] HTTP 403 in history at "
+                           f"{yt_utils.to_readable_epoch(int(latest_http_403))} "
+                           f"({time_since_latest_403}s ago, backoff={http_403_backoff_time}s) -> QUIT")
                     return DL_Action.QUIT
             
             # new dl_info's are appended to the end of curr_dl_info 
             if curr_pl_dl_info and dl_info_had_http_403_error(curr_pl_dl_info[-1]):
-                _print("Signs of rate limiting (HTTP 403)")
+                _print("[403] HTTP 403 in current session -> QUIT")
                 return DL_Action.QUIT
-
         
         curr_pl_dl_ids = yt_utils.ids_from_pl_download_info(curr_pl_dl_info)
 
@@ -200,23 +197,23 @@ def wrapper_match_filter_builder(
 
         if quit_when_maxed:
             if DL_IS_MAXED and max_downloads != 0:
-                _print(f"Maxed downloads ({max_downloads})")
+                _print(f"[MAX] downloads {len(curr_pl_dl_ids['download'])}/{max_downloads} -> QUIT")
                 return DL_Action.QUIT
             if EXT_IS_MAXED and max_extracts != 0:
-                _print(f"Maxed extract ({max_extracts})")
+                _print(f"[MAX] extracts {len(curr_pl_dl_ids['extract'])}/{max_extracts} -> QUIT")
                 return DL_Action.QUIT
             if FAIL_IS_MAXED:
-                _print(f"Maxed fails ({max_fails})")
+                _print(f"[MAX] fails {len(curr_pl_dl_ids['fail'])}/{max_fails} -> QUIT")
                 return DL_Action.QUIT
 
         v_id = pl_v_info['id']
         likely_unavailable = pl_v_info.get('view_count') in (0, None)
 
-        # See DL_Action definition for order (order is top to bottom)
-        # A v_id should only appear in one dl_action in the override anyway
+        # A v_id should only appear in once among all overrides
+        # On ties, see DL_Action definition for order (iteration is top to bottom)
         for action in DL_Action:
             if v_id in overrides.get(action, []):
-                _print(f"{action} override")
+                _print(f"[OVERRIDE] {v_id} -> {action.name}")
                 return action
 
         # Skip if failed and still in the backoff time
@@ -231,7 +228,8 @@ def wrapper_match_filter_builder(
                     continue
 
                 if not ignore_ambiguous_dl_errors:
-                    _print(f"Previous fail at {epoch!r}\n\t{dl_info.get('errors')}")
+                    _print(f"[FAIL] prior failure at {epoch!r} (ambiguous, not ignored): "
+                           f"{dl_info.get('errors')} -> SKIP")
                     return DL_Action.SKIP
 
                 for e in dl_info.get('errors', []):
@@ -240,7 +238,9 @@ def wrapper_match_filter_builder(
                         case 'youtube': yt_err = (epoch, str(e))
                         case 'web.archive:youtube': wa_err = (epoch, str(e))
                 if yt_err and wa_err:
-                    _print(f"Previous fails:\nyt: {yt_err}\nwa: {wa_err}")
+                    _print(f"[FAIL] errors on both yt and web.archive -> SKIP\n"
+                           f"       yt: {yt_err}\n"
+                           f"       wa: {wa_err}")
                     return DL_Action.SKIP
 
 
@@ -248,28 +248,47 @@ def wrapper_match_filter_builder(
         # download takes priority
         # unavailable ignores maxes
 
-        if v_id not in history_ids['download'] or v_id not in ytdlp_ids:
-            # not affected by download max
-            if yt_unavailable_action == DL_Action.DOWNLOAD and likely_unavailable:
-                _print("likely unavailable is DOWNLOAD")
-                return DL_Action.DOWNLOAD
-            if not DL_IS_MAXED and download_match(pl_v_info):
-                _print("download match")
-                return DL_Action.DOWNLOAD
+        ALREADY_DL = v_id in history_ids['download'] or v_id in ytdlp_ids
+        ALREADY_EXT = v_id in history_ids['extract']
+        candidates = (
+            (DL_Action.DOWNLOAD, ALREADY_DL, DL_IS_MAXED, download_match),
+            (DL_Action.EXTRACT, ALREADY_EXT, EXT_IS_MAXED, extract_match),
+        )
 
+        skip_reasons = []
+        def _flush_skip_reasons():
+            if skip_reasons:
+                _print(f"[SKIP] {v_id}: " + "; ".join(skip_reasons))
+        for action, already_done, is_maxed, match_fn in candidates:
+            tag = action.name
 
-        if v_id not in history_ids['extract']:
-            # not affected by extract max
-            if yt_unavailable_action == DL_Action.EXTRACT and likely_unavailable:
-                _print("likely unavailable is EXTRACT")
-                return DL_Action.EXTRACT
-            if not EXT_IS_MAXED and extract_match(pl_v_info):
-                _print("extract match")
-                return DL_Action.EXTRACT
+            if already_done:
+                skip_reasons.append(f"{tag} already done")
+                continue
+            if is_maxed:
+                skip_reasons.append(f"{tag} maxed")
+                continue
 
+            if yt_unavailable_action == action and likely_unavailable:
+                _flush_skip_reasons()
+                _print(f"[{tag}] view_count={pl_v_info.get('view_count')!r} (likely unavailable), "
+                       f"yt_unavailable_action={action.name} -> {tag}")
+                return action
 
+            if match_fn(pl_v_info):
+                _flush_skip_reasons()
+                if hasattr(match_fn, '__name__') and match_fn.__name__ != '<lambda>':
+                    _match_fn_name = match_fn.__name__
+                else:
+                    _match_fn_name = f'<{tag.lower()} match_fn>'
+                _print(f"[{tag}] matched {_match_fn_name} -> {tag}")
+                return action
+            
+            skip_reasons.append(f"{tag} no match")
+
+        _flush_skip_reasons()
         return DL_Action.SKIP
-
+    
     return wrapper_match_filter
 
 default_wrapper_match_filter = wrapper_match_filter_builder()
@@ -987,7 +1006,7 @@ class PlaylistDL:
         self._infos.raw_v_infos.data.append(v_infos)
         self._infos.raw_v_infos.is_written = False
         if write:
-            self.write_info(self._infos.raw_v_infos, collision_policy='rm old', alt_info=alt_info)
+            self.write_info(self._infos.raw_v_infos, collision_policy='rm old', alt_info=alt_info, _name='raw_v_infos')
         for v_info in v_infos:
             self._update_merge_flat_with_v_info(v_info)
 
@@ -1009,7 +1028,7 @@ class PlaylistDL:
             opts=self.opts | {
                 'cookiefile': cookiefile if isinstance(cookiefile, str) else \
                               self._config.cookie_file if \
-                                (cookiefile is USE_CONFIG and self._config.cookies_for_vids) or \
+                                (cookiefile is USE_CONFIG and self._config.cookies_for_pl) or \
                                 bool(cookiefile) else \
                               None,
                 'download_archive': None}) # download flat info even if in yt-dlp archive
