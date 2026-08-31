@@ -305,6 +305,8 @@ def merge_pl_infos(
 
     if _init_merge_info and _init_merge_info not in pl_infos:
         pl_infos.append(_init_merge_info)
-    pl_infos = sorted(pl_infos, key=yt_utils.get_epoch)
+
+    # newest to oldest (highest priority to lowest)
+    pl_infos = sorted(pl_infos, key=yt_utils.get_epoch, reverse=True)
 
     return _merge_pl_infos(pl_infos, extra_v_infos, field_updater, update_filter, _init_merge_info)
