@@ -15,29 +15,40 @@ you need to get your YouTube Cookies. The way I do it is through this chrome ext
 
 See the `example.py` file.
 
-Create a config using the `PlaylistDL_Config` dataclass.
+Create a config of general settings using the `PlaylistDL_Config` dataclass.
 Feed this into the PlaylistDL class.
-In general, you can just call `.download()` to download and make files based on the config.
 
-If a video is *only* found outside of youtube/webarchive, use `.download_v_info_generic()` prior to `.download()`.
-Note that the video id should already be in the loaded base info of the PlaylistDL instance.
+If you are downloading videos, use `.download_v_infos()` or `.download_v_info_generic()`.
+`.download_v_infos()` will try to download from YouTube, or the webarchive (Internet Archive) if the video was unavailable.
+This will iterate through all videos in the playlist, so it requires a match filter.
+You can make a custom one or fill in params to `wrapper_match_filter_builder()` (the name comes from the yt-dlp opt 'match_filter').
 
-You can see the current states of v_infos based on the `_metadata.json`'s history or a merge pl_info.
-You can use `display_metadata_history` or `display_pl_merge_timeline`.
+If you find a video outside of YouTube and webarchive, use `.download_v_info_generic()` to handle any URL yt-dlp supports.
 
-If you care about the data, I recommend keeping `write_flat` and `write_raw_v_infos` True.
+The playlist can be manipulated using `.remove_video()`, `.insert_video()`, `.replace_video()`, and `.move_video()`.
+
+You can see the current states of v_infos based on the `_metadata.json`'s history or the \_merge_info.json file.
+You can also use `.display_metadata_history()` or `.display_pl_merge_timeline()` to show the state of the playlist.
+
+If you care about the infodicts, keep `write_flat` and `write_raw_v_infos` set to True in the config.
 The other info type files can be generated anytime later, although you will need to add the past raw_v_infos.
-Note, 1 copy of merge flat will always be written.
-This is for video order and never dropping videos without playlist manipulation.
 
 # Structure
 ```
 .
-├── .gitignore                          
-├── README.md                           
-├── cli_to_api.py                       Get API opts from cli (yt-dlp is mainly a CLI).
-├── example.py                          Example usage file.
-├── pldl                                
+├── pldl
+│   ├── post_processing                 
+│   │   ├── __init__.py                 
+│   │   ├── filters.py                  Basic filtering utils
+│   │   ├── merge_infos.py              Merge pl/v_info
+│   │   ├── merge_updaters.py           Update templates and builder for merge_infos.py
+│   │   ├── (_number_videos.py)         NOT WORKING - would add playlist number to files to order
+│   │   │                                them in a file explorer. Follows user-defined format.
+│   │   └── reorder_infodict_keys.py    Reorders keys in dicts for dumping to json
+│   ├── utils                           
+│   │   ├── __init__.py                 
+│   │   ├── merge_ordered_lists.py      Playlist v_id conflict resolution, for merge_infos.py
+│   │   └── utils.py                    Helpers that don't have dependencies
 │   ├── __init__.py                     
 │   ├── config.py                       PlaylistDL config structure (PlaylistDL_Config)
 │   ├── display.py                      Printing structured data
@@ -45,22 +56,8 @@ This is for video order and never dropping videos without playlist manipulation.
 │   ├── pldl_type_extensions.py         More specific types. Useful if you know the extractors
 │   │                                    and want type hinting.
 │   ├── pldl_types.py                   Most of the types used throughout the repo.
-│   │                                    (except InfoLevel which are in yt_utils.py)
-│   ├── yt_utils.py                     All helpers that are related to pldl in particular or
-│   │                                    depend on YoutubeDL
-│   ├── post_processing                 
-│   │   ├── __init__.py                 
-│   │   ├── filters.py                  
-│   │   ├── merge_infos.py              Merge pl/v_info
-│   │   ├── merge_updaters.py           Updaters for merge_infos.py
-│   │   │                                (could be moved to merge_infos.py)
-│   │   ├── (_number_videos.py)         NOT WORKING - would add playlist number to files to order
-│   │   │                                them in a file explorer. Follows user-defined format.
-│   │   └── reorder_infodict_keys.py    Reorders keys in dicts for dumping to json
-│   └── utils                           
-│       ├── __init__.py                 
-│       ├── merge_ordered_lists.py      Playlist v_id resolution
-│       └── utils.py                    Helpers that don't have dependencies
+│   └── yt_utils.py                     All helpers that are related to pldl in particular or
+│                                       depend on YoutubeDL
 ├── tests                               
 │   ├── __init__.py                     
 │   ├── manual_merge_info_tests.py      (code written for testing)
@@ -68,7 +65,11 @@ This is for video order and never dropping videos without playlist manipulation.
 │   ├── manual_sanitize_test.py         (code written for testing)
 │   ├── test_merge_ordered_lists.py     For `pldl.utils.merge_ordered_lists.py`
 │   └── test_utils.py                   For `pldl.utils.utils.py`
-└── secrets                             
-    └── cookie_file.txt                 Your cookie file. This should be empty besides
-                                         when you are actually using it.
+├── secrets                             
+│   └── cookie_file.txt                 Your cookie file. This should be empty besides
+│                                        when you are actually using it.
+├── .gitignore                          
+├── README.md                           
+├── cli_to_api.py                       Get API opts from cli (yt-dlp is mainly a CLI).
+└── example.py                          Example usage file.
 ```    
