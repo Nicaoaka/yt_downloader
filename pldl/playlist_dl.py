@@ -342,13 +342,11 @@ class PlaylistDL:
             
             case Config_IdentType.METADATA_PATH:
                 metadata: Metadata = utils.json_load(self._config.ident)
-                preference_order: list[pldl_types._MetadataFiles_Lit] = [
-                    '_merge_flat', 'latest_flat_info', 'latest_pl_info', 'latest_merge_info'
-                ]
-                pointers: list[tuple[str, int]|None] = [metadata['pointers'].get(k) for k in preference_order]
-                for p in pointers:
-                    if p is not None and not self._need_refresh(p[1]):
-                        info: PL_InfoDict = utils.json_load(os.path.join(self._config.home, p[0]))
+                _merge_flat_pointer: pldl_types.MetadataPointer|None = metadata['pointers'].get('_merge_flat', None)
+                if _merge_flat_pointer is not None:
+                    rel_path, epoch = _merge_flat_pointer
+                    if not self._need_refresh(epoch):
+                        info: PL_InfoDict = utils.json_load(os.path.join(self._config.home, rel_path))
                         return info, False
                 return extract_flat(metadata['id']), True
             
@@ -602,20 +600,23 @@ class PlaylistDL:
         self._yt_dlp_archive = PlaylistDL._load_yt_archive(self._pl_outtmpls['yt_dlp_archive'])
         PlaylistDL._validate_dl_archive_sync(self._yt_dlp_archive, self._metadata, self._pl_outtmpls['yt_dlp_archive'])
 
-        # initialize self._infos
+        # initialize defaults for required self._infos
 
         self._infos.raw_v_infos = _InfosEntry([],
             self._pl_outtmpls['raw_video_infojson'],
             is_written=False, metadata_key=None)
 
-        # load and set _merge_flat
-        self._update_merge_flat_with_pl_info(init_info, warn_no_init_merge=False)
+        if not self._infos._merge_flat and (data := self.load('_merge_flat', None)):
+            self._infos._merge_flat = _InfosEntry(
+                data, self._pl_outtmpls['_merged_flat_infojson'],
+                is_written=True, metadata_key='_merge_flat')
 
         if init_is_latest_flat:
+            # also updates _merge_flat (correctly)
             self.add_raw_flat_info(
                 yt_utils.copy_and_sanitize_info(init_info),
                 self._config.write_raw_flat, warn_no_init_merge=False)
-        
+    
     def __init__(self, config: PlaylistDL_Config) -> None:
         # note: __close__ is not called if __init__ fails.
 
@@ -640,8 +641,6 @@ class PlaylistDL:
 
         if self._infos.raw_flat is None and self._config.force_flat_extract:
             self.extract_flat_info()
-
-
 
     # 
     # API functions

@@ -247,8 +247,7 @@ class Rel_PL_Resolved_CustomOuttmpl(PL_Resolved_CustomOuttmpl): __type_hinting_r
 class Abs_PL_Resolved_CustomOuttmpl(PL_Resolved_CustomOuttmpl): __type_hinting_abs_path: NotRequired[None]
 
 _MetadataFiles_Lit = Literal['latest_flat_info', 'latest_pl_info', 'latest_merge_info', '_merge_flat']
-type MetadataPointer = list[str|int]|tuple[str, int]|None
-type KnownMetadataPointer = list[str|int]|tuple[str, int]
+type MetadataPointer = list|tuple[str, int]|None # loaded/stored as list
 class MetadataPointers(TypedDict, total=False):
     """
     ### will be lists instead of tuples!
