@@ -216,6 +216,10 @@ def _merge_pl_infos(
         update_filter: Callable[[str], bool],
         _init_merge_info: PL_InfoDict|None,
 ) -> PL_InfoDict:
+    """
+    `pl_infos` should be in highest to lowest priority order.
+    For example newest to oldest: highest to lowest `epoch`.
+    """
     
     V_ID_ORDER = merge_ordered_lists(
         [[entry['id']
@@ -234,7 +238,7 @@ def _merge_pl_infos(
     if _init_merge_info: _init_id_to_infos = {entry['id']: entry for entry in _init_merge_info['entries']}
 
     # set all playlist-only keys, except merge_timeline.
-    merge_info: PL_InfoDict = {k: v for k, v in yt_utils.copy_and_sanitize_info(pl_infos[-1]).items()
+    merge_info: PL_InfoDict = {k: v for k, v in yt_utils.copy_and_sanitize_info(pl_infos[0]).items()
                                if k not in {'entries', 'merge_timeline'}} # type: ignore - init
     merge_entries: list[V_InfoDict] = merge_info.setdefault('entries', [])
     merge_timeline: PL_MergeTimeline = merge_info.setdefault('merge_timeline', {})
@@ -250,7 +254,9 @@ def _merge_pl_infos(
         
         merge_entries.append(merge_entry)
         merge_timeline[v_id] = v_timeline
-    
+
+    # should always be the latest
+    merge_info['epoch'] = max((yt_utils.get_epoch(pl) for pl in pl_infos), default=yt_utils.DEFAULT_EPOCH())
     yt_utils.fixup_pl_info(merge_info)
     return merge_info
 
