@@ -83,6 +83,16 @@ class USE_CONFIG(utils.FalsySentinel):
 # (might fit better in config.py, not sure)
 # 
 
+DEBUG_FG = {
+    "FAIL": "#ff5c4d",
+    "403": "#ff8a3d",
+    "MAX": "#e0c33d",
+    "OVERRIDE": "#b48cf0",
+    "DOWNLOAD": "#6a9955",
+    "EXTRACT": "#4ec9b0",
+    "SKIP_REASON": "#5c5c5c",
+}
+
 def v_dl_order_manip_builder(key: Callable[[V_InfoDict], SupportsRichComparison] = lambda _: 1, reverse: bool = False) -> V_DL_OrderManip:
     """ Uses key to sort the video infos """
     def v_dl_order_manip(pos_infos: list[tuple[int, V_InfoDict]]):
@@ -134,7 +144,7 @@ def wrapper_match_filter_builder(
     if http_403_backoff_time < 0: raise ValueError("Use 0 to indicate no backoff time.")
     if fail_backoff_time < 0: raise ValueError("Use 0 to indicate no backoff time.")
 
-    _print = lambda s: print(utils.hex('>', fg="#FF9F21"), utils.hex(s, fg="#FFC478")) if debug else \
+    _print = lambda *args, **kwargs: print(*args, **kwargs) if debug else \
              lambda *args, **kwargs: None
 
     def dl_info_had_http_403_error(dl_info: DownloadInfo):
@@ -170,7 +180,7 @@ def wrapper_match_filter_builder(
         ytdlp_ids: YT_DLP_DownloadArchive_IDs,
     ) -> DL_Action:
         
-        nonlocal _checked_http_403_backoff, _print        
+        nonlocal _checked_http_403_backoff, _print
 
         if http_403_backoff_time > 0:
             if not _checked_http_403_backoff:    
@@ -179,14 +189,18 @@ def wrapper_match_filter_builder(
                 latest_http_403 = latest_http_403_error_epoch(history)
                 time_since_latest_403 = utils.epoch_now() - latest_http_403
                 if should_backoff(latest_http_403, http_403_backoff_time):
-                    _print(f"[403] HTTP 403 in history at "
-                           f"{yt_utils.to_readable_epoch(int(latest_http_403))} "
-                           f"({time_since_latest_403}s ago, backoff={http_403_backoff_time}s) -> QUIT")
+                    _print(utils.hex(
+                        f"[403] HTTP 403 in history at "
+                        f"{yt_utils.to_readable_epoch(int(latest_http_403))} "
+                        f"({time_since_latest_403:,}s ago, backoff={http_403_backoff_time:,}s) -> QUIT",
+                        fg=DEBUG_FG['403']))
                     return DL_Action.QUIT
             
             # new dl_info's are appended to the end of curr_dl_info 
             if curr_pl_dl_info and dl_info_had_http_403_error(curr_pl_dl_info[-1]):
-                _print("[403] HTTP 403 in current session -> QUIT")
+                _print(utils.hex(
+                    "[403] HTTP 403 in current session -> QUIT",
+                    fg=DEBUG_FG['403']))
                 return DL_Action.QUIT
         
         curr_pl_dl_ids = yt_utils.ids_from_pl_download_info(curr_pl_dl_info)
@@ -197,13 +211,19 @@ def wrapper_match_filter_builder(
 
         if quit_when_maxed:
             if DL_IS_MAXED and max_downloads != 0:
-                _print(f"[MAX] downloads {len(curr_pl_dl_ids['download'])}/{max_downloads} -> QUIT")
+                _print(utils.hex(
+                    f"[MAX] downloads {len(curr_pl_dl_ids['download'])}/{max_downloads} -> QUIT",
+                    fg=DEBUG_FG['MAX']))
                 return DL_Action.QUIT
             if EXT_IS_MAXED and max_extracts != 0:
-                _print(f"[MAX] extracts {len(curr_pl_dl_ids['extract'])}/{max_extracts} -> QUIT")
+                _print(utils.hex(
+                    f"[MAX] extracts {len(curr_pl_dl_ids['extract'])}/{max_extracts} -> QUIT",
+                    fg=DEBUG_FG['MAX']))
                 return DL_Action.QUIT
             if FAIL_IS_MAXED:
-                _print(f"[MAX] fails {len(curr_pl_dl_ids['fail'])}/{max_fails} -> QUIT")
+                _print(utils.hex(
+                    f"[MAX] fails {len(curr_pl_dl_ids['fail'])}/{max_fails} -> QUIT",
+                    fg=DEBUG_FG['MAX']))
                 return DL_Action.QUIT
 
         v_id = pl_v_info['id']
@@ -213,7 +233,9 @@ def wrapper_match_filter_builder(
         # On ties, see DL_Action definition for order (iteration is top to bottom)
         for action in DL_Action:
             if v_id in overrides.get(action, []):
-                _print(f"[OVERRIDE] {v_id} -> {action.name}")
+                _print(utils.hex(
+                    f"[OVERRIDE] {v_id} -> {action.name}",
+                    fg=DEBUG_FG['OVERRIDE']))
                 return action
 
         # Skip if failed and still in the backoff time
@@ -228,8 +250,10 @@ def wrapper_match_filter_builder(
                     continue
 
                 if not ignore_ambiguous_dl_errors:
-                    _print(f"[FAIL] prior failure at {epoch!r} (ambiguous, not ignored): "
-                           f"{dl_info.get('errors')} -> SKIP")
+                    _print(utils.hex(
+                        f"[FAIL] prior failure at {epoch!r} (ambiguous, not ignored): "
+                        f"{dl_info.get('errors')} -> SKIP",
+                        fg=DEBUG_FG['FAIL']))
                     return DL_Action.SKIP
 
                 for e in dl_info.get('errors', []):
@@ -238,9 +262,11 @@ def wrapper_match_filter_builder(
                         case 'youtube': yt_err = (epoch, str(e))
                         case 'web.archive:youtube': wa_err = (epoch, str(e))
                 if yt_err and wa_err:
-                    _print(f"[FAIL] errors on both yt and web.archive -> SKIP\n"
-                           f"       yt: {yt_err}\n"
-                           f"       wa: {wa_err}")
+                    _print(utils.hex(
+                        f"[FAIL] found errors for yt and web.archive -> SKIP\n"
+                        f"       yt: {yt_err}\n"
+                        f"       wa: {wa_err}",
+                        fg=DEBUG_FG['FAIL']))
                     return DL_Action.SKIP
 
 
@@ -258,7 +284,9 @@ def wrapper_match_filter_builder(
         skip_reasons = []
         def _flush_skip_reasons():
             if skip_reasons:
-                _print(f"[SKIP] {v_id}: " + "; ".join(skip_reasons))
+                _print(utils.hex(
+                    f"[SKIP] {v_id}: " + "; ".join(skip_reasons),
+                    fg=DEBUG_FG['SKIP_REASON']))
         for action, already_done, is_maxed, match_fn in candidates:
             tag = action.name
 
@@ -271,8 +299,9 @@ def wrapper_match_filter_builder(
 
             if yt_unavailable_action == action and likely_unavailable:
                 _flush_skip_reasons()
-                _print(f"[{tag}] view_count={pl_v_info.get('view_count')!r} (likely unavailable), "
-                       f"yt_unavailable_action={action.name} -> {tag}")
+                _print(utils.hex(
+                    f"[{action.name}] view_count={pl_v_info.get('view_count')!r} (likely unavailable) -> {action.name}",
+                    fg=DEBUG_FG[action.name]))
                 return action
 
             if match_fn(pl_v_info):
@@ -281,7 +310,9 @@ def wrapper_match_filter_builder(
                     _match_fn_name = match_fn.__name__
                 else:
                     _match_fn_name = f'<{tag.lower()} match_fn>'
-                _print(f"[{tag}] matched {_match_fn_name} -> {tag}")
+                _print(utils.hex(
+                    f"[{action.name}] matched {_match_fn_name}",
+                    fg=DEBUG_FG[action.name]))
                 return action
             
             skip_reasons.append(f"{tag} no match")
