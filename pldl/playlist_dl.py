@@ -822,9 +822,9 @@ class PlaylistDL:
 
             if newer_or_same:
                 self._metadata['pointers'][info.metadata_key] = pointer
-                if delete_prev and (prev_pointer := self._metadata['pointers'].get(info.metadata_key)):
+                if delete_prev and prev_pointer[0]:
                     stale_path = os.path.join(self._config.home, prev_pointer[0])
-                    if pointer[0] != prev_pointer[0] and os.path.exists(stale_path):
+                    if os.path.exists(stale_path) and not os.path.samefile(stale_path, dst):
                         os.unlink(stale_path)
                         print(utils.hex(f"Removed {ident or '\b'}: {stale_path}", fg="#ff60bd"))
             else:
@@ -1779,4 +1779,3 @@ class PlaylistDL:
     
     def __exit__(self, *args):
         self.close()
-    
