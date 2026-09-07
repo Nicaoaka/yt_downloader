@@ -176,4 +176,68 @@ def test_from_real():
     utils.json_dump(res, 'merge-test/output.json', 'rm old', indent=4)
 
 # test_merge_unavailable_msgs()
-test_from_real()
+# test_from_real()
+
+from pldl import *
+
+_config = PlaylistDL_Config(
+
+    # ident=r'data/Lists 8/Liked_list_min_flat.json',
+    # ident_type=Config_IdentType.PL_INFO_PATH,
+    ident=r'data/Lists 8/The Verge of Impossibility [...3Cfmpjqm-Pa]/_metadata.json',
+    ident_type=Config_IdentType.METADATA_PATH,
+    home='data/Lists 8',
+
+    # cookie_file='secrets/cookie_file.txt',
+    # empty_cookies=True,
+    
+    write_raw_flat=True,
+    write_raw_v_infos=True,
+
+    refresh_after = float('inf'),
+    force_flat_extract=False,
+
+    _no_yt_dlp_downloads=True,
+)
+
+v_dl_match_filter = wrapper_match_filter_builder(
+    max_downloads = 0,
+    max_extracts = 0,
+    max_fails = 1,
+    quit_when_maxed = True,
+
+    download_match = lambda v: False,
+    extract_match = lambda v: False,
+
+    overrides = {
+        DL_Action.USER:     [],
+        DL_Action.QUIT:     [],
+        DL_Action.SKIP:     [],
+        DL_Action.EXTRACT:  [],
+        DL_Action.DOWNLOAD: [],
+    },
+
+    http_403_backoff_time = 0,
+    fail_backoff_time = 7 * 24 * 3600,
+    ignore_ambiguous_dl_errors = True,
+
+    yt_unavailable_action = DL_Action.SKIP,
+
+    debug=True)
+
+PlaylistDL.display_pl_merge_timeline(utils.json_load('data/Lists 8/Liked videos [LL]/2026-08-24 00-18-02.merge.json'))
+
+import os
+with PlaylistDL(_config) as pldl:
+
+    # d = r'C:\Users\nicol\Videos\yt-dlp\Liked videos [LL]\_flat'
+    # for f in os.listdir(d):
+    #     pldl.add_raw_flat_info(utils.json_load(os.path.join(d, f)), write=False)
+    # d = r'C:\Users\nicol\Videos\yt-dlp\Liked videos [LL]\_v_infos'
+    # for f in os.listdir(d):
+    #     pldl.add_raw_v_infos(utils.json_load(os.path.join(d, f)), pl_dl_info=None, write=False)
+    # pldl.make_pl_info(write=True)
+    merge_info = pldl.make_merge_info(True)
+    pldl.display_pl_merge_timeline(merge_info)
+    pldl.display_metadata_history()
+

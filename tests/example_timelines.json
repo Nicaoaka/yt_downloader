@@ -1,0 +1,158 @@
+{
+  "idsd6slpG78": {
+    "2026-08-13__20-33-09": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m unable to download video data: HTTP Error 403: Forbidden"
+      ]
+    },
+    "2026-08-13__20-33-10": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m [web.archive:youtube] idsd6slpG78: The requested video is not archived or indexed"
+      ]
+    },
+    "2026-08-20__20-00-21": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m Postprocessing: Conversion failed!"
+      ]
+    },
+    "2026-08-20__20-00-23": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m [web.archive:youtube] idsd6slpG78: The requested video is not archived or indexed"
+      ]
+    },
+    "2026-08-20__20-04-18": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m Postprocessing: Conversion failed!"
+      ]
+    },
+    "2026-08-20__20-04-19": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m [web.archive:youtube] idsd6slpG78: The requested video is not archived or indexed"
+      ]
+    },
+    "2026-08-20__20-10-03": {
+      "info_level": "FLAT",
+      "better_info": "NONE -> FLAT",
+      "updates": {
+        "title": "Hatsune Miku - Overthinking (Lyric Video) | HOSHINOHA",
+        "availability": "public",
+        "uploader_id": "@hoshinoha",
+        "channel": "HOSHINOHA",
+        "uploader": "HOSHINOHA"
+      }
+    },
+    "2026-08-20__20-10-04": {
+      "info_level": "DOWNLOAD",
+      "better_info": "FLAT -> DOWNLOAD",
+      "updates": {
+        "tags": "['hoshinoha', 'miku', 'miku new songs', 'miku hatsune', 'miku canciones', 'miku new song', 'miku new song 2026', 'new miku songs playlist', 'new miku songs 2026', 'best new miku songs', 'hatsune miku', 'hatsune miku levan polka', 'hatsune miku world is mine', 'hatsune miku popipo', 'hatsune miku around the world', 'hatsune miku v6', 'hatsune miku project diva', 'yellow magic orchestra', 'yellow magic orchestra tong poo', 'yellow magic orchestra full album', 'yellow magic orchestra album', 'vocaloid', 'vocaloid new songs', '67']",
+        "extractor": "youtube",
+        "categories": "['Music']",
+        "description": "Overthinking · HOSHINOHA\n\n© 2026 HOSHINOHA\n\nProducer: HOSHINOHA\nComposer Lyricist: HOSHINOHA\nVisuals: Menma (Enaic31)\nVocals: 初音ミク / Hatsune Miku v2\n\n[Lyrics]\n\nI just want\nTo stay still for a moment\nAnd close my eyes\nTo rest my exhausted mind\n\nPlease, just shut up\nJust shut up, I'm an insomniac now, way too exhausted\nI want to dig a hole and bury all the noise that bothers me, it's too much\n\nI just want\nTo stay asleep for a moment\nWith my eyes closed\nAnd never wake up again \n\nPlease, just shut up\nJust shut up, I'm an insomniac now, way too exhausted\nI want to dig a hole and bury all the noise that bothers me, it's too much\n\nPlease, just shut up\nJust shut up, I'm an insomniac now, way too exhausted\nI want to dig a hole and bury all the noise that bothers me, it's too much\n\n#vocaloid #初音ミク #hatsunemiku"
+      }
+    }
+  },
+  "rGDim_zxiqQ": {
+    "2026-08-22__18-01-45": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m [youtube] rGDim_zxiqQ: Video unavailable. It was removed following a copyright removal request by Sony Music Entertainment (Japan) Inc."
+      ]
+    },
+    "2026-08-22__18-01-54": {
+      "info_level": "NONE",
+      "updates": {
+        "uploader": "Essi",
+        "title": "ReoNa - nainai (ないない) | 𝐋𝐢𝐯𝐞 『LisAni 2022』"
+      }
+    },
+    "2026-08-22__18-01-55": {
+      "info_level": "DOWNLOAD",
+      "better_info": "NONE -> DOWNLOAD",
+      "updates": {
+        "description": "#ReoNa #ReoNaLive\n\nReoNa official YouTube channel\nhttps://www.youtube.com/channel/UCyUhtF50BuUjr2jOhxF3IjQ\nReoNa YouTube\nhttps://www.youtube.com/channel/UCDGKZdgRlP__KOCgC58WeWA\nReoNa Twitter\nhttps://twitter.com/xoxleoxox\nReoNa FanClub\nhttps://reonafc.com/",
+        "extractor": "web.archive:youtube"
+      }
+    }
+  },
+  "x5PZVROWgYM": {
+    "2026-08-14__02-00-24": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m Postprocessing: Conversion failed!"
+      ]
+    },
+    "2026-08-14__02-00-25": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m [web.archive:youtube] x5PZVROWgYM: The requested video is not archived or indexed"
+      ]
+    },
+    "2026-08-20__20-13-14": {
+      "info_level": "FLAT",
+      "better_info": "NONE -> FLAT",
+      "updates": {
+        "title": "村人S - z²",
+        "availability": "public",
+        "uploader_id": "@zezeni2",
+        "channel": "z²",
+        "uploader": "z²"
+      }
+    },
+    "2026-08-20__20-13-15": {
+      "info_level": "DOWNLOAD",
+      "better_info": "FLAT -> DOWNLOAD",
+      "updates": {
+        "tags": "[]",
+        "extractor": "youtube",
+        "categories": "['Music']",
+        "release_year": "2026",
+        "description": "私ってこんな人間じゃない。\n\nz² 2nd album 『 2000 』\n\n[ 収録曲 ]\n1. 2000\n2. 赤点ガール\n3. 村人S\n4. di# amond\n5. Cross\n6. Unfair\n7. クリスタルゾンビ\n8. WHITE & BLUE\n\n▼2nd album 『 2000 』 🎧🪽\n【Streams】https://linkco.re/ZYUp5CPn\n\n◾︎ music / vocal / mix : z² \n【X】https://twitter.com/zz_zeze2\n【Instagram】https://instagram.com/zz_zeze2\n\n︎◾︎ mastering : baKe\n【X】https://twitter.com/bake_000\n\n◾︎ movie : 404\n【X】https://twitter.com/40_4x\n\n◾︎ art : ひなのめ めろ\n【X】https://twitter.com/mer0_xchan \n\n◾︎ prod : Omamurin\n\n\n【 村人S 】\n\nTake a brake\nAh it’s kind of hard to express myself well nowadays in my way\nOh take a seat\nAh 跳ね返されてゆく感情\n村人Sにも気を向けて\n\nWhat if you最悪な事態が頭をよぎって\n(No no that is not how)\nSelfish 頑固な私はどこに行ったんだ\n(No no)帰ってきてよ\n\n強がるのもバカらしくなってきた\n目の際でチラついてるのやな事\nもうずっと 心パンク\nねぇ、一生このままでいいの？\n正直もう飽き飽きだろこんなの\n\nどうして\nAh 子供この頃は素直なの？ねぇなんで？\nOh大人になって言葉を覚えたのが悪いの？\n余計なことインプットしてきちゃった私がダメなの？\n\nScared of it 片鱗のこる怯えた感情\n(No no that is not how)\nSelfish 頑固な私はどこに行ったんだ\n(No no)帰ってきてよ\n\n強がるのもバカらしくなってきた\n目の際でチラついてるのやな事\nもうずっと 心パンク\nねぇ、一生このままでいいの？\n正直もう飽き飽きだろこんなの\n\n\n◾︎ other posts\n\nhttps://youtu.be/owR_w4xWQi4?si=m7IMuWhoqYFEz5TL\n\nhttps://youtu.be/Gb0kFjSgbe8?si=2HUYeKu5b-2Gyqli\n\nhttps://youtu.be/0TIhmER1aw0?si=ynAG5d7HZ3YI4mtB\n\n #z² #村人S"
+      }
+    }
+  },
+  "kZBOjcLA8nk": {
+    "2026-08-22__18-12-32": {
+      "info_level": "FLAT",
+      "better_info": "NONE -> FLAT",
+      "updates": {
+        "title": "Flicker (깜빡) (feat. 닉왈) / youra┃Cover by 이연₊˚♡⑅⁺‧",
+        "availability": "public",
+        "uploader_id": "@Eyeon224",
+        "channel": "이연",
+        "uploader": "이연"
+      }
+    },
+    "2026-08-22__18-12-33": {
+      "info_level": "DOWNLOAD",
+      "better_info": "FLAT -> DOWNLOAD",
+      "updates": {
+        "tags": "['이연', '이연 노래', '이연순', '우타이테', '이연 우타이테']",
+        "extractor": "youtube",
+        "categories": "['Music']",
+        "description": "* 이어폰 사용을 권장해드립니다 ｡•◡•｡♡\n\n❀Vocal :: 이연 (@E_yeon224), 닉왈 (@Nikuwaru_)\n❀Mix :: 닉왈\n❀Original :: https://youtu.be/P5g15bHBxXM\n\n닉왈님과 '깜빡' 불러보았습니다. \n곡 분위기에 유의하며 작업했어요 XD\n좋은 감상 되시길 바랍니다!\n\n[Comment]\n닉왈 \n항상 좋은 작업 제안 주시는 이연님께 감사드리고 들어주신 분들 모두 즐거운 하루 되세요~!! 이연님 음색 최고....\n\n⋆。˚ ♡ ₊˚ ෆᕱ⑅ᕱෆ ₊˚ ♡ ˚ 。⋆\n\nMail⑅⁺‧ e_yeon224@naver.com\nTwitch⑅⁺‧ https://www.twitch.tv/e_yeon​\nInstagram⑅⁺‧ https://www.instagram.com/2_yeon___/​\nTwitter⑅⁺‧  https://twitter.com/E_yeon224​\nSoundcloud⑅⁺‧ https://soundcloud.com/favfwmc1g1pv​\n\n#Flicker #깜빡 #youra"
+      }
+    }
+  },
+  "fuanpbPZFlk": {
+    "2026-08-20__19-57-20": {
+      "info_level": "FLAT",
+      "better_info": "NONE -> FLAT",
+      "updates": {
+        "uploader_id": "@ryokodesu97",
+        "channel": "ryoko",
+        "uploader": "ryoko",
+        "title": "【りょ子】小夜子/Evening Child -acoustic ver.-  を歌ってみた"
+      }
+    }
+  },
+  "C5uMV-iK3Ps": {
+    "2026-08-22__18-11-31": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m [youtube] C5uMV-iK3Ps: Video unavailable. This video is no longer available because the YouTube account associated with this video has been terminated."
+      ]
+    },
+    "2026-08-22__18-11-34": {
+      "unavailable": [
+        "\u001b[0;31mERROR:\u001b[0m [web.archive:youtube] C5uMV-iK3Ps: The requested video is not archived or indexed"
+      ]
+    }
+  }
+}
