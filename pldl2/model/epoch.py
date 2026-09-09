@@ -1,123 +1,149 @@
 """
-Time. **Ints are canonical; ISO-8601 local strings with an explicit offset are readable.**
+Time. **Ints are canonical; ISO-8601 local strings with timezone are readable.**
 
-Every durable timestamp is stored as both: `epoch` (unambiguous, sortable, arithmetic-safe)
-and `at` (standard, human-readable, and in your timezone). Keeping both is what lets the
-record be read by eye without any of the old ambiguity, because **the offset travels with
-each timestamp** -- so DST is correct without touching a path template.
+Every timestamp is stored as both: `epoch` (unambiguous, sortable, arithmetic-safe) and `at`
+(standard, human-readable, and in your timezone). ISO-8601 is used instead of a custom
+template because it includes timezone and is equally readable.
 
-What this replaces, and why each mattered:
+`Epoch` is an `int` subclass, so it sorts, compares and serializes exactly like the raw ints
+that arrive in yt-dlp payloads, while carrying the conversions as properties. Arithmetic on
+one returns a plain `int`; wrap the result if you need the properties back.
 
-  - `to_readable_epoch` / `from_readable_epoch` used local wall-clock with no offset, so the
-    two epochs an hour apart in the DST fall-back hour produce the same string and the
-    reverse mapping keeps only the first. Those strings were **dict keys in files that are
-    never rewritten**, so history rows and timeline entries from that hour merged into one
-    bucket and backoff arithmetic was 3600s off for them (issue-1 #17, reproduced on this
-    machine: 1793520600 and 1793524200 both give '2026-11-01__01-10-00').
-  - The path templates hardcoded `epoch-25200`, with a comment admitting "This will need
-    adjusting if you have daylight savings". `datetime.astimezone()` reads the *actual*
-    offset in force at that instant, so half the year stops being an hour wrong.
-
-The legacy readers are kept for exactly one caller, store/migrate.py, and are not part of
-the v2 vocabulary.
+The legacy readers are kept for exactly one caller, store/migrate.py.
 """
 from __future__ import annotations
 
-__all__ = [
+__all__ = [  # noqa: RUF022
+    'Epoch',
     'epoch_now',
     'get_epoch', 'get_latest_epoch',
-    'to_iso', 'from_iso',
-    'to_file_stamp', 'FILE_STAMP_FMT',
-    'to_legacy_key', 'from_legacy_key', 'LEGACY_KEY_FMT', 'MALFORMED_EPOCH_FMT',
+    'to_iso', 'from_iso', 'to_file_stamp',
+    'FILE_STAMP_FMT',
+    'v1_to_readable_epoch', 'v1_from_readable_epoch',
+    'LEGACY_KEY_FMT', 'MALFORMED_EPOCH_FMT',
 ]
 
 import datetime
 import re
 import time
-from typing import Any
+from typing import Any, Final, Self
 
-FILE_STAMP_FMT = '%Y-%m-%d %H-%M-%S'
-"""Local readable time for filenames. Matches what v1 wrote, so sorted globs still work."""
-
-LEGACY_KEY_FMT = '%Y-%m-%d__%H-%M-%S'
-"""v1's dict-key format for `history` and `merge_timeline`. Read-only, for the migrator."""
-
-MALFORMED_EPOCH_FMT = '{} (malformed)'
-"""v1 wrapped unusable epochs in this. Read-only, for the migrator."""
+FILE_STAMP_FMT: Final = '%Y-%m-%d %H-%M-%S'
+"""Local readable time for filenames. Chosen so a lexicographic sort is chronological."""
 
 
-def epoch_now() -> int:
-    return int(time.time())
+class Epoch(int):
+    """A point in time: Unix seconds, with the conversions attached.
+
+    Being an `int` subclass is the point. It compares and sorts against the raw epochs in
+    yt-dlp payloads, `json.dumps` writes it as a number with no encoder, and `isinstance(x,
+    int)` stays true, so it is substitutable anywhere a plain epoch was expected.
+    """
+
+    __slots__ = ()
+
+    @classmethod
+    def now(cls) -> Self:
+        return cls(time.time())
+
+    @classmethod
+    def from_iso(cls, at: str) -> Self:
+        """`2026-08-29T15:24:56-07:00` -> Epoch"""
+        return cls(datetime.datetime.fromisoformat(at).timestamp())
+
+    @property
+    def local(self) -> datetime.datetime:
+        """An aware local datetime, for any epoch a 64-bit int can hold.
+
+        Built in UTC and then converted rather than via a naive `fromtimestamp(epoch)`. The
+        naive form asks the platform to render local time directly and raises OSError on
+        Windows for epochs near 0, because in a negative-offset zone the local time falls
+        before 1970. `astimezone()` attaches the local offset *as it was at that instant*, so
+        DST is accounted for without any fixed offset in a template.
+        """
+        return datetime.datetime.fromtimestamp(self, tz=datetime.UTC).astimezone()
+
+    @property
+    def iso(self) -> str:
+        """`2026-08-29T15:24:56-07:00`. The canonical readable form."""
+        return self.local.isoformat()
+
+    @property
+    def file_stamp(self) -> str:
+        """`2026-08-29 15-24-56`, for readable filenames.
+
+        **Ambiguous by design**: it carries no offset, so the two instants an hour apart in
+        the DST fall-back hour produce the same stamp. That is acceptable for a filename,
+        where a collision is visible and resolvable at write time, and unacceptable for a key,
+        which is why nothing is keyed by it. store/ disambiguates; never treat it as an id.
+        """
+        return self.local.strftime(FILE_STAMP_FMT)
+
+    def __repr__(self) -> str:
+        return f'Epoch({int(self)} = {self.iso})'
 
 
-def get_epoch(info: Any, default: int = 0) -> int:
-    """An info's own epoch.
+def epoch_now() -> Epoch:
+    return Epoch.now()
 
-    v1 used `-epoch_now()` as the "not found" value, so a missing epoch became a large
-    negative number that still compared and sorted like a real one. Here the default is
-    explicit and the caller picks it.
+
+def _raw_epoch(info: Any) -> int | None:
+    """An infodict's `epoch` when it holds a usable number, else None.
+
+    `bool` is excluded deliberately: it is an `int` subclass, so `True` would otherwise read
+    as the epoch 1.
     """
     value = info.get('epoch') if hasattr(info, 'get') else None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return default
+        return None
     return int(value)
 
 
-def get_latest_epoch(pl_info: Any, default: int = 0) -> int:
+def get_epoch(info: Any, default: int = 0) -> Epoch:
+    """Get an infodict's own epoch."""
+    value = _raw_epoch(info)
+    return Epoch(default if value is None else value)
+
+
+def get_latest_epoch(pl_info: Any, default: int = 0) -> Epoch:
     """Max epoch across a playlist infodict and its entries."""
-    epochs = [get_epoch(pl_info, default=None)]  # type: ignore[arg-type]
-    for entry in (pl_info.get('entries') or []):
-        epochs.append(get_epoch(entry, default=None))  # type: ignore[arg-type]
-    found = [e for e in epochs if e is not None]
-    return max(found) if found else default
+    entries = pl_info.get('entries') if hasattr(pl_info, 'get') else None
+    found = [e for e in (_raw_epoch(info) for info in (pl_info, *(entries or ())))
+             if e is not None]
+    return Epoch(max(found) if found else default)
 
 
-# ------------------------------------------------------------------ canonical pair --
-
-def _local(epoch: int) -> datetime.datetime:
-    """Epoch -> an aware local datetime, for any epoch a 64-bit int can hold.
-
-    Built in UTC and then converted, rather than via a naive `fromtimestamp(epoch)`. The
-    naive form asks the platform to render local time directly and **raises OSError on
-    Windows for epochs near 0**, because in a negative-offset zone the local time falls
-    before 1970. That is the real reason v1 carried a MALFORMED_EPOCH_FMT wrapper and a
-    "low epochs can be invalid because of timezones" guard; converting through UTC is
-    arithmetic on an aware datetime and has no such hole.
-    """
-    return datetime.datetime.fromtimestamp(epoch, tz=datetime.UTC).astimezone()
-
+# ---- conversions for raw ints ----
 
 def to_iso(epoch: int) -> str:
-    """Epoch -> '2026-08-29T15:24:56-07:00'.
-
-    `astimezone()` attaches the local zone's offset *as it was at that instant*, which is
-    what makes this DST-correct and round-trippable.
-    """
-    return _local(epoch).isoformat()
+    """Epoch -> `2026-08-29T15:24:56-07:00`"""
+    return Epoch(epoch).iso
 
 
-def from_iso(at: str) -> int:
-    """'2026-08-29T15:24:56-07:00' -> epoch. Exact inverse of to_iso()."""
-    return int(datetime.datetime.fromisoformat(at).timestamp())
+def from_iso(at: str) -> Epoch:
+    """`2026-08-29T15:24:56-07:00` -> Epoch"""
+    return Epoch.from_iso(at)
 
-
-# --------------------------------------------------------------------- filenames --
 
 def to_file_stamp(epoch: int) -> str:
-    """Epoch -> '2026-08-29 15-24-56', for readable filenames.
-
-    **Not injective**, and deliberately so: it stays readable and matches v1's filenames, at
-    the cost of two instants one hour apart in the DST fall-back hour producing the same
-    stamp. That is fine here and was not fine for v1's dict keys, because a filename
-    collision is visible and resolvable at write time, whereas a silently merged dict key is
-    neither. store/ is responsible for disambiguating; nothing may treat this as an id.
-    """
-    return _local(epoch).strftime(FILE_STAMP_FMT)
+    """Epoch -> `2026-08-29 15-24-56`. See `Epoch.file_stamp`."""
+    return Epoch(epoch).file_stamp
 
 
-# ------------------------------------------------------------- v1 compatibility --
+# ---- v1-compat ----
 
-def to_legacy_key(epoch: int) -> str:
+LEGACY_KEY_FMT: Final = '%Y-%m-%d__%H-%M-%S'
+"""v1's dict-key format for `history` and `merge_timeline`. Read-only, for the migrator."""
+
+MALFORMED_EPOCH_FMT: Final = '{} (malformed)'
+"""v1 wrapped unusable epochs in this. Read-only, for the migrator."""
+
+_TMP_RE_SUB: Final = '__sub__'
+# assert _TMP_RE_SUB not in MALFORMED_EPOCH_FMT # pretty obvious and fmts are stable
+"""'__sub__' is used as a temporary value and must not be in `MALFORMED_EPOCH_FMT`"""
+
+
+def v1_to_readable_epoch(epoch: int) -> str:
     """v1's readable key. Present so the migrator can regenerate a key and match it."""
     is_negative = epoch < 0
     if abs(epoch) <= 3600 * 24:
@@ -129,19 +155,19 @@ def to_legacy_key(epoch: int) -> str:
     return formatted
 
 
-def from_legacy_key(readable: str) -> int:
+def v1_from_readable_epoch(readable: str) -> Epoch:
     """Parse a v1 readable key back to an epoch.
 
-    Lossy for the DST fall-back hour -- that is the defect, not a bug in this reader. The
-    migrator therefore treats a legacy key as a *best-effort* epoch and never as an identity.
+    Lossy across the DST fall-back hour, because the format it parses carries no offset. The
+    migrator therefore treats a legacy key as a best-effort epoch and never as an identity.
     """
-    malformed_re = ('^' + re.escape(MALFORMED_EPOCH_FMT.replace('{}', '__sub__'))
-                    .replace('__sub__', '(-?)(.+)') + '$')
-    low_epoch_re = ('^' + re.escape(MALFORMED_EPOCH_FMT.replace('{}', '__sub__'))
-                    .replace('__sub__', r'(-?\d+)') + '$')
+    malformed_re = ('^' + re.escape(MALFORMED_EPOCH_FMT.replace('{}', _TMP_RE_SUB))
+                    .replace(_TMP_RE_SUB, '(-?)(.+)') + '$')
+    low_epoch_re = ('^' + re.escape(MALFORMED_EPOCH_FMT.replace('{}', _TMP_RE_SUB))
+                    .replace(_TMP_RE_SUB, r'(-?\d+)') + '$')
 
     if match := re.match(low_epoch_re, readable):
-        return int(match.group(1))
+        return Epoch(match.group(1))
 
     sign = 1
     if match := re.match(malformed_re, readable):
@@ -149,12 +175,12 @@ def from_legacy_key(readable: str) -> int:
         readable = match.group(2)
 
     try:
-        return sign * int(datetime.datetime.strptime(readable, LEGACY_KEY_FMT)
-                          .astimezone(None).timestamp())
+        return Epoch(sign * int(datetime.datetime.strptime(readable, LEGACY_KEY_FMT)
+                                .astimezone(None).timestamp()))
     except ValueError:
         pass
 
     try:
-        return int(readable)
+        return Epoch(readable)
     except ValueError:
         raise ValueError(f'{readable!r} is not a recognized v1 readable epoch') from None

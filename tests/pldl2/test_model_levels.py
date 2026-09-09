@@ -21,10 +21,10 @@ from pldl2.model.levels import (
     coerce_v_level,
     derive_pl_info_level,
     derive_v_info_level,
-    level_mismatch,
     pl_level_mismatch,
     rank,
     rank_of,
+    v_level_mismatch,
 )
 
 
@@ -32,7 +32,7 @@ class RankParity(unittest.TestCase):
     """rank() vs v1's _merge_v_sort_key. The step-1 gate."""
 
     def test_matches_legacy_sort_key_on_random_inputs(self):
-        rng = random.Random(20260907)
+        rng = random.Random(12345)
         inputs = [
             *V_InfoLevel,                                   # the enum itself
             *[lvl.name for lvl in V_InfoLevel],             # valid names
@@ -147,11 +147,7 @@ class Derivation(unittest.TestCase):
                 self.assertIs(derive_pl_info_level(info), expected)
 
     def test_derivation_never_prints(self):
-        """It cannot: L0 does not print. v1 warned from inside derivation, on the hot path.
-
-        issue-1 #33: every make_pl_info with raw v_infos printed a Mismatching PL_InfoLevel
-        warning, because _make_pl_info popped merge_timeline and then asked with check=True.
-        """
+        """L0 does not print."""
         import contextlib
         import io as _io
         buf = _io.StringIO()
@@ -162,12 +158,12 @@ class Derivation(unittest.TestCase):
 
     def test_mismatch_is_reported_as_a_value(self):
         info = {'id': 'a', 'info_level': 'DOWNLOAD'}  # claims DOWNLOAD, content says NONE
-        self.assertEqual(level_mismatch(info), ('DOWNLOAD', V_InfoLevel.NONE))
+        self.assertEqual(v_level_mismatch(info), ('DOWNLOAD', V_InfoLevel.NONE))
 
     def test_no_mismatch_when_they_agree_or_nothing_is_declared(self):
-        self.assertIsNone(level_mismatch({'id': 'a', 'channel': 'c', 'info_level': 'FLAT'}))
-        self.assertIsNone(level_mismatch({'id': 'a', 'channel': 'c'}))
-        self.assertIsNone(level_mismatch({}))
+        self.assertIsNone(v_level_mismatch({'id': 'a', 'channel': 'c', 'info_level': 'FLAT'}))
+        self.assertIsNone(v_level_mismatch({'id': 'a', 'channel': 'c'}))
+        self.assertIsNone(v_level_mismatch({}))
 
     def test_playlist_mismatch(self):
         self.assertEqual(

@@ -32,7 +32,7 @@ CORPUS: dict[str, tuple[str, ErrorClass]] = {
     'yt-dlp misc': (
         err('Postprocessing: Conversion failed!'),
         ErrorClass.POSTPROCESSING),
-    'timedout': (
+    'timeout': ( # includes googlevideo.com, but it can still represent the generic case
         err("\r[download] Got error: HTTPSConnectionPool("
             "host='rr1---sn-a5mekndl.googlevideo.com', port=443): "
             'Read timed out. (read timeout=20.0)'),
@@ -116,6 +116,8 @@ class UnavailableVsAuth(unittest.TestCase):
 
     def test_an_unrecognized_message_is_not_confirmed_unavailable(self):
         result = classify(err('[youtube] abc: Some brand new failure mode nobody has seen'))
+        self.assertTrue(result.needs_attention,
+                        'a gap in the pattern tables must be surfaced, not swallowed')
         self.assertIs(result.error_class, ErrorClass.UNRECOGNIZED)
         self.assertFalse(result.confirmed_unavailable)
         self.assertTrue(result.is_transient, 'unknown means retry, not give up for a week')
@@ -129,25 +131,84 @@ class UnavailableVsAuth(unittest.TestCase):
 
 
 class AuthRequired(unittest.TestCase):
-    def test_a_not_found_on_an_auth_only_playlist_names_the_real_cause(self):
-        """yt-dlp reports a private playlist you cannot see as 'does not exist', so 'LL' with
-        bad cookies produces an error pointing at the wrong thing entirely."""
-        message = err('[youtube:tab] LL: This playlist does not exist')
-        self.assertIs(classify(message).error_class, ErrorClass.UNRECOGNIZED)
-        self.assertIs(classify(message, expects_auth=True).error_class,
-                      ErrorClass.AUTH_REQUIRED)
-
     def test_age_gate_and_members_only(self):
         for body in ('[youtube] a: Sign in to confirm your age',
-                     "[youtube] a: Join this channel to get access to members-only content"):
+                     '[youtube] a: Join this channel to get access to members-only content'):
             with self.subTest(body=body):
                 self.assertIs(classify(err(body)).error_class, ErrorClass.AUTH_REQUIRED)
 
 
+class NotFound(unittest.TestCase):
+    """yt-dlp reports a playlist you cannot see and one that does not exist identically."""
+
+    MESSAGE = err('[youtube:tab] LL: This playlist does not exist')
+
+    def test_a_not_found_is_reported_as_not_found(self):
+        result = classify(self.MESSAGE)
+        self.assertIs(result.error_class, ErrorClass.NOT_FOUND)
+        self.assertFalse(result.may_be_auth)
+
+    def test_expects_auth_records_the_ambiguity_without_resolving_it(self):
+        """Claiming AUTH_REQUIRED here would assert something unknown: the playlist may
+        genuinely not exist. The flag says 'could be either' and report/ names both."""
+        result = classify(self.MESSAGE, expects_auth=True)
+        self.assertIs(result.error_class, ErrorClass.NOT_FOUND,
+                      'the observed fact does not change')
+        self.assertTrue(result.may_be_auth)
+
+    def test_not_found_is_never_confirmed_unavailable(self):
+        self.assertFalse(classify(self.MESSAGE, expects_auth=True).confirmed_unavailable)
+
+
+class GeoBlocked(unittest.TestCase):
+    """A geo-blocked video exists and plays for someone else, so recording it as unavailable
+    would freeze it permanently for the wrong reason. These messages usually open with
+    'Video unavailable.', so they must be checked before the unavailable patterns."""
+
+    CASES = (
+        err('[youtube] a: Video unavailable. This video contains content from SME, who has '
+            'blocked it in your country on copyright grounds'),
+        err('[youtube] a: Video unavailable. The uploader has not made this video available '
+            'in your country'),
+        err('[youtube] a: This video is not available in your country'),
+    )
+
+    def test_classifies_as_geo_blocked(self):
+        for message in self.CASES:
+            with self.subTest(message=message[:60]):
+                self.assertIs(classify(message).error_class, ErrorClass.GEO_BLOCKED)
+
+    def test_is_not_confirmed_unavailable(self):
+        for message in self.CASES:
+            with self.subTest(message=message[:60]):
+                self.assertFalse(classify(message).confirmed_unavailable)
+
+
+class Throttling(unittest.TestCase):
+    def test_rate_limiting_is_transient_not_a_failure(self):
+        for body in ('unable to download webpage: HTTP Error 429: Too Many Requests',
+                     '[youtube] a: Too Many Requests'):
+            with self.subTest(body=body):
+                result = classify(err(body))
+                self.assertIs(result.error_class, ErrorClass.RATE_LIMITED)
+                self.assertTrue(result.is_transient)
+                self.assertFalse(result.confirmed_unavailable)
+
+    def test_network_failures_say_nothing_about_the_video(self):
+        for body in ("unable to download webpage: <urlopen error [Errno 11001] "
+                     'getaddrinfo failed>',
+                     'unable to download webpage: Connection refused'):
+            with self.subTest(body=body):
+                result = classify(err(body))
+                self.assertIs(result.error_class, ErrorClass.NETWORK)
+                self.assertTrue(result.is_transient)
+                self.assertFalse(result.confirmed_unavailable)
+
+
 class Purity(unittest.TestCase):
     def test_classify_never_prints(self):
-        """v1's interpret_error_msg warned on stdout and coloured its own warning, on the hot
-        path of both the download filter and the display layer."""
+        """Classification runs on the hot path of both the download filter and the display
+        layer, so it must not write anything itself."""
         import contextlib
         import io
         buf = io.StringIO()

@@ -1,30 +1,28 @@
 """
-Info levels, level derivation, and **rank(level, epoch)** -- the merge's ordering rule.
+How much is known about a video, and how competing values are ranked.
 
-rank() is the fix for the old tree's clearest layering smell. `_merge_v_sort_key` is private
-to merge_infos, yet display.py:206 and reorder_infodict_keys.py:230 both reach in through
-function-local imports to dodge a cycle. Promoted here, all three import it normally and the
-merge_infos <-> reorder_infodict_keys cycle disappears.
+`V_InfoLevel` and `PL_InfoLevel` say how complete an infodict is. Both are declared on the
+infodict and re-derivable from its content, so a file can be trusted or checked.
 
-Two behaviour changes from the old tree, both deliberate:
+**`rank(level, epoch)` is the merge's resolution rule.** Level dominates and epoch breaks ties
+within a level, so a richer old extraction always beats a poorer new one -- a flat refresh
+never overwrites what a full download knew. It resolves *fields*, not order: the merge folds
+its inputs chronologically and picks each field by rank, which keeps the timeline reading as
+history while still storing the best available value. Doing it the other way round, ranking
+the input list, makes a newer flat entry appear before an older extraction and the recorded
+progression reads backwards.
 
-  - **Derivation is pure.** `derive_*_info_level` no longer prints a warning when the
-    declared level disagrees with the derived one. It could not: L0 does not print, and the
-    warning fired on every make_pl_info with raw v_infos anyway (issue-1 #33, confirmed).
-    `level_mismatch()` reports the disagreement as a value, and the caller decides.
-  - **rank() accepts an int level.** A v1 file can carry `"info_level": 0`, because
-    download_video_generic stored the enum rather than its name and JSON serialized it to an
-    int. `_merge_v_sort_key` converts str but not int, so `0` reaches `.value` and raises
-    AttributeError -- which makes such a file permanently un-re-addable (issue-1 #23,
-    confirmed). rank() is total over its input type.
+Derivation is pure and never reports. `v_level_mismatch()` returns a disagreement between the
+declared and derived level as a value, leaving it to the caller to decide whether that is
+worth surfacing.
 """
 from __future__ import annotations
 
-__all__ = [
+__all__ = [  # noqa: RUF022
     'V_InfoLevel', 'PL_InfoLevel',
     'coerce_v_level', 'coerce_pl_level',
     'derive_v_info_level', 'derive_pl_info_level',
-    'level_mismatch', 'pl_level_mismatch',
+    'v_level_mismatch', 'pl_level_mismatch',
     'rank', 'rank_of',
     'LARGE_TIME_DELTA',
 ]
@@ -56,8 +54,7 @@ class PL_InfoLevel(IntEnum):
 def coerce_v_level(value: V_InfoLevel | str | int | None) -> V_InfoLevel:
     """Best-effort conversion to a V_InfoLevel. Anything unrecognized becomes NONE.
 
-    Total by design: this runs over data read off disk, including v1 files that stored the
-    enum itself and therefore serialized to an int.
+    v1-compat: recognizes int-serialized versions.
     """
     if isinstance(value, V_InfoLevel):
         return value
@@ -74,7 +71,10 @@ def coerce_v_level(value: V_InfoLevel | str | int | None) -> V_InfoLevel:
 
 
 def coerce_pl_level(value: PL_InfoLevel | str | int | None) -> PL_InfoLevel:
-    """Best-effort conversion to a PL_InfoLevel. Anything unrecognized becomes NONE."""
+    """Best-effort conversion to a PL_InfoLevel. Anything unrecognized becomes NONE.
+    
+    v1-compat: recognizes int-serialized versions.
+    """
     if isinstance(value, PL_InfoLevel):
         return value
     if value is None:
@@ -89,14 +89,19 @@ def coerce_pl_level(value: PL_InfoLevel | str | int | None) -> PL_InfoLevel:
     return PL_InfoLevel.NONE
 
 
-# --------------------------------------------------------------------- derivation --
+# ---- derivation ----
 
 def _maybe_available_on_yt(info: _AnyInfo) -> bool:
-    """True if the video might still be on YouTube. Returns True when unsure."""
-    # 'ie_key' occurs in flat info, but flat only ever uses youtube -- OK.
+    """True if the video might still be on YouTube. Returns True when unsure.
+    
+    Only flat extraction infos should be passed in. Full extractions from alternate
+    sources like WA will almost always force returning True.
+    """
+    # Note: Do not use 'ie_key'
+    # Only occurs in flat extraction. Usually stale and only ever uses youtube
     if info.get('extractor_key') == 'YoutubeWebArchive':
         return True
-    # An incomplete extract. Other stats would serve equally well (e.g. `duration`).
+    # Got in flat extraction. Other stats would also work (e.g. `duration`).
     return info.get('channel') is not None
 
 
@@ -135,11 +140,10 @@ def derive_pl_info_level(pl_info: _AnyInfo | None) -> PL_InfoLevel:
         case _:            return PL_InfoLevel.MERGE
 
 
-def level_mismatch(v_info: _AnyInfo | None) -> tuple[str, V_InfoLevel] | None:
-    """(declared, derived) when a video infodict's stated level disagrees with its content.
+def v_level_mismatch(v_info: _AnyInfo | None) -> tuple[str, V_InfoLevel] | None:
+    """returns (declared, derived) when a video infodict's stated level disagrees with its content.
 
-    None when they agree or when nothing is declared. Reporting is the caller's job -- the
-    old `check=True` path printed from inside derivation, on the hot path of every merge.
+    None when they agree, when v_info is None, or 'info_level' is None.
     """
     if not v_info:
         return None
@@ -153,7 +157,10 @@ def level_mismatch(v_info: _AnyInfo | None) -> tuple[str, V_InfoLevel] | None:
 
 
 def pl_level_mismatch(pl_info: _AnyInfo | None) -> tuple[str, PL_InfoLevel] | None:
-    """(declared, derived) when a playlist infodict's stated level disagrees with content."""
+    """returns (declared, derived) when a playlist infodict's stated level disagrees with content.
+    
+    None when they agree, when pl_info is None, or 'info_level' is None.
+    """
     if not pl_info:
         return None
     declared = pl_info.get('info_level')
@@ -165,7 +172,7 @@ def pl_level_mismatch(pl_info: _AnyInfo | None) -> tuple[str, PL_InfoLevel] | No
     return str(declared), derived
 
 
-# ------------------------------------------------------------------------ ranking --
+# ---- ranking ----
 
 LARGE_TIME_DELTA = 10**12
 """~31,688 years. Big enough that no realistic epoch spread can bridge one level."""
@@ -176,7 +183,7 @@ def rank(info_level: V_InfoLevel | str | int | None, epoch: int) -> int:
 
     **A richer old extraction always outranks a poorer new one.** That is the whole point --
     a flat refresh must never overwrite a full download's fields just because it happened
-    later. Preserves `_merge_v_sort_key` exactly for every input that function handled.
+    later.
     """
     return (coerce_v_level(info_level).value * LARGE_TIME_DELTA) + epoch
 

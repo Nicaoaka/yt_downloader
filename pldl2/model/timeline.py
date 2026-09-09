@@ -1,39 +1,31 @@
 """
-The merge timeline: what the record learned about a video, and when.
+What the record learned about a video, and when.
 
-Two structural changes from v1, each closing a confirmed defect.
+A `VideoTimeline` is an append-only, chronological log. Each `MergeTimelineEntry` says what
+one instant contributed: fields whose value improved, a level promotion, unavailability
+reported by an extractor, and manipulations made through the API.
 
-**better_info is structured.** v1 stored the string "FLAT -> EXTRACT" and display.py:234
-regexed it back into an enum to render it -- the old code self-documents this as
-`# this is very fragile, but it'll work`. Here the levels are fields; the string is produced
-by `BetterInfo.render()` for the human reading the file and is **never parsed back**.
+Entries are ordered by `(epoch, info_level)` -- chronological, with the level as a
+deterministic tiebreak for the rare case of two extractions in the same second. **Not** by
+merge priority: this records when things happened, while merge priority decides which value
+wins a field. Sorting history by priority makes a newer, poorer extraction appear before an
+older, richer one, and the reading order stops matching the order of events.
 
-**A timeline is an ordered sequence, not a dict keyed by a local-time string.** v1 keyed
-entries by `to_readable_epoch(...)`, which is not injective across the DST fall-back hour, so
-two distinct extractions an hour apart silently merged into one entry in a file that is never
-rewritten (issue-1 #17). Entries now carry a canonical int `epoch` plus a readable `at`, and
-the container is a tuple ordered by epoch. The collision is not handled better -- it cannot
-occur.
-
-**Entries are immutable once written.** `MergeTimelineEntry` is frozen, which is the type-level
-half of issue-1 #6: v1's `_merge_v_infos` unconditionally stamped *today's* merged info_level
-onto pre-existing entries (merge_infos.py:92), so a month-old FLAT entry read EXTRACT after
-the next merge, entries reordered under the level-first sort key, and the flat step vanished
-from the rendered strip. The behavioural half -- stamping only the entry being folded now --
-belongs to merge/, and this type makes violating it require an explicit `replace()`.
+Several entries may share an epoch, since two different things can happen in one second.
+Identical entries collapse, which is why everything here is hashable.
 """
 from __future__ import annotations
 
-__all__ = [
-    'BetterInfo', 'MergeTimelineEntry',
-    'VideoTimeline', 'PlaylistTimeline',
-    'entry_for', 'upsert', 'ordered',
+__all__ = [  # noqa: RUF022
+    'BetterInfo', 'FieldUpdate', 'Manipulation', 'ManipulationKind',
+    'MergeTimelineEntry', 'VideoTimeline', 'PlaylistTimeline',
 ]
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
+from enum import StrEnum, auto
 
-from pldl2.model.epoch import to_iso
+from pldl2.model.epoch import Epoch
 from pldl2.model.infodicts import V_ID
 from pldl2.model.levels import V_InfoLevel
 
@@ -41,77 +33,134 @@ from pldl2.model.levels import V_InfoLevel
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BetterInfo:
     """A level promotion recorded at one epoch."""
+
     from_level: V_InfoLevel
     to_level: V_InfoLevel
 
     def render(self) -> str:
-        """The human-readable form written alongside the structured fields.
+        """The human-readable form, written alongside the structured fields.
 
-        Output only. Nothing reads this back -- that is the entire point.
+        Free to change format because nothing parses it back.
         """
         return f'{self.from_level.name} -> {self.to_level.name}'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class MergeTimelineEntry:
-    """What one merge pass learned about one video at one instant.
+class FieldUpdate:
+    """One field of the merged infodict taking a new value."""
 
-    `updates` maps a field name to its new value, rendered as a string. Manual edits go here
-    too, under the **same** key: v1's `_add_update_to_merge_timeline` wrote a singular
-    `'update'` string while every reader looked for the plural `'updates'` dict, so its dedup
-    guard never fired and two edits in the same second overwrote each other (issue-1 #11).
+    field: str
+    value: str
+
+    def render(self) -> str:
+        return f'{self.field}={self.value}'
+
+
+class ManipulationKind(StrEnum):
+    REMOVE = auto()
+    INSERT = auto()
+    REPLACE = auto()
+    MOVE = auto()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Manipulation:
+    """A membership or order change made deliberately through the API.
+
+    Kept separate from `FieldUpdate` because the two answer different questions. An update
+    means YouTube's data changed; a manipulation means *you* changed the record. Merging them
+    into one bag leaves a reader unable to tell a title change upstream from an edit here.
     """
-    epoch: int
+
+    kind: ManipulationKind
+    detail: str = ''
+    """Free-form specifics, e.g. `to=1` or `from=b to=c`."""
+
+    def render(self) -> str:
+        return f'<{self.kind.upper()}{" " + self.detail if self.detail else ""}>'
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MergeTimelineEntry:
+    """What one instant contributed to what is known about one video."""
+
+    epoch: Epoch
     info_level: V_InfoLevel | None = None
     better_info: BetterInfo | None = None
     unavailable: tuple[str, ...] = ()
-    updates: Mapping[str, str] = field(default_factory=dict)
+    updates: tuple[FieldUpdate, ...] = ()
+    manipulations: tuple[Manipulation, ...] = ()
 
-    @property
-    def at(self) -> str:
-        """Readable local time with its offset. Derived, never stored separately in memory."""
-        return to_iso(self.epoch)
+    def __post_init__(self) -> None:
+        if not isinstance(self.epoch, Epoch):
+            object.__setattr__(self, 'epoch', Epoch(self.epoch))
 
     def is_empty(self) -> bool:
-        """True when the entry records nothing and should not be kept."""
-        return not (self.updates or self.unavailable or self.better_info)
+        """True when the entry records nothing and should not be kept.
+
+        A refresh that teaches nothing new produces one of these, and dropping it is correct:
+        the timeline records what changed, not that a session ran.
+        """
+        return not (self.updates or self.unavailable or self.better_info or self.manipulations)
+
+    @property
+    def sort_key(self) -> tuple:
+        """Chronological, with level then content as deterministic tiebreaks.
+
+        Without the tiebreaks two entries in the same second would sort by input order, which
+        varies with the hash seed and makes the written file differ between runs.
+        """
+        return (
+            int(self.epoch),
+            -1 if self.info_level is None else int(self.info_level),
+            tuple(u.field for u in self.updates),
+            self.unavailable,
+            tuple(m.kind for m in self.manipulations),
+        )
 
 
-type VideoTimeline = tuple[MergeTimelineEntry, ...]
+@dataclass(frozen=True, slots=True)
+class VideoTimeline:
+    """One video's ordered, deduplicated log. Every operation returns a new timeline."""
+
+    entries: tuple[MergeTimelineEntry, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, 'entries', _normalized(self.entries))
+
+    def __iter__(self) -> Iterator[MergeTimelineEntry]:
+        return iter(self.entries)
+
+    def __len__(self) -> int:
+        return len(self.entries)
+
+    def __getitem__(self, index: int) -> MergeTimelineEntry:
+        return self.entries[index]
+
+    def add(self, entry: MergeTimelineEntry) -> VideoTimeline:
+        """Append one entry.
+
+        Nothing is replaced. An entry sharing an epoch with an existing one is simply another
+        entry, because two distinct things can happen in the same second. An entry identical
+        to one already present collapses into it.
+        """
+        return VideoTimeline((*self.entries, entry))
+
+    def extend(self, entries: Iterable[MergeTimelineEntry]) -> VideoTimeline:
+        return VideoTimeline((*self.entries, *entries))
+
+    def at_epoch(self, epoch: int) -> tuple[MergeTimelineEntry, ...]:
+        """Every entry recorded at exactly this epoch."""
+        return tuple(e for e in self.entries if e.epoch == epoch)
+
+    def levels(self) -> tuple[V_InfoLevel, ...]:
+        """Recorded levels, oldest first, skipping entries that record none."""
+        return tuple(e.info_level for e in self.entries if e.info_level is not None)
+
+
 type PlaylistTimeline = Mapping[V_ID, VideoTimeline]
 
 
-def ordered(timeline: VideoTimeline) -> VideoTimeline:
-    """Entries oldest-first. The canonical on-disk and in-memory order."""
-    return tuple(sorted(timeline, key=lambda e: e.epoch))
-
-
-def entry_for(timeline: VideoTimeline, epoch: int) -> MergeTimelineEntry | None:
-    """The entry at exactly this epoch, if any."""
-    for entry in timeline:
-        if entry.epoch == epoch:
-            return entry
-    return None
-
-
-def upsert(timeline: VideoTimeline, entry: MergeTimelineEntry) -> VideoTimeline:
-    """Return a new timeline with `entry` inserted, or merged into the one at its epoch.
-
-    Merging unions `updates` and `unavailable` rather than replacing them, so two edits in
-    the same second accumulate. Existing `info_level` and `better_info` are **kept** unless
-    the incoming entry supplies them: an older entry's recorded level is history and must not
-    move (issue-1 #6).
-    """
-    existing = entry_for(timeline, entry.epoch)
-    if existing is None:
-        return ordered((*timeline, entry))
-
-    merged = replace(
-        existing,
-        info_level=existing.info_level if existing.info_level is not None else entry.info_level,
-        better_info=existing.better_info if existing.better_info is not None else entry.better_info,
-        unavailable=existing.unavailable + tuple(
-            m for m in entry.unavailable if m not in existing.unavailable),
-        updates={**existing.updates, **entry.updates},
-    )
-    return ordered(tuple(e for e in timeline if e.epoch != entry.epoch) + (merged,))
+def _normalized(entries: Iterable[MergeTimelineEntry]) -> tuple[MergeTimelineEntry, ...]:
+    """Deduplicate, then order. Identical entries collapse; distinct ones all survive."""
+    return tuple(sorted(set(entries), key=lambda e: e.sort_key))
