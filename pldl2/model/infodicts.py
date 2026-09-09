@@ -1,24 +1,17 @@
 """
 The yt-dlp payload shape, as TypedDicts, plus the download-control vocabulary.
 
-TypedDict is right here and a dataclass is not: this is foreign data with ~140 optional keys
+TypedDict is right here and a dataclass is not: this is foreign data with hundreds of optional keys
 whose shape changes between yt-dlp releases. It types the keys we care about, costs nothing
 at runtime, copies and validates nothing, and a key yt-dlp adds tomorrow simply flows
-through -- which is what keeps a stored `data` payload byte-faithful.
+through.
 
-Lifted near-verbatim from pldl/pldl_types.py, already the cleanest module in the old tree.
-Three deliberate changes:
+- `id` is ReadOnly: nothing may reassign a video's identity in place.
 
-  - `Incomplete` is a local alias for Any rather than an import from `_typeshed`, so this
-    module has no stub dependency and L0 keeps importing nothing.
-  - `YT_DLP_Params` is gone; opts belong to ytdlp/, not to the record (a read-only
-    PlaylistRecord must not need yt-dlp opts at all).
-  - `id` is ReadOnly: nothing may reassign a video's identity in place.
-
-The pldl-side addon keys (`info_level`, `unavailable_msgs`, `playlist_epoch`) are still
-declared here because stored v1 files carry them inline and the migrator has to read them.
-**New code must not write them into a payload** -- they are envelope fields now; see
-envelope.py for why.
+v1-compat: the pldl-side addon keys (`info_level`, `unavailable_msgs`, `playlist_epoch`) are
+still declared here because stored v1 files carry them inline and the migrator has to read
+them. **New code must not write them into a payload** -- they are envelope fields; see
+envelope.py.
 """
 from __future__ import annotations
 
@@ -184,9 +177,8 @@ class _PL_V_RelInfo(TypedDict, total=False):
 class _V_InfoDict_Addons(TypedDict, total=False):
     """pldl fields that v1 wrote *into* the payload.
 
-    Declared so the migrator can read v1 files. New code puts these on the envelope instead
-    (envelope.py) -- injecting them here is what forced merge_v_infos to `continue` on
-    specific keys and what could collide with a future yt-dlp field.
+    v1-compat: Declared so the migrator can read v1 files. New code puts these on the top layer
+    instead (see envelope.py).
     """
     info_level: str
     unavailable_msgs: list[UnavailableMsg]
@@ -208,14 +200,14 @@ class PL_InfoDict[ENTRY=V_InfoDict](YT_DLP_InfoDict[ENTRY], _PL_InfoDict_Addons)
 type ANY_InfoDict = V_InfoDict | PL_InfoDict | dict
 
 
-# --------------------------------------------------------------------------- archive --
+# ---- archive ----
 
 type ExtractorKey = str
 type YT_DLP_DownloadArchive = list[tuple[ExtractorKey, V_ID]]
 type YT_DLP_DownloadArchive_IDs = list[V_ID]
 
 
-# -------------------------------------------------------------------- download control --
+# ---- download control ----
 
 class DL_Action(StrEnum):
     """What to do with a video.
@@ -234,9 +226,9 @@ class DL_Action(StrEnum):
 class DL_Result(StrEnum):
     """What actually happened.
 
-    CANCELLED and CACHED are distinct on purpose: today download_video returns None for both
-    "already in the archive" and "the user cancelled", and _get_dl_result collapses them into
-    a single CACHED. ytdlp.FetchResult keeps them apart.
+    CANCELLED and CACHED are separate: "already in the archive" and "the user stopped it" lead
+    to different decisions on the next run, so collapsing them loses the distinction that
+    matters.
     """
     CANCELLED    = auto()
     FAIL         = auto()
@@ -276,7 +268,7 @@ class UnavailableMsg(TypedDict):
     """
 
 
-# ------------------------------------------------------------------------- sentinels --
+# ---- sentinels ----
 
 class _FalsySentinelMeta(type):
     def __repr__(cls) -> str:
@@ -287,7 +279,7 @@ class _FalsySentinelMeta(type):
 
 
 class NO_VALUE(metaclass=_FalsySentinelMeta):
-    """'this key was absent', distinct from 'this key is present and None'.
+    """Differentiate absent from `None`/default value.
 
     Falsy and never instantiated -- it is used as the class itself, so `is NO_VALUE` is the
     identity check and `if value:` treats it like any other empty value.

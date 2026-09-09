@@ -1,40 +1,34 @@
 """
-An envelope around a byte-faithful payload.
+Envelope pattern around a payload.
 
-v1 injected pldl's own fields -- `info_level`, `unavailable_msgs`, `playlist_epoch` -- directly
-into the dict yt-dlp returned (yt_utils.py:127-130). Three costs followed, and all three go
-away here:
+pldl's own fields sit on the envelope; `data` stays exactly what the extractor returned. That
+separation is what lets a stored entry be handed back to yt-dlp or diffed against a fresh
+extraction, and it means a field yt-dlp adds in a future release can never collide with one of
+ours. Unwrapping is a pure projection.
 
-  - `_merge_v_infos` had to `continue` on specific keys, and COMMON_UPDATER carried
-    unreachable `no_update` entries for them -- "which keys are ours" was knowledge spread
-    across three modules.
-  - Any field a future yt-dlp release adds could collide with one of ours.
-  - `data` was no longer what yt-dlp produced, so a stored entry could not be handed back to
-    yt-dlp or compared against a fresh extraction.
+`data` is typed `YT_DLP_InfoDict` rather than `V_InfoDict` on purpose: `V_InfoDict` is the
+payload *plus* pldl's addon keys, so using it would re-admit `info_level` and friends as
+legitimate payload keys, which is the exact conflation the envelope removes. `wrap()` accepts
+the wider type (v1-compat: that is the shape a stored v1 file has) and produces the narrower.
 
-Here pldl's fields live on the envelope and `data` stays exactly what the extractor returned.
-Unwrapping is a pure projection, which is what makes the migration mechanically reversible
-and lets it be gated on `data` round-tripping byte-identically.
-
-`info_level` also stops being re-derived from content on every read. It is a real field with
-one encode/decode pair -- which is the fix for a v1 file that stored the enum itself and
-serialized it to `0`, becoming permanently un-re-addable (issue-1 #23).
-
-A future SQLite index falls out of this shape for free: the envelope fields are the columns,
-`data` is the blob.
+In the future the envelope fields can be the columns of a SQLite DB with `data` as blobs.
 """
 from __future__ import annotations
 
-__all__ = ['VideoEntry', 'Capture']
+__all__ = ['VideoEntry', 'Capture']  # noqa: RUF022
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
-from pldl2.model.epoch import to_iso
-from pldl2.model.infodicts import UnavailableMsg, V_ID
+from pldl2.model.epoch import Epoch, get_epoch
+from pldl2.model.infodicts import V_ID, UnavailableMsg, V_InfoDict, YT_DLP_InfoDict
 from pldl2.model.levels import V_InfoLevel, coerce_v_level, derive_v_info_level
 from pldl2.model.schema import SCHEMA_VERSION
+
+_PLDL_PAYLOAD_KEYS = ('info_level', 'unavailable_msgs', 'playlist_epoch')
+"""v1-compat: keys v1 wrote into the payload. Lifted onto the envelope when wrapping."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -43,68 +37,72 @@ class VideoEntry:
 
     id: V_ID
     info_level: V_InfoLevel
-    data: Mapping[str, Any] = field(default_factory=dict)
+    data: YT_DLP_InfoDict | Mapping[str, Any] = field(default_factory=dict)
     unavailable_msgs: tuple[UnavailableMsg, ...] = ()
-    playlist_epoch: int | None = None
+    playlist_epoch: Epoch | None = None
+
+    def __post_init__(self) -> None:
+        # A read-only view, so `frozen` covers the payload and not just the reference to it.
+        if not isinstance(self.data, MappingProxyType):
+            object.__setattr__(self, 'data', MappingProxyType(dict(self.data)))
+        if self.playlist_epoch is not None and not isinstance(self.playlist_epoch, Epoch):
+            object.__setattr__(self, 'playlist_epoch', Epoch(self.playlist_epoch))
 
     @classmethod
-    def wrap(cls, payload: Mapping[str, Any], *,
+    def wrap(cls, payload: V_InfoDict | Mapping[str, Any], *,
              info_level: V_InfoLevel | None = None) -> VideoEntry:
         """Build an envelope around a raw yt-dlp infodict.
 
-        pldl keys already present in a v1 payload are lifted onto the envelope and stripped
-        from `data`, so wrapping a v1 file yields the same shape as wrapping a fresh
-        extraction. `info_level` is derived from content only when neither given nor declared.
+        `info_level` is taken from the argument, else from a declared value, else derived from
+        content.
+
+        v1-compat: pldl keys already inline in the payload are lifted onto the envelope and
+        stripped from `data`, so wrapping a v1 file yields the same shape as wrapping a fresh
+        extraction.
         """
         declared = payload.get('info_level')
         if info_level is None:
             info_level = (coerce_v_level(declared) if declared is not None
                           else derive_v_info_level(payload))
 
-        data = {k: v for k, v in payload.items()
-                if k not in ('info_level', 'unavailable_msgs', 'playlist_epoch')}
-        raw_msgs = payload.get('unavailable_msgs') or ()
         playlist_epoch = payload.get('playlist_epoch')
-
         return cls(
             id=str(payload.get('id', '')),
             info_level=info_level,
-            data=data,
-            unavailable_msgs=tuple(raw_msgs),
-            playlist_epoch=playlist_epoch if isinstance(playlist_epoch, int) else None,
+            data={k: v for k, v in payload.items() if k not in _PLDL_PAYLOAD_KEYS},
+            unavailable_msgs=tuple(payload.get('unavailable_msgs') or ()),
+            playlist_epoch=(Epoch(playlist_epoch)
+                            if isinstance(playlist_epoch, int)
+                            and not isinstance(playlist_epoch, bool) else None),
         )
 
     def unwrap(self) -> dict[str, Any]:
-        """The payload exactly as it was wrapped. The inverse of `wrap` for `data`.
+        """The payload as it was wrapped, which is what the extractor produced.
 
-        Note this returns `data` alone -- it does **not** re-inject the pldl fields. That is
-        deliberate: this is what gets handed back to yt-dlp or diffed against a fresh
-        extraction, and it must be byte-faithful to what the extractor produced.
+        Returns `data` alone; it does **not** re-inject the envelope fields.
         """
         return dict(self.data)
 
     @property
-    def epoch(self) -> int:
-        value = self.data.get('epoch')
-        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+    def epoch(self) -> Epoch:
+        return get_epoch(self.data)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Capture:
-    """One stored file's worth of entries.
+    """One stored file's worth of entries, and the epoch it was taken at.
 
-    v1's `_v_infos/*.json` was already a *batch* (a list of lists) and therefore already not
-    valid yt-dlp infojson. The envelope makes that explicit rather than accidental, and gives
-    the batch a place to record when it was taken.
+    A batch, so it is not valid yt-dlp infojson and does not claim to be. Individual entries
+    unwrap back to payloads that are.
     """
 
-    epoch: int
+    epoch: Epoch
     videos: tuple[VideoEntry, ...] = ()
     schema_version: int = SCHEMA_VERSION
 
-    @property
-    def at(self) -> str:
-        return to_iso(self.epoch)
+    def __post_init__(self) -> None:
+        if not isinstance(self.epoch, Epoch):
+            object.__setattr__(self, 'epoch', Epoch(self.epoch))
 
     def __len__(self) -> int:
         return len(self.videos)
