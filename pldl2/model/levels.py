@@ -23,8 +23,7 @@ __all__ = [  # noqa: RUF022
     'coerce_v_level', 'coerce_pl_level',
     'derive_v_info_level', 'derive_pl_info_level',
     'v_level_mismatch', 'pl_level_mismatch',
-    'rank', 'rank_of',
-    'LARGE_TIME_DELTA',
+    'rank', 'info_rank',
 ]
 
 from collections.abc import Mapping
@@ -179,20 +178,29 @@ LARGE_TIME_DELTA = 10**12
 
 
 def rank(info_level: V_InfoLevel | str | int | None, epoch: int) -> int:
-    """Sort key: level dominates, epoch breaks ties within a level.
+    """How good a source is. Level dominates; epoch breaks ties within a level.
 
-    **A richer old extraction always outranks a poorer new one.** That is the whole point --
-    a flat refresh must never overwrite a full download's fields just because it happened
-    later.
+    This decides **which value wins a field**. Two infodicts for one video both carry a
+    `title`; whichever ranks higher supplies the one that ends up in the merge:
+
+        a DOWNLOAD from 2024   ->  3_001_704_067_200
+        a FLAT refresh in 2026 ->  1_001_788_000_000   loses, despite being newer
+
+    That asymmetry is the whole point -- a flat refresh must never flatten what a full download
+    already knew. It guards roster context the same way, which is how a dead video keeps the
+    title a mirror found for it.
+
+    Consumers are merge/ (per field) and roster context. It resolves *values*, never list
+    order: ordering the merge's inputs by rank is what makes a recorded progression read
+    backwards.
     """
     return (coerce_v_level(info_level).value * LARGE_TIME_DELTA) + epoch
 
 
-def rank_of(v_info: _AnyInfo, epoch: int | None = None) -> int:
-    """rank() applied to an infodict, taking its declared level and its own epoch.
+def info_rank(v_info: _AnyInfo, epoch: int | None = None) -> int:
+    """`rank()` for a whole infodict, reading its declared level and its own epoch.
 
-    The declared level is used rather than the derived one so that ranking stays cheap and
-    matches what the old sort key did.
+    Uses the declared level rather than deriving one, so ranking stays a field lookup.
     """
     if epoch is None:
         epoch = int(v_info.get('epoch', 0) or 0)

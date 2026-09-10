@@ -3,18 +3,21 @@
 
 Identity is the playlist id. `paths.playlist_dir` is **authoritative** -- written once at
 creation and never recomputed from a title -- so renaming a playlist on YouTube records an
-event rather than resolving the record to a different folder. `title` is kept only as the last
-known value.
+event rather than resolving the record to a different folder.
 
-`history` is an ordered list. Each entry is one session, carrying an int `epoch` and the
-videos it touched; each video may carry its own epoch, since a session can span many minutes
-and backoff arithmetic should be about when a video was actually tried.
+`history` is an ordered list of `SessionLog`, one per run. A session spans many minutes, so it
+carries both `started` and `ended`, and each `VideoLog` carries the epoch at which that video
+was actually tried. Backoff arithmetic reads those rather than guessing from the session.
+
+Deliberate edits are not logged here. `history` answers "what network work happened"; the
+roster's manipulation log answers "what did I change", and keeping them apart avoids two
+sources of truth for the same act.
 """
 from __future__ import annotations
 
 __all__ = [  # noqa: RUF022
     'ROSTER_FILENAME', 'METADATA_FILENAME', 'ARCHIVE_FILENAME', 'PLAYLISTS_INDEX_FILENAME',
-    'Paths', 'HistoryVideo', 'HistoryEntry', 'Metadata',
+    'Paths', 'VideoLog', 'SessionLog', 'Metadata',
 ]
 
 from collections.abc import Iterable
@@ -54,40 +57,49 @@ class Paths:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class HistoryVideo:
-    """One video's outcome in one session."""
+class VideoLog:
+    """What one session did to one video, and when."""
 
     id: V_ID
+    epoch: Epoch
+    """When this video was tried. A session runs for many minutes, so this is not the
+    session's own epoch and backoff should not treat it as such."""
     title: str | None = None
     action: DL_Action | None = None
     result: DL_Result | None = None
     errors: tuple[str, ...] = ()
-    epoch: Epoch | None = None
-    """When this video was tried. `None` means "the session's epoch".
-
-    A session runs for many minutes, so a per-video epoch keeps a backoff from being off by
-    the length of the session. Optional because it costs nothing to omit for a fast run.
-    """
-
-    def __post_init__(self) -> None:
-        if self.epoch is not None and not isinstance(self.epoch, Epoch):
-            object.__setattr__(self, 'epoch', Epoch(self.epoch))
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class HistoryEntry:
-    """One session's download log."""
-
-    epoch: Epoch
-    videos: tuple[HistoryVideo, ...] = ()
+    """Always present, empty when nothing went wrong, so readers never need a default."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.epoch, Epoch):
             object.__setattr__(self, 'epoch', Epoch(self.epoch))
 
-    def epoch_of(self, video: HistoryVideo) -> Epoch:
-        """A video's own epoch, falling back to the session's."""
-        return video.epoch if video.epoch is not None else self.epoch
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SessionLog:
+    """One run's download log."""
+
+    started: Epoch
+    ended: Epoch | None = None
+    """`None` while the session is still open, or if it died before closing cleanly."""
+    videos: tuple[VideoLog, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.started, Epoch):
+            object.__setattr__(self, 'started', Epoch(self.started))
+        if self.ended is not None and not isinstance(self.ended, Epoch):
+            object.__setattr__(self, 'ended', Epoch(self.ended))
+
+    @property
+    def duration(self) -> int | None:
+        """Seconds the session ran, or None if it never closed."""
+        return None if self.ended is None else int(self.ended) - int(self.started)
+
+    def get(self, v_id: V_ID) -> VideoLog | None:
+        for video in self.videos:
+            if video.id == v_id:
+                return video
+        return None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -98,28 +110,27 @@ class Metadata:
     paths: Paths
     title: str | None = None
     """Last known. A change is recorded as an event, never acted on as a relocation."""
-    history: tuple[HistoryEntry, ...] = ()
+    history: tuple[SessionLog, ...] = ()
     schema_version: int = SCHEMA_VERSION
 
-    def with_history(self, entries: Iterable[HistoryEntry]) -> Metadata:
-        """A copy whose history is `entries`, oldest first."""
-        return replace(self, history=tuple(sorted(entries, key=lambda e: e.epoch)))
+    def with_history(self, sessions: Iterable[SessionLog]) -> Metadata:
+        """A copy whose history is `sessions`, oldest first."""
+        return replace(self, history=tuple(sorted(sessions, key=lambda s: s.started)))
 
-    def record(self, entry: HistoryEntry) -> Metadata:
+    def record(self, session: SessionLog) -> Metadata:
         """Append one session's log, keeping the list ordered."""
-        return self.with_history((*self.history, entry))
+        return self.with_history((*self.history, session))
 
-    def latest(self) -> HistoryEntry | None:
+    def latest(self) -> SessionLog | None:
         return self.history[-1] if self.history else None
 
     def epochs_for(self, v_id: V_ID) -> tuple[Epoch, ...]:
-        """Every epoch at which this video was touched, oldest first.
+        """Every epoch at which this video was tried, oldest first.
 
-        Uses each video's own epoch where it has one. The backoff rules in policy/ are built
-        on this; policy/ indexes it once per session rather than rescanning per video.
+        The backoff rules in policy/ are built on this; policy/ indexes it once per session
+        rather than rescanning per video.
         """
-        found = [entry.epoch_of(video)
-                 for entry in self.history
-                 for video in entry.videos
-                 if video.id == v_id]
-        return tuple(sorted(found))
+        return tuple(sorted(video.epoch
+                            for session in self.history
+                            for video in session.videos
+                            if video.id == v_id))

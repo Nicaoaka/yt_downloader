@@ -1,10 +1,9 @@
 """
 The yt-dlp payload shape, as TypedDicts, plus the download-control vocabulary.
 
-TypedDict is right here and a dataclass is not: this is foreign data with hundreds of optional keys
+TypedDict is right here and a dataclass is not: this is foreign data with ~140 of optional keys
 whose shape changes between yt-dlp releases. It types the keys we care about, costs nothing
-at runtime, copies and validates nothing, and a key yt-dlp adds tomorrow simply flows
-through.
+at runtime, copies and validates nothing, and keys yt-dlp adds tomorrow are ignored.
 
 - `id` is ReadOnly: nothing may reassign a video's identity in place.
 
@@ -23,10 +22,10 @@ __all__ = [  # noqa: RUF022
     'ExtractorKey', 'YT_DLP_DownloadArchive', 'YT_DLP_DownloadArchive_IDs',
 
     'DL_Action', 'DL_Result',
-    'DownloadInfo', 'PL_DownloadInfo', 'ID_DownloadInfo',
-
-    'UnavailableMsg',
     'NO_VALUE',
+
+    # v1-compat
+    '_v1_DownloadInfo', '_v1_Session_DownloadInfo',
 ]
 
 from collections.abc import Iterable
@@ -174,26 +173,32 @@ class _PL_V_RelInfo(TypedDict, total=False):
     playlist_autonumber: int        # same as 'playlist_index'
 
 
-class _V_InfoDict_Addons(TypedDict, total=False):
-    """pldl fields that v1 wrote *into* the payload.
+class _v1_V_InfoDict_Addons(TypedDict, total=False):
+    """DEPRECATED! Fields that v1 wrote *into* the payload.
 
     v1-compat: Declared so the migrator can read v1 files. New code puts these on the top layer
     instead (see envelope.py).
     """
     info_level: str
-    unavailable_msgs: list[UnavailableMsg]
+    unavailable_msgs: list[dict[str, Any]]  # v1 wrote plain dicts
     playlist_epoch: int
 
 
-class _PL_InfoDict_Addons(TypedDict, total=False):
+class _v1_PL_InfoDict_Addons(TypedDict, total=False):
+    """DEPRECATED! Fields that v1 wrote into a generated playlist infodict.
+
+    v1-compat: generated playlist documents carry these on an envelope now, so they cannot
+    collide with yt-dlp's namespace. Declared so the migrator can read v1 files.
+    """
+
     info_level: str
-    merge_timeline: dict[str, dict[str, Any]]  # PL_MergeTimeline; see timeline.py
+    merge_timeline: dict[str, dict[str, Any]]
 
 
-class V_InfoDict(YT_DLP_InfoDict, _PL_V_RelInfo, _V_InfoDict_Addons): ...
+class V_InfoDict(YT_DLP_InfoDict, _PL_V_RelInfo, _v1_V_InfoDict_Addons): ...
 
 
-class PL_InfoDict[ENTRY=V_InfoDict](YT_DLP_InfoDict[ENTRY], _PL_InfoDict_Addons):
+class PL_InfoDict[ENTRY=V_InfoDict](YT_DLP_InfoDict[ENTRY], _v1_PL_InfoDict_Addons):
     entries: list[ENTRY]  # type: ignore[misc] - deliberate override
 
 
@@ -238,7 +243,14 @@ class DL_Result(StrEnum):
     DOWNLOAD     = auto()
 
 
-class DownloadInfo(TypedDict):
+# ---- v1-compat ----
+
+class _v1_DownloadInfo(TypedDict):
+    """DEPRECATED! One video's outcome, as v1 wrote it into `history`.
+
+    v1-compat: `metadata.VideoLog` is the v2 shape. Kept so the migrator can read v1 history.
+    """
+
     id: str
     title: str | None
     action: DL_Action
@@ -246,26 +258,8 @@ class DownloadInfo(TypedDict):
     errors: NotRequired[list[str]]
 
 
-type PL_DownloadInfo = list[DownloadInfo]
-
-
-class ID_DownloadInfo(TypedDict):
-    fail: list[str]
-    extract: list[str]
-    download: list[str]
-    error: list[str]
-
-
-class UnavailableMsg(TypedDict):
-    epoch: int | None
-    msg: str | None
-    type: str
-    """The platform the message came from.
-
-    Written as the full extractor domain -- 'youtube', 'web.archive:youtube' -- not the 'yt'
-    / 'wa' shorthand. The old _dedup_and_sort_unavail_msgs weighted the shorthand, so its
-    same-epoch tie-break never fired against real data.
-    """
+type _v1_Session_DownloadInfo = list[_v1_DownloadInfo]
+"""DEPRECATED! v1-compat: `metadata.SessionLog` is the v2 shape."""
 
 
 # ---- sentinels ----

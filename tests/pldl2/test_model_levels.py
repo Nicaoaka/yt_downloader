@@ -23,7 +23,7 @@ from pldl2.model.levels import (
     derive_v_info_level,
     pl_level_mismatch,
     rank,
-    rank_of,
+    info_rank,
     v_level_mismatch,
 )
 
@@ -79,13 +79,13 @@ class Ranking(unittest.TestCase):
         self.assertLess(rank(V_InfoLevel.NONE, far_future), rank(V_InfoLevel.FLAT, 0))
         self.assertGreater(LARGE_TIME_DELTA, far_future)
 
-    def test_rank_of_reads_the_infodict(self):
+    def test_info_rank_reads_the_infodict(self):
         info = {'id': 'a', 'info_level': 'EXTRACT', 'epoch': 1_700_000_000}
-        self.assertEqual(rank_of(info), rank(V_InfoLevel.EXTRACT, 1_700_000_000))
-        self.assertEqual(rank_of(info, epoch=5), rank(V_InfoLevel.EXTRACT, 5))
+        self.assertEqual(info_rank(info), rank(V_InfoLevel.EXTRACT, 1_700_000_000))
+        self.assertEqual(info_rank(info, epoch=5), rank(V_InfoLevel.EXTRACT, 5))
 
-    def test_rank_of_tolerates_a_missing_epoch(self):
-        self.assertEqual(rank_of({'id': 'a', 'info_level': 'FLAT'}), rank(V_InfoLevel.FLAT, 0))
+    def test_info_rank_tolerates_a_missing_epoch(self):
+        self.assertEqual(info_rank({'id': 'a', 'info_level': 'FLAT'}), rank(V_InfoLevel.FLAT, 0))
 
 
 class Coercion(unittest.TestCase):

@@ -57,14 +57,14 @@ CORPUS: dict[str, tuple[str, ErrorClass]] = {
     'yt--private': (
         err("[youtube] qMuLtIC4w64: Private video. Sign in if you've been granted access to "
             'this video. Use --cookies-from-browser or --cookies for the authentication.'),
-        ErrorClass.UNAVAILABLE),
+        ErrorClass.PRIVATE),
     'yt--takedown': (
         err('[youtube] rGDim_zxiqQ: Video unavailable. It was removed following a copyright '
             'removal request by Sony Music Entertainment (Japan) Inc.'),
         ErrorClass.UNAVAILABLE),
     'wa--not_indexed': (
         err('[web.archive:youtube] x5PZVROWgYM: The requested video is not archived or indexed'),
-        ErrorClass.UNAVAILABLE),
+        ErrorClass.NOT_ARCHIVED),
 }
 
 BOT_CHECK = err("[youtube] aaaaaaaaaaa: Sign in to confirm you're not a bot. "
@@ -102,17 +102,18 @@ class UnavailableVsAuth(unittest.TestCase):
         self.assertFalse(result.confirmed_unavailable,
                          'a bot check means "prove you are human", not "the video is gone"')
 
-    def test_a_private_video_is_confirmed_unavailable_despite_the_cookie_hint(self):
+    def test_a_private_video_is_not_auth_despite_the_cookie_hint(self):
         """yt-dlp appends 'Use --cookies...' to private-video errors too.
 
-        Matching on that hint would reclassify a confirmed-private video as merely needing
-        credentials -- the exact opposite of the truth. The discriminator is the reason.
+        Matching on that hint would reclassify a private video as merely needing credentials.
+        The discriminator is the stated reason, never the hint.
         """
         message = CORPUS['yt--private'][0]
         self.assertIn('--cookies', message)
         result = classify(message)
-        self.assertIs(result.error_class, ErrorClass.UNAVAILABLE)
-        self.assertTrue(result.confirmed_unavailable)
+        self.assertIs(result.error_class, ErrorClass.PRIVATE)
+        self.assertTrue(result.confirmed_unavailable, 'we cannot have it now')
+        self.assertFalse(result.is_permanent, 'but the owner can un-private it')
 
     def test_an_unrecognized_message_is_not_confirmed_unavailable(self):
         result = classify(err('[youtube] abc: Some brand new failure mode nobody has seen'))
@@ -122,11 +123,20 @@ class UnavailableVsAuth(unittest.TestCase):
         self.assertFalse(result.confirmed_unavailable)
         self.assertTrue(result.is_transient, 'unknown means retry, not give up for a week')
 
-    def test_only_unavailable_is_confirmed(self):
+    def test_confirmed_unavailable_covers_exactly_the_refusals(self):
+        refusals = {ErrorClass.UNAVAILABLE, ErrorClass.PRIVATE, ErrorClass.NOT_ARCHIVED}
         for error_class in ErrorClass:
             classification = Classification(error_class=error_class, message='x')
             with self.subTest(error_class=error_class):
-                self.assertEqual(classification.confirmed_unavailable,
+                self.assertEqual(classification.confirmed_unavailable, error_class in refusals)
+
+    def test_only_a_removal_is_permanent(self):
+        """A private video can be un-privated, and an archive that lacks a video today may
+        index it later. Marking either permanent loses a recoverable video."""
+        for error_class in ErrorClass:
+            classification = Classification(error_class=error_class, message='x')
+            with self.subTest(error_class=error_class):
+                self.assertEqual(classification.is_permanent,
                                  error_class is ErrorClass.UNAVAILABLE)
 
 

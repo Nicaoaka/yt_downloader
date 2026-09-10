@@ -1,7 +1,7 @@
 """
-One `InfoKind` per file type the store knows how to write.
+One `InfoKind` per file type. Each with the metadata store/ needs to write the file.
 
-**A container of strategies, not an object with read/write methods.** Giving each kind its own
+Just a container with metadata. NOT an object with read/write methods. Giving each kind its own
 I/O would recreate a small persistence implementation per file type. `store.write(kind, info)`
 performs the I/O once and dispatches through the kind's fields; the differences between kinds,
 including `raw_v_infos` being a batch rather than a single document, are expressed as *data*
@@ -11,6 +11,10 @@ new kind.
 Kinds are reached as **module constants** -- `kinds.ROSTER`, `kinds.RAW_FLAT` -- so a
 misspelling is an AttributeError at import rather than a KeyError at runtime, and each carries
 its own payload type. `KINDS` exists only for resolving a name read off disk.
+
+Kinds are static. Nothing about them varies with configuration: the *template* comes from
+`Paths` and the *filter* from config, and store/ combines both with the kind at write time.
+Keeping config-derived behavior off the kind is what lets these be module constants at all.
 
 `owner` is what the store needs to know before touching a file:
 
@@ -23,7 +27,7 @@ from __future__ import annotations
 __all__ = [  # noqa: RUF022
     'KindName', 'Owner', 'PayloadShape', 'InfoKind',
     'ROSTER', 'METADATA', 'ARCHIVE', 'RAW_FLAT', 'RAW_V_INFOS', 'MERGE_INFO',
-    'KINDS', 'PATH_TEMPLATE_KEYS', 'by_name', 'user_owned', 'pldl_owned',
+    'KINDS', 'PATH_TEMPLATE_KEYS', 'user_owned', 'pldl_owned',
 ]
 
 from collections.abc import Callable, Mapping
@@ -100,11 +104,6 @@ class InfoKind[T]:
     epoch_of: Callable[[Any], int] = get_epoch
     """How to read this kind's own epoch."""
 
-    reorder: Callable[[Any], Any] | None = None
-    filter_of: Callable[[Any], Any] | None = None
-    """Supplied by store/ and config respectively. Carried here so a new kind stays one row;
-    typed loosely on purpose, since L0 must not import either of them."""
-
     description: str = ''
 
     def __post_init__(self) -> None:
@@ -166,16 +165,9 @@ MERGE_INFO: Final[InfoKind[PL_InfoDict]] = InfoKind(
 KINDS: Final[Mapping[KindName, InfoKind[Any]]] = {
     kind.name: kind for kind in (ROSTER, METADATA, ARCHIVE, RAW_FLAT, RAW_V_INFOS, MERGE_INFO)
 }
-"""Name -> kind, for resolving a name read off disk. Prefer the module constants in code."""
-
-
-def by_name(name: str) -> InfoKind[Any]:
-    """Resolve a kind name read off disk, naming the alternatives when it fails."""
-    try:
-        return KINDS[KindName(name)]
-    except ValueError:
-        raise KeyError(f'unknown info kind {name!r}; '
-                       f'known: {", ".join(k.value for k in KindName)}') from None
+"""Every kind, for iterating. **Prefer the module constants**: `KINDS[KindName.ROSTER]`
+buys nothing over `kinds.ROSTER`, and a bare string subscript reintroduces the typo this
+module exists to prevent."""
 
 
 def user_owned() -> tuple[InfoKind[Any], ...]:
