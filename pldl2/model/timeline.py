@@ -1,53 +1,45 @@
 """
 What the record learned about a video, and when.
 
-A `VideoTimeline` is an append-only, chronological log. Each `MergeTimelineEntry` says what
-one instant contributed: fields whose value improved, a level promotion, unavailability
-reported by an extractor, and manipulations made through the API.
+A `VideoTimeline` is an append-only, chronological log of what merging discovered. Each
+`MergeTimelineEntry` says what one instant contributed: fields whose value improved, the level
+the record reached, and any unavailability an extractor reported.
 
 Entries are ordered by `(epoch, info_level)` -- chronological, with the level as a
-deterministic tiebreak for the rare case of two extractions in the same second. **Not** by
-merge priority: this records when things happened, while merge priority decides which value
-wins a field. Sorting history by priority makes a newer, poorer extraction appear before an
-older, richer one, and the reading order stops matching the order of events.
+deterministic tiebreak for two extractions in the same second. **Not** by merge priority: this
+records when things happened, while merge priority decides which value wins a field. Sorting
+history by priority makes a newer, poorer extraction appear before an older, richer one and the
+reading order stops matching the order of events.
 
-Several entries may share an epoch, since two different things can happen in one second.
-Identical entries collapse, which is why everything here is hashable.
+Several entries may share an epoch, since two things can happen in one second. Identical
+entries collapse, which is why everything here is hashable.
+
+Deliberate edits are **not** here; they are a separate log on the roster (see
+`model/manipulations.py`). Merging and manipulating answer different questions, and the vast
+majority of entries would carry an empty field for the one they are not.
 """
 from __future__ import annotations
 
 __all__ = [  # noqa: RUF022
-    'BetterInfo', 'FieldUpdate', 'Manipulation', 'ManipulationKind',
-    'MergeTimelineEntry', 'VideoTimeline', 'PlaylistTimeline',
+    'FieldUpdate', 'MergeTimelineEntry', 'VideoTimeline', 'PlaylistTimeline',
 ]
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from enum import StrEnum, auto
 
 from pldl2.model.epoch import Epoch
+from pldl2.model.errors import UnavailableInfo
 from pldl2.model.infodicts import V_ID
 from pldl2.model.levels import V_InfoLevel
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class BetterInfo:
-    """A level promotion recorded at one epoch."""
-
-    from_level: V_InfoLevel
-    to_level: V_InfoLevel
-
-    def render(self) -> str:
-        """The human-readable form, written alongside the structured fields.
-
-        Free to change format because nothing parses it back.
-        """
-        return f'{self.from_level.name} -> {self.to_level.name}'
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class FieldUpdate:
-    """One field of the merged infodict taking a new value."""
+    """One field of the merged infodict taking a new value.
+
+    A named pair rather than a mapping entry: the timeline deduplicates entries, so everything
+    on one must be hashable, and a bare `tuple[str, str]` reads badly at every use site.
+    """
 
     field: str
     value: str
@@ -56,44 +48,37 @@ class FieldUpdate:
         return f'{self.field}={self.value}'
 
 
-class ManipulationKind(StrEnum):
-    REMOVE = auto()
-    INSERT = auto()
-    REPLACE = auto()
-    MOVE = auto()
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Manipulation:
-    """A membership or order change made deliberately through the API.
-
-    Kept separate from `FieldUpdate` because the two answer different questions. An update
-    means YouTube's data changed; a manipulation means *you* changed the record. Merging them
-    into one bag leaves a reader unable to tell a title change upstream from an edit here.
-    """
-
-    kind: ManipulationKind
-    detail: str = ''
-    """Free-form specifics, e.g. `to=1` or `from=b to=c`."""
-
-    def render(self) -> str:
-        return f'<{self.kind.upper()}{" " + self.detail if self.detail else ""}>'
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MergeTimelineEntry:
     """What one instant contributed to what is known about one video."""
 
     epoch: Epoch
     info_level: V_InfoLevel | None = None
-    better_info: BetterInfo | None = None
-    unavailable: tuple[str, ...] = ()
+    """The level the record had reached after this instant."""
+    prev_info_level: V_InfoLevel | None = None
+    """The level it had before. Only set when this instant changed it."""
+    unavailable_msgs: tuple[UnavailableInfo, ...] = ()
     updates: tuple[FieldUpdate, ...] = ()
-    manipulations: tuple[Manipulation, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.epoch, Epoch):
             object.__setattr__(self, 'epoch', Epoch(self.epoch))
+
+    @property
+    def is_better_info(self) -> bool:
+        """True when this instant raised the level."""
+        return (self.prev_info_level is not None
+                and self.info_level is not None
+                and self.info_level > self.prev_info_level)
+
+    def render_better_info(self) -> str | None:
+        """`FLAT -> EXTRACT`, or None when the level did not move.
+
+        Output only; nothing parses it back, so the format is free to change.
+        """
+        if not self.is_better_info:
+            return None
+        return f'{self.prev_info_level.name} -> {self.info_level.name}'  # type: ignore[union-attr]
 
     def is_empty(self) -> bool:
         """True when the entry records nothing and should not be kept.
@@ -101,7 +86,7 @@ class MergeTimelineEntry:
         A refresh that teaches nothing new produces one of these, and dropping it is correct:
         the timeline records what changed, not that a session ran.
         """
-        return not (self.updates or self.unavailable or self.better_info or self.manipulations)
+        return not (self.updates or self.unavailable_msgs or self.is_better_info)
 
     @property
     def sort_key(self) -> tuple:
@@ -114,8 +99,7 @@ class MergeTimelineEntry:
             int(self.epoch),
             -1 if self.info_level is None else int(self.info_level),
             tuple(u.field for u in self.updates),
-            self.unavailable,
-            tuple(m.kind for m in self.manipulations),
+            tuple(m.extractor for m in self.unavailable_msgs),
         )
 
 

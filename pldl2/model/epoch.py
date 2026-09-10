@@ -1,21 +1,21 @@
 """
-Time. **Ints are canonical; ISO-8601 local strings with timezone are readable.**
+Time. **An epoch int is the only stored form; every readable form is derived from it.**
 
-Every timestamp is stored as both: `epoch` (unambiguous, sortable, arithmetic-safe) and `at`
-(standard, human-readable, and in your timezone). ISO-8601 is used instead of a custom
-template because it includes timezone and is equally readable.
+Nothing carries a timestamp twice. Written files may render an `at` beside an epoch for the
+person reading the JSON, but that is the encoder's doing and never a second field to keep in
+sync. ISO-8601 is the readable form because it carries the timezone offset, which makes it
+unambiguous across DST without a custom template.
 
-`Epoch` is an `int` subclass, so it sorts, compares and serializes exactly like the raw ints
-that arrive in yt-dlp payloads, while carrying the conversions as properties. Arithmetic on
-one returns a plain `int`; wrap the result if you need the properties back.
+`Epoch` is an `int` subclass, extended with the conversion properties.
+Note: Arithmetic on an `Epoch` will return an `int`. Wrap the result if you need the
+properties back.
 
-The legacy readers are kept for exactly one caller, store/migrate.py.
+The legacy readers (`v1_*`) **should only be used by** store/migrate.py.
 """
 from __future__ import annotations
 
 __all__ = [  # noqa: RUF022
-    'Epoch',
-    'epoch_now',
+    'Epoch', 'EPOCH_ZERO',
     'get_epoch', 'get_latest_epoch',
     'to_iso', 'from_iso', 'to_file_stamp',
     'FILE_STAMP_FMT',
@@ -83,15 +83,18 @@ class Epoch(int):
         return f'Epoch({int(self)} = {self.iso})'
 
 
-def epoch_now() -> Epoch:
-    return Epoch.now()
+EPOCH_ZERO: Final[Epoch] = Epoch(0)
+"""The zero epoch, as a shared constant.
+
+Use this as a dataclass field default rather than `Epoch(0)`. Both are safe, since Epoch is
+immutable, but a call in a default trips RUF009 and a name reference does not.
+"""
 
 
 def _raw_epoch(info: Any) -> int | None:
     """An infodict's `epoch` when it holds a usable number, else None.
 
-    `bool` is excluded deliberately: it is an `int` subclass, so `True` would otherwise read
-    as the epoch 1.
+    `bool` is excluded deliberately: it is an `int` subclass, so `True` would have returned 1.
     """
     value = info.get('epoch') if hasattr(info, 'get') else None
     if isinstance(value, bool) or not isinstance(value, (int, float)):

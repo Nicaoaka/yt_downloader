@@ -5,7 +5,6 @@ import unittest
 
 from pldl2.model.epoch import (
     Epoch,
-    epoch_now,
     from_iso,
     get_epoch,
     get_latest_epoch,
@@ -57,7 +56,6 @@ class EpochType(unittest.TestCase):
 
     def test_now(self):
         self.assertIsInstance(Epoch.now(), Epoch)
-        self.assertIsInstance(epoch_now(), Epoch)
 
     def test_survives_epochs_near_zero(self):
         """A naive fromtimestamp() raises OSError on Windows here, because local time falls
@@ -69,7 +67,7 @@ class EpochType(unittest.TestCase):
 
 class IsoRoundTrip(unittest.TestCase):
     def test_round_trips_exactly(self):
-        for epoch in (1_700_000_000, 0, 1, 2_000_000_000, epoch_now()):
+        for epoch in (1_700_000_000, 0, 1, 2_000_000_000, Epoch.now()):
             with self.subTest(epoch=epoch):
                 self.assertEqual(from_iso(to_iso(epoch)), epoch)
 

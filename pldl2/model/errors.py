@@ -2,10 +2,13 @@
 Classifying extractor errors, and `Issue`.
 
 `classify()` turns a yt-dlp error string into an `ErrorClass` plus the extractor tag it came
-from. It is pure: no printing, no I/O, total over its input. The single distinction it exists
-to protect is `confirmed_unavailable` -- only a message that positively says the video is gone
-counts. Anything ambiguous stays retryable, because treating "we could not tell" as "it is
-gone" freezes a live video for the length of a backoff.
+from. It is pure: no printing, no I/O, total over its input.
+
+Two distinctions carry the weight. `confirmed_unavailable` is true only when the platform
+positively refused; anything ambiguous stays retryable, because treating "we could not tell"
+as "it is gone" freezes a live video for the length of a backoff. `is_permanent` is narrower
+still, and separates a removal -- which will never resolve -- from a private video, which its
+owner can un-private and which the right credentials may reveal.
 
 `Issue` is how the rest of the package reports a problem instead of raising or prompting. A
 user-owned file that is missing, truncated or hand-mangled yields an `Issue` and the record
@@ -14,15 +17,19 @@ still opens, still answers queries and still commits.
 from __future__ import annotations
 
 __all__ = [  # noqa: RUF022
-    'ErrorClass', 'Classification', 'classify',
+    'ErrorClass', 'Classification', 'classify', 'UnavailableInfo',
     'Severity', 'Issue',
-    'MISC_ERRORS', 'AUTH_PATTERNS', 'GEO_PATTERNS', 'UNAVAILABLE_PATTERNS', 'NOT_FOUND_PATTERNS',
+    'MISC_ERRORS', 'AUTH_PATTERNS', 'GEO_PATTERNS',
+    'PRIVATE_PATTERNS', 'NOT_ARCHIVED_PATTERNS', 'UNAVAILABLE_PATTERNS',
+    'NOT_FOUND_PATTERNS',
 ]
 
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from typing import Any, Final
+
+from pldl2.model.epoch import Epoch
 
 
 class ErrorClass(StrEnum):
@@ -37,7 +44,21 @@ class ErrorClass(StrEnum):
     """DNS or connection failure. Says nothing about the video."""
 
     UNAVAILABLE = auto()
-    """Clearly unavailable: takedown, private, deleted, not archived."""
+    """Gone for good: deleted, account terminated, ToS removal.
+
+    The only class that is permanent. An id that lands here will not come back as that id.
+    """
+    PRIVATE = auto()
+    """Exists, hidden. The creator can un-private it, and if it is your own video the right
+    credentials reveal it -- so this must never be treated as permanent the way a takedown
+    is."""
+    NOT_ARCHIVED = auto()
+    """A mirror does not hold this video *yet*.
+
+    Says nothing about the video, only about that mirror's coverage, and coverage grows. A
+    video the Wayback Machine has not indexed yet may be there next month, so this is worth
+    retrying on a long backoff rather than recording as gone.
+    """
     GEO_BLOCKED = auto()
     """Exists and plays for someone else, just not from here. Never 'unavailable'."""
     AUTH_REQUIRED = auto()
@@ -73,7 +94,7 @@ AUTH_PATTERNS: Final[tuple[str, ...]] = (
 """Checked **before** UNAVAILABLE_PATTERNS, because an auth message can also mention
 signing in.
 
-Deliberately not here: yt-dlp's `Use --cookies...` hint. yt-dlp appends it to private-video
+Do not match yt-dlp's `Use --cookies...` hint to auth. yt-dlp appends it to private-video
 errors as well as to bot checks, so matching on it would match a confirmed-private video as
 just needing credentials.
 """
@@ -88,12 +109,22 @@ GEO_PATTERNS: Final[tuple[str, ...]] = (
 'Video unavailable.' and would otherwise be recorded as gone for good.
 """
 
+PRIVATE_PATTERNS: Final[tuple[str, ...]] = (
+    r'.*[Pp]rivate video.*',
+    r'.*[Pp]lease sign in.*',
+)
+"""Checked **before** UNAVAILABLE_PATTERNS. A private video is recoverable and a removed one
+is not, so folding them together would freeze a video that its owner may un-private."""
+
+NOT_ARCHIVED_PATTERNS: Final[tuple[str, ...]] = (
+    r'.*not archived or indexed.*',    # wa
+)
+"""A mirror's coverage gap, not a fact about the video. Kept out of UNAVAILABLE_PATTERNS
+because coverage grows: a video the archive lacks now may be there later."""
+
 UNAVAILABLE_PATTERNS: Final[tuple[str, ...]] = (
     r'.*[Vv]ideo unavailable.*',                              # yt: unavailable / takedown
     r'.*has been removed for violating.*Terms of Service.*',  # yt: ToS removal
-    r'.*[Pp]rivate video.*',                                  # yt: private
-    r'.*[Pp]lease sign in.*',                                 # yt: private video
-    r'.*not archived or indexed.*',                           # wa: not indexed
 )
 
 NOT_FOUND_PATTERNS: Final[tuple[str, ...]] = (
@@ -125,10 +156,23 @@ class Classification:
 
     @property
     def confirmed_unavailable(self) -> bool:
-        """True only when the platform positively said the video is gone.
+        """True when the platform positively said we cannot have this video.
 
-        Everything else -- auth, geo, not-found, unrecognized -- describes a video that may
-        well still be there.
+        Covers removed, private and not-archived: all mean "not obtainable now". It says
+        nothing about whether that is forever -- use `is_permanent` for that. Auth, geo,
+        not-found and unrecognized stay False, since they describe a reachable video.
+        """
+        return self.error_class in (
+            ErrorClass.UNAVAILABLE, ErrorClass.PRIVATE, ErrorClass.NOT_ARCHIVED)
+
+    @property
+    def is_permanent(self) -> bool:
+        """True when retrying this id will never succeed.
+
+        Only a removal qualifies. A private video can be un-privated and may be revealed by
+        the right credentials, and a mirror that lacks a video may index it later, so
+        both are deliberately excluded -- policy uses this to decide what to stop asking
+        about, and a wrong True here loses a recoverable video.
         """
         return self.error_class is ErrorClass.UNAVAILABLE
 
@@ -173,6 +217,12 @@ def classify(message: str, *, expects_auth: bool = False) -> Classification:
     if any(re.match(p, body) for p in GEO_PATTERNS):
         return verdict(ErrorClass.GEO_BLOCKED)
 
+    if any(re.match(p, body) for p in PRIVATE_PATTERNS):
+        return verdict(ErrorClass.PRIVATE)
+
+    if any(re.match(p, body) for p in NOT_ARCHIVED_PATTERNS):
+        return verdict(ErrorClass.NOT_ARCHIVED)
+
     if any(re.match(p, body) for p in UNAVAILABLE_PATTERNS):
         return verdict(ErrorClass.UNAVAILABLE)
 
@@ -180,6 +230,34 @@ def classify(message: str, *, expects_auth: bool = False) -> Classification:
         return verdict(ErrorClass.NOT_FOUND, may_be_auth=expects_auth)
 
     return verdict(ErrorClass.UNRECOGNIZED)
+
+
+# ---- unavailability ----
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UnavailableInfo:
+    """One extractor's report that a video could not be had, at one moment.
+
+    A frozen dataclass rather than a TypedDict because it is pldl's own structure, not part
+    of a yt-dlp payload -- and because the timeline deduplicates entries, which needs it to
+    be hashable.
+    """
+
+    extractor: str
+    """Which extractor said it: `youtube`, `web.archive:youtube`.
+
+    The full key, never a `yt`/`wa` shorthand, so comparisons against an extractor tag match
+    without a translation table in between.
+    """
+    msg: str | None = None
+    epoch: Epoch | None = None
+    error_class: ErrorClass | None = None
+    """The classification of `msg`, when it was classified. Lets a reader see *why* a video
+    was unavailable without re-running the patterns."""
+
+    def __post_init__(self) -> None:
+        if self.epoch is not None and not isinstance(self.epoch, Epoch):
+            object.__setattr__(self, 'epoch', Epoch(self.epoch))
 
 
 # ---- issues ----
