@@ -1,16 +1,14 @@
 """
-How much is known about a video, and how competing values are ranked.
+How much is known about a video, and how sources are ordered.
 
 `V_InfoLevel` and `PL_InfoLevel` say how complete an infodict is. Both are declared on the
 infodict and re-derivable from its content, so a file can be trusted or checked.
 
-**`rank(level, epoch)` is the merge's resolution rule.** Level dominates and epoch breaks ties
-within a level, so a richer old extraction always beats a poorer new one -- a flat refresh
-never overwrites what a full download knew. It resolves *fields*, not order: the merge folds
-its inputs chronologically and picks each field by rank, which keeps the timeline reading as
-history while still storing the best available value. Doing it the other way round, ranking
-the input list, makes a newer flat entry appear before an older extraction and the recorded
-progression reads backwards.
+**`rank(epoch, level)` is an ordering key, not a resolution rule.** It sorts chronologically
+and uses the level only to separate two sources from the same second. Which value wins a field
+is per-field and belongs to the merge's field updater; which of those changes gets written to
+the timeline belongs to its update filter. Three questions, three mechanisms -- collapsing the
+last two into a global ordering rule is what makes a timeline stop recording change.
 
 Derivation is pure and never reports. `v_level_mismatch()` returns a disagreement between the
 declared and derived level as a value, leaving it to the caller to decide whether that is
@@ -171,37 +169,33 @@ def pl_level_mismatch(pl_info: _AnyInfo | None) -> tuple[str, PL_InfoLevel] | No
     return str(declared), derived
 
 
-# ---- ranking ----
+# ---- ordering ----
 
-LARGE_TIME_DELTA = 10**12
-"""~31,688 years. Big enough that no realistic epoch spread can bridge one level."""
+def rank(epoch: int, info_level: V_InfoLevel | str | int | None) -> tuple[int, int]:
+    """Sort key: **chronological, with the level as a tiebreak**.
 
+    Orders things -- a timeline for reading, entries in a written file, the infodicts a merge
+    folds. It says *when*, and the level only separates two sources from the same second.
 
-def rank(info_level: V_InfoLevel | str | int | None, epoch: int) -> int:
-    """How good a source is. Level dominates; epoch breaks ties within a level.
+    It does **not** decide which value wins a field. That is per-field and belongs to the
+    merge's field updater, which is the only thing that can express rules like "a view count
+    only ever goes up" or "never overwrite a title with nothing". A single global "richer
+    source wins" rule cannot say either, and applying one would also empty the timeline: if
+    an old full extraction outranks every later refresh, almost nothing registers as a change
+    and the record stops showing what changed over time.
 
-    This decides **which value wins a field**. Two infodicts for one video both carry a
-    `title`; whichever ranks higher supplies the one that ends up in the merge:
-
-        a DOWNLOAD from 2024   ->  3_001_704_067_200
-        a FLAT refresh in 2026 ->  1_001_788_000_000   loses, despite being newer
-
-    That asymmetry is the whole point -- a flat refresh must never flatten what a full download
-    already knew. It guards roster context the same way, which is how a dead video keeps the
-    title a mirror found for it.
-
-    Consumers are merge/ (per field) and roster context. It resolves *values*, never list
-    order: ordering the merge's inputs by rank is what makes a recorded progression read
-    backwards.
+    Arguments are in sort order, so the signature reads the way the key sorts. A tuple
+    rather than a packed int, so there is no multiplier to get wrong and both components
+    stay legible.
     """
-    return (coerce_v_level(info_level).value * LARGE_TIME_DELTA) + epoch
+    return (epoch, coerce_v_level(info_level).value)
 
 
-def info_rank(v_info: _AnyInfo, epoch: int | None = None) -> int:
+def info_rank(v_info: _AnyInfo, epoch: int | None = None) -> tuple[int, int]:
     """`rank()` for a whole infodict, reading its declared level and its own epoch.
 
-    Uses the declared level rather than deriving one, so ranking stays a field lookup.
+    Uses the declared level rather than deriving one, so ordering stays a field lookup.
     """
     if epoch is None:
         epoch = int(v_info.get('epoch', 0) or 0)
-    return rank(v_info.get('info_level'), epoch)
+    return rank(epoch, v_info.get('info_level'))
