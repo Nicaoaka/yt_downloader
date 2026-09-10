@@ -20,7 +20,7 @@ nowhere else.
 Beyond membership, the roster and its entries carry **context**: last-known title, uploader and
 the like, so a playlist can be listed with nothing else on disk. Context is best-effort, may be
 stale, and nothing may depend on it for correctness. It is written by `update_context()` under
-a rank guard, so a richer source is never overwritten by a poorer one -- which is what lets a
+a precedence guard, so a richer source is never overwritten by a poorer one -- which is what lets a
 mirror's full extraction fill in a title that a flat extraction of a dead video cannot see.
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ from typing import Any, NotRequired, TypedDict
 from pldl2.model.epoch import EPOCH_ZERO, Epoch
 from pldl2.model.errors import UnavailableInfo
 from pldl2.model.infodicts import PL_ID, V_ID
-from pldl2.model.levels import V_InfoLevel, rank
+from pldl2.model.levels import V_InfoLevel, coerce_v_level
 from pldl2.model.manipulations import ManipulationLog
 from pldl2.model.schema import SCHEMA_VERSION
 from pldl2.model.timeline import PlaylistTimeline
@@ -80,8 +80,11 @@ class RosterEntry:
     unavailable_msgs: tuple[UnavailableInfo, ...] = ()
 
     context: VideoContext = field(default_factory=VideoContext)
-    context_rank: int = 0
-    """The rank of the source that last wrote `context`. See `update_context`."""
+    context_precedence: tuple[int, int] = (0, 0)
+    """(level, epoch) of the source that last wrote `context`. See `update_context`.
+
+    Deliberately not `rank`: that key is chronological, and context wants the *best*
+    source rather than the most recent one."""
 
     def __post_init__(self) -> None:
         for name in ('first_seen', 'last_seen'):
@@ -107,7 +110,7 @@ class Roster:
     answers "how current is membership"; a context update from another source leaves it be."""
 
     context: PlaylistContext = field(default_factory=PlaylistContext)
-    context_rank: int = 0
+    context_precedence: tuple[int, int] = (0, 0)
     timeline: PlaylistTimeline = field(default_factory=dict)
     manipulations: ManipulationLog = field(default_factory=ManipulationLog)
     schema_version: int = SCHEMA_VERSION
@@ -207,12 +210,23 @@ def context_from_info(info: Mapping[str, Any] | None, *,
     return found
 
 
-def _merge_context(current: Mapping[str, Any], current_rank: int,
-                   incoming: Mapping[str, Any], source_rank: int) -> tuple[dict, int]:
+def _precedence(level: V_InfoLevel, epoch: int) -> tuple[int, int]:
+    """How authoritative a source is for *context*: level first, epoch to break a tie.
+
+    Level-dominant on purpose, and therefore **not** `levels.rank`, which is chronological.
+    Context is a display cache where the best-known value is wanted, so a full extraction
+    from a mirror should outlast every later flat refresh of a video YouTube has removed.
+    """
+    return (coerce_v_level(level).value, int(epoch))
+
+
+def _merge_context(current: Mapping[str, Any], current_precedence: tuple[int, int],
+                   incoming: Mapping[str, Any],
+                   source_precedence: tuple[int, int]) -> tuple[dict, tuple[int, int]]:
     """Best-value merge: a source at least as good wins, a poorer one only fills gaps."""
-    if source_rank >= current_rank:
-        return {**current, **incoming}, source_rank
-    return {**incoming, **current}, current_rank
+    if source_precedence >= current_precedence:
+        return {**current, **incoming}, source_precedence
+    return {**incoming, **current}, current_precedence
 
 
 def update_context(
@@ -225,15 +239,15 @@ def update_context(
 ) -> Roster:
     """Merge context for one video, letting the better source win.
 
-    Context is **best-value, not latest**: the source's `rank(level, epoch)` is compared with
-    the rank that last wrote this entry's context.
+    Context is **best-value, not latest**: the source's (level, epoch) precedence is compared
+    with the precedence of whatever last wrote this entry's context.
 
-      - a source that ranks at least as high overwrites the fields it supplies
+      - a source whose precedence is at least as high overwrites the fields it supplies
       - a poorer source only fills fields that are still unknown
 
     That second rule is what matters for a dead video. A flat extraction of a removed video
     carries almost nothing, but a full extraction from a mirror carries its title and author --
-    and because that extraction outranks the flat one, the good values stick instead of being
+    and because that extraction takes precedence over the flat one, the good values stick
     flattened away on the next refresh.
 
     Does not touch `last_updated`, which tracks membership rather than description.
@@ -246,9 +260,10 @@ def update_context(
     if not incoming:
         return roster
 
-    merged, new_rank = _merge_context(
-        entry.context, entry.context_rank, incoming, rank(level, epoch))
-    return roster.with_entry(replace(entry, context=merged, context_rank=new_rank))
+    merged, new_precedence = _merge_context(
+        entry.context, entry.context_precedence, incoming, _precedence(level, epoch))
+    return roster.with_entry(
+        replace(entry, context=merged, context_precedence=new_precedence))
 
 
 def apply_flat_extraction(
@@ -267,7 +282,7 @@ def apply_flat_extraction(
     - ids not yet known are added, with `first_seen=last_seen=epoch`
 
     `infos` maps an id to its flat entry and `playlist_info` is the playlist's own infodict.
-    Both feed the context merge at FLAT rank, so a value already known from a richer source is
+    Both feed the context merge at FLAT precedence, so a value known from a richer source is
     not flattened away.
 
     `order` is the reconciled playlist order, computed by merge/ordering across every snapshot
@@ -323,8 +338,9 @@ def apply_flat_extraction(
             updated = update_context(updated, v_id, info, level=V_InfoLevel.FLAT, epoch=epoch)
 
     if incoming := context_from_info(playlist_info, sources=PLAYLIST_CONTEXT_SOURCES):
-        merged, new_rank = _merge_context(
-            updated.context, updated.context_rank, incoming, rank(V_InfoLevel.FLAT, epoch))
-        updated = replace(updated, context=merged, context_rank=new_rank)
+        merged, new_precedence = _merge_context(
+            updated.context, updated.context_precedence, incoming,
+            _precedence(V_InfoLevel.FLAT, epoch))
+        updated = replace(updated, context=merged, context_precedence=new_precedence)
 
     return updated
