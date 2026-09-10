@@ -27,11 +27,11 @@ from __future__ import annotations
 __all__ = [  # noqa: RUF022
     'KindName', 'Owner', 'PayloadShape', 'InfoKind',
     'ROSTER', 'METADATA', 'ARCHIVE', 'RAW_FLAT', 'RAW_V_INFOS', 'MERGE_INFO',
-    'KINDS', 'PATH_TEMPLATE_KEYS', 'user_owned', 'pldl_owned',
+    'KINDS', 'user_owned', 'pldl_owned',
 ]
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, Final
 
@@ -47,9 +47,8 @@ from pldl2.model.metadata import (
 )
 from pldl2.model.roster import Roster
 
-PATH_TEMPLATE_KEYS: Final[frozenset[str]] = frozenset(
-    f.name for f in fields(Paths) if f.name != 'playlist_dir')
-"""Template fields on `Paths` a kind may point at. Derived from `Paths`, so it cannot drift."""
+_SAMPLE_PATHS: Final = Paths(playlist_dir='')
+"""Resolved against every kind's `tmpl` at import, so a bad accessor fails immediately."""
 
 
 class KindName(StrEnum):
@@ -98,8 +97,14 @@ class InfoKind[T]:
 
     filename: str | None = None
     """Set for PLDL-owned files, whose names are fixed and never templated."""
-    tmpl_key: str | None = None
-    """Set for USER-owned files: the field on `Paths` holding this kind's template."""
+    tmpl: Callable[[Paths], str] | None = None
+    """Set for USER-owned files: reads this kind's template off `Paths`.
+
+    An accessor rather than a field name. A name is a string that merely happens to match
+    an attribute, so nothing connects the two: renaming a field on `Paths` leaves the kind
+    pointing at nothing, and only a runtime lookup finds out. `lambda p: p.raw_flat` is a
+    real reference -- a type checker resolves it, rename-refactoring follows it, and
+    `__post_init__` resolves every kind at import so a mistake cannot reach the store."""
 
     epoch_of: Callable[[Any], int] = get_epoch
     """How to read this kind's own epoch."""
@@ -112,13 +117,13 @@ class InfoKind[T]:
                 raise ValueError(f'{self.name}: a PLDL-owned kind needs a fixed filename')
             if not self.filename.startswith('_'):
                 raise ValueError(f'{self.name}: a PLDL-owned filename must start with "_"')
-        elif not self.tmpl_key:
-            raise ValueError(f'{self.name}: a USER-owned kind needs a tmpl_key')
+        elif self.tmpl is None:
+            raise ValueError(f'{self.name}: a USER-owned kind needs a tmpl accessor')
 
-        if self.tmpl_key is not None and self.tmpl_key not in PATH_TEMPLATE_KEYS:
-            raise ValueError(
-                f'{self.name}: tmpl_key {self.tmpl_key!r} is not a template field on Paths; '
-                f'known: {", ".join(sorted(PATH_TEMPLATE_KEYS))}')
+        if self.tmpl is not None:
+            # Resolve once against a sample so a broken accessor raises here, at import,
+            # rather than the first time the store tries to write this kind.
+            self.tmpl(_SAMPLE_PATHS)
 
     @property
     def may_be_missing(self) -> bool:
@@ -146,19 +151,19 @@ ARCHIVE: Final[InfoKind[list[str]]] = InfoKind(
 
 RAW_FLAT: Final[InfoKind[PL_InfoDict]] = InfoKind(
     name=KindName.RAW_FLAT, owner=Owner.USER, payload=PayloadShape.SINGLE,
-    tmpl_key='raw_flat',
+    tmpl=lambda p: p.raw_flat,
     description='One flat extraction: ids and order only.',
 )
 
 RAW_V_INFOS: Final[InfoKind[Capture]] = InfoKind(
     name=KindName.RAW_V_INFOS, owner=Owner.USER, payload=PayloadShape.BATCH,
-    tmpl_key='raw_v_infos', epoch_of=_batch_epoch,
+    tmpl=lambda p: p.raw_v_infos, epoch_of=_batch_epoch,
     description="A session's per-video infodicts.",
 )
 
 MERGE_INFO: Final[InfoKind[PL_InfoDict]] = InfoKind(
     name=KindName.MERGE_INFO, owner=Owner.USER, payload=PayloadShape.SINGLE,
-    tmpl_key='merge_info', epoch_of=get_latest_epoch,
+    tmpl=lambda p: p.merge_info, epoch_of=get_latest_epoch,
     description='Full history merge, carrying the merge timeline.',
 )
 

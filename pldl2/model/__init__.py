@@ -47,7 +47,6 @@ from pldl2.model.infodicts import (
 )
 from pldl2.model.kinds import (
     KINDS,
-    PATH_TEMPLATE_KEYS,
     InfoKind,
     KindName,
     Owner,
@@ -142,7 +141,7 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
 
     # kinds
     'InfoKind', 'KindName', 'Owner', 'PayloadShape',
-    'KINDS', 'PATH_TEMPLATE_KEYS', 'user_owned', 'pldl_owned',
+    'KINDS', 'user_owned', 'pldl_owned',
 
     # errors
     'ErrorClass', 'Classification', 'classify', 'UnavailableInfo', 'Issue', 'Severity',
