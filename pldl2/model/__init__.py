@@ -61,6 +61,7 @@ from pldl2.model.levels import (
     coerce_v_level,
     derive_pl_info_level,
     derive_v_info_level,
+    Rank,
     info_rank,
     pl_level_mismatch,
     rank,
@@ -86,7 +87,6 @@ from pldl2.model.roster import (
     VideoContext,
     apply_flat_extraction,
     context_from_info,
-    update_context,
 )
 from pldl2.model.schema import LEGACY_SCHEMA_VERSION, SCHEMA_VERSION
 from pldl2.model.timeline import (
@@ -114,7 +114,7 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
     'coerce_v_level', 'coerce_pl_level',
     'derive_v_info_level', 'derive_pl_info_level',
     'v_level_mismatch', 'pl_level_mismatch',
-    'rank', 'info_rank',
+    'Rank', 'rank', 'info_rank',
 
     # time
     'Epoch', 'EPOCH_ZERO', 'get_epoch', 'get_latest_epoch',
@@ -132,7 +132,7 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
 
     # roster
     'Roster', 'RosterEntry', 'VideoContext', 'PlaylistContext',
-    'apply_flat_extraction', 'update_context', 'context_from_info',
+    'apply_flat_extraction', 'context_from_info',
     'VIDEO_CONTEXT_SOURCES', 'PLAYLIST_CONTEXT_SOURCES',
 
     # metadata

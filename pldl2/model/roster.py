@@ -19,16 +19,21 @@ nowhere else.
 
 Beyond membership, the roster and its entries carry **context**: last-known title, uploader and
 the like, so a playlist can be listed with nothing else on disk. Context is best-effort, may be
-stale, and nothing may depend on it for correctness. It is written by `update_context()` under
-a precedence guard, so a richer source is never overwritten by a poorer one -- which is what lets a
-mirror's full extraction fill in a title that a flat extraction of a dead video cannot see.
+stale, and nothing may depend on it for correctness.
+
+**This module holds context; it does not decide it.** Choosing which of two values for a field
+wins is the merge's job and follows the merge's policy, so it lives in merge/ with the field
+resolvers. Deciding it here would be a second implementation of the same thing, and a second
+one always drifts -- this one had already drifted into preferring a rich old source over a fresh
+one, which freezes a title the uploader has since changed. `with_video_context()` and
+`with_playlist_context()` take an already-resolved value and store it.
 """
 from __future__ import annotations
 
 __all__ = [  # noqa: RUF022
     'VideoContext', 'PlaylistContext',
     'RosterEntry', 'Roster',
-    'apply_flat_extraction', 'update_context', 'context_from_info',
+    'apply_flat_extraction', 'context_from_info',
     'VIDEO_CONTEXT_SOURCES', 'PLAYLIST_CONTEXT_SOURCES',
 ]
 
@@ -39,7 +44,6 @@ from typing import Any, NotRequired, TypedDict
 from pldl2.model.epoch import EPOCH_ZERO, Epoch
 from pldl2.model.errors import UnavailableInfo
 from pldl2.model.infodicts import PL_ID, V_ID
-from pldl2.model.levels import V_InfoLevel, coerce_v_level
 from pldl2.model.manipulations import ManipulationLog
 from pldl2.model.schema import SCHEMA_VERSION
 from pldl2.model.timeline import PlaylistTimeline
@@ -80,11 +84,6 @@ class RosterEntry:
     unavailable_msgs: tuple[UnavailableInfo, ...] = ()
 
     context: VideoContext = field(default_factory=VideoContext)
-    context_precedence: tuple[int, int] = (0, 0)
-    """(level, epoch) of the source that last wrote `context`. See `update_context`.
-
-    Deliberately not `rank`: that key is chronological, and context wants the *best*
-    source rather than the most recent one."""
 
     def __post_init__(self) -> None:
         for name in ('first_seen', 'last_seen'):
@@ -110,7 +109,6 @@ class Roster:
     answers "how current is membership"; a context update from another source leaves it be."""
 
     context: PlaylistContext = field(default_factory=PlaylistContext)
-    context_precedence: tuple[int, int] = (0, 0)
     timeline: PlaylistTimeline = field(default_factory=dict)
     manipulations: ManipulationLog = field(default_factory=ManipulationLog)
     schema_version: int = SCHEMA_VERSION
@@ -172,6 +170,21 @@ class Roster:
     def with_timeline(self, timeline: PlaylistTimeline) -> Roster:
         return replace(self, timeline=dict(timeline))
 
+    def with_video_context(self, v_id: V_ID, context: VideoContext) -> Roster:
+        """Store already-resolved context for one video. Replaces rather than merges.
+
+        Merging two candidate values is policy and belongs to merge/; this only records the
+        answer. Returns the roster unchanged when the id is unknown.
+        """
+        entry = self.get(v_id)
+        if entry is None:
+            return self
+        return self.with_entry(replace(entry, context=dict(context)))  # type: ignore[arg-type]
+
+    def with_playlist_context(self, context: PlaylistContext) -> Roster:
+        """Store already-resolved context for the playlist. Replaces rather than merges."""
+        return replace(self, context=dict(context))  # type: ignore[arg-type]
+
 
 # ---- context ----
 
@@ -196,12 +209,12 @@ PLAYLIST_CONTEXT_SOURCES: Mapping[str, tuple[str, ...]] = {
 
 
 def context_from_info(info: Mapping[str, Any] | None, *,
-                      sources: Mapping[str, tuple[str, ...]] | None = None) -> dict[str, Any]:
+                      sources: Mapping[str, tuple[str, ...]]) -> dict[str, Any]:
     """Pull context fields out of an infodict, skipping anything absent or None."""
     if not info:
         return {}
     found: dict[str, Any] = {}
-    for target, keys in (sources or VIDEO_CONTEXT_SOURCES).items():
+    for target, keys in sources.items():
         for key in keys:
             value = info.get(key)
             if value is not None:
@@ -210,69 +223,11 @@ def context_from_info(info: Mapping[str, Any] | None, *,
     return found
 
 
-def _precedence(level: V_InfoLevel, epoch: int) -> tuple[int, int]:
-    """How authoritative a source is for *context*: level first, epoch to break a tie.
-
-    Level-dominant on purpose, and therefore **not** `levels.rank`, which is chronological.
-    Context is a display cache where the best-known value is wanted, so a full extraction
-    from a mirror should outlast every later flat refresh of a video YouTube has removed.
-    """
-    return (coerce_v_level(level).value, int(epoch))
-
-
-def _merge_context(current: Mapping[str, Any], current_precedence: tuple[int, int],
-                   incoming: Mapping[str, Any],
-                   source_precedence: tuple[int, int]) -> tuple[dict, tuple[int, int]]:
-    """Best-value merge: a source at least as good wins, a poorer one only fills gaps."""
-    if source_precedence >= current_precedence:
-        return {**current, **incoming}, source_precedence
-    return {**incoming, **current}, current_precedence
-
-
-def update_context(
-    roster: Roster,
-    v_id: V_ID,
-    info: Mapping[str, Any],
-    *,
-    level: V_InfoLevel,
-    epoch: int,
-) -> Roster:
-    """Merge context for one video, letting the better source win.
-
-    Context is **best-value, not latest**: the source's (level, epoch) precedence is compared
-    with the precedence of whatever last wrote this entry's context.
-
-      - a source whose precedence is at least as high overwrites the fields it supplies
-      - a poorer source only fills fields that are still unknown
-
-    That second rule is what matters for a dead video. A flat extraction of a removed video
-    carries almost nothing, but a full extraction from a mirror carries its title and author --
-    and because that extraction takes precedence over the flat one, the good values stick
-    flattened away on the next refresh.
-
-    Does not touch `last_updated`, which tracks membership rather than description.
-    """
-    entry = roster.get(v_id)
-    if entry is None:
-        return roster
-
-    incoming = context_from_info(info)
-    if not incoming:
-        return roster
-
-    merged, new_precedence = _merge_context(
-        entry.context, entry.context_precedence, incoming, _precedence(level, epoch))
-    return roster.with_entry(
-        replace(entry, context=merged, context_precedence=new_precedence))
-
-
 def apply_flat_extraction(
     roster: Roster,
     present_ids: Sequence[V_ID],
     epoch: int,
     *,
-    infos: Mapping[V_ID, Mapping[str, Any]] | None = None,
-    playlist_info: Mapping[str, Any] | None = None,
     order: Sequence[V_ID] | None = None,
 ) -> Roster:
     """Fold one flat extraction into the roster. **The only writer of `in_playlist`.**
@@ -281,9 +236,8 @@ def apply_flat_extraction(
     - ids absent from it get `in_playlist=False` and **keep their row and their last_seen**
     - ids not yet known are added, with `first_seen=last_seen=epoch`
 
-    `infos` maps an id to its flat entry and `playlist_info` is the playlist's own infodict.
-    Both feed the context merge at FLAT precedence, so a value known from a richer source is
-    not flattened away.
+    Context is deliberately not touched here. Which value wins a field follows the merge's
+    policy, so merge/ resolves it and hands the answer to `with_video_context()`.
 
     `order` is the reconciled playlist order, computed by merge/ordering across every snapshot
     seen so far. It is passed in rather than computed here because reconciling disagreeing
@@ -295,7 +249,6 @@ def apply_flat_extraction(
     flag and never drops the row. Dropping a row is edit/'s job, on an explicit request only.
     """
     epoch = Epoch(epoch)
-    infos = infos or {}
     present = set(present_ids)
     by_id = {e.id: e for e in roster.entries}
 
@@ -332,15 +285,4 @@ def apply_flat_extraction(
     updated = roster.with_entries(entries, last_updated=max(roster.last_updated, epoch))
     if not updated.first_seen:
         updated = replace(updated, first_seen=epoch)
-
-    for v_id in present_ids:
-        if info := infos.get(v_id):
-            updated = update_context(updated, v_id, info, level=V_InfoLevel.FLAT, epoch=epoch)
-
-    if incoming := context_from_info(playlist_info, sources=PLAYLIST_CONTEXT_SOURCES):
-        merged, new_precedence = _merge_context(
-            updated.context, updated.context_precedence, incoming,
-            _precedence(V_InfoLevel.FLAT, epoch))
-        updated = replace(updated, context=merged, context_precedence=new_precedence)
-
     return updated

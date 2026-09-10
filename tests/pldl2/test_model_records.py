@@ -22,7 +22,16 @@ from pldl2.model.kinds import (
 from pldl2.model.levels import V_InfoLevel
 from pldl2.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
 from pldl2.model.metadata import Metadata, Paths, SessionLog, VideoLog
-from pldl2.model.roster import Roster, RosterEntry, apply_flat_extraction, update_context
+from pldl2.model.roster import (
+    PLAYLIST_CONTEXT_SOURCES,
+    VIDEO_CONTEXT_SOURCES,
+    PlaylistContext,
+    Roster,
+    RosterEntry,
+    VideoContext,
+    apply_flat_extraction,
+    context_from_info,
+)
 from pldl2.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
 
 
@@ -137,83 +146,63 @@ class ApplyFlatExtraction(unittest.TestCase):
         self.assertEqual(later.last_updated, 9000)
 
 
-class Context(unittest.TestCase):
-    """Best-effort, best-value: a richer source wins, a poorer one only fills gaps."""
+class ContextShape(unittest.TestCase):
+    """The roster holds context; merge/ decides it.
 
-    def test_context_comes_from_the_flat_entry(self):
-        folded = apply_flat_extraction(Roster(id='p'), ['a'], epoch=2000, infos={
-            'a': {'id': 'a', 'title': 'A Video', 'channel': 'Some Channel', 'duration': 42}})
-        context = folded.get('a').context
-        self.assertEqual(context['title'], 'A Video')
-        self.assertEqual(context['uploader'], 'Some Channel')
-        self.assertEqual(context['duration'], 42)
+    Resolving two candidate values follows the merge's policy and lives with the field
+    resolvers, so there is one implementation rather than two that drift apart.
+    """
 
-    def test_uploader_falls_back_across_the_names_youtube_uses(self):
-        for key in ('uploader', 'channel', 'creator'):
-            with self.subTest(key=key):
-                folded = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1,
-                                               infos={'a': {'id': 'a', key: 'X'}})
-                self.assertEqual(folded.get('a').context['uploader'], 'X')
+    def test_a_source_table_exists_for_every_context_field(self):
+        """A field with no sources can never be filled, and would sit unexplained forever."""
+        self.assertEqual(set(VideoContext.__annotations__), set(VIDEO_CONTEXT_SOURCES))
+        self.assertEqual(set(PlaylistContext.__annotations__), set(PLAYLIST_CONTEXT_SOURCES))
 
-    def test_a_richer_source_fills_in_what_flat_cannot_see(self):
-        """The case that matters for a dead video: a flat extraction of a removed video knows
-        almost nothing, but a mirror's full extraction knows its title and author."""
-        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000,
-                                       infos={'a': {'id': 'a'}})
-        self.assertNotIn('title', roster.get('a').context)
+    def test_every_source_table_entry_names_at_least_one_key(self):
+        for table in (VIDEO_CONTEXT_SOURCES, PLAYLIST_CONTEXT_SOURCES):
+            for target, keys in table.items():
+                with self.subTest(target=target):
+                    self.assertTrue(keys)
 
-        roster = update_context(
-            roster, 'a',
-            {'id': 'a', 'title': 'Recovered', 'uploader': 'Original Author'},
-            level=V_InfoLevel.EXTRACT, epoch=1500)
-        self.assertEqual(roster.get('a').context['title'], 'Recovered')
+    def test_context_extraction_skips_absent_and_none(self):
+        found = context_from_info(
+            {'id': 'a', 'title': 'T', 'uploader': None, 'channel': 'C'},
+            sources=VIDEO_CONTEXT_SOURCES)
+        self.assertEqual(found['title'], 'T')
+        self.assertEqual(found['uploader'], 'C', 'falls through to the next source key')
+        self.assertNotIn('duration', found)
+        self.assertEqual(context_from_info(None, sources=VIDEO_CONTEXT_SOURCES), {})
 
-    def test_a_later_flat_refresh_does_not_flatten_a_richer_value(self):
-        """The whole reason context is rank-guarded rather than latest-wins."""
-        roster = update_context(
-            apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000),
-            'a', {'id': 'a', 'title': 'Recovered'}, level=V_InfoLevel.EXTRACT, epoch=1500)
+    def test_extraction_only_yields_declared_fields(self):
+        found = context_from_info({'id': 'a', 'title': 'T', 'formats': [1, 2, 3]},
+                                  sources=VIDEO_CONTEXT_SOURCES)
+        self.assertLessEqual(set(found), set(VideoContext.__annotations__))
 
-        refreshed = apply_flat_extraction(roster, ['a'], epoch=9000,
-                                          infos={'a': {'id': 'a', 'title': 'Deleted video'}})
-        self.assertEqual(refreshed.get('a').context['title'], 'Recovered',
-                         'a poorer, newer source must not overwrite a richer one')
+    def test_video_context_is_stored_verbatim(self):
+        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
+        updated = roster.with_video_context('a', {'title': 'T', 'uploader': 'U'})
+        self.assertEqual(dict(updated.get('a').context), {'title': 'T', 'uploader': 'U'})
 
-    def test_a_poorer_source_still_fills_an_unknown_field(self):
-        roster = update_context(
-            apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000),
-            'a', {'id': 'a', 'title': 'Recovered'}, level=V_InfoLevel.EXTRACT, epoch=1500)
+    def test_storing_context_replaces_rather_than_merges(self):
+        """Merging is policy. A setter that quietly merged would be a third place where
+        "which value wins" is decided."""
+        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
+        roster = roster.with_video_context('a', {'title': 'First', 'duration': 10})
+        roster = roster.with_video_context('a', {'title': 'Second'})
+        self.assertEqual(dict(roster.get('a').context), {'title': 'Second'})
 
-        refreshed = apply_flat_extraction(roster, ['a'], epoch=9000,
-                                          infos={'a': {'id': 'a', 'duration': 99}})
-        self.assertEqual(refreshed.get('a').context['title'], 'Recovered')
-        self.assertEqual(refreshed.get('a').context['duration'], 99, 'gaps still get filled')
+    def test_storing_context_for_an_unknown_id_is_a_no_op(self):
+        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
+        self.assertEqual(roster.with_video_context('zzz', {'title': 'T'}), roster)
 
-    def test_an_equally_ranked_newer_source_does_win(self):
-        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000,
-                                       infos={'a': {'id': 'a', 'title': 'Old'}})
-        roster = apply_flat_extraction(roster, ['a'], epoch=2000,
-                                       infos={'a': {'id': 'a', 'title': 'Renamed'}})
-        self.assertEqual(roster.get('a').context['title'], 'Renamed')
+    def test_playlist_context_is_stored_verbatim(self):
+        roster = Roster(id='p').with_playlist_context({'title': 'My Playlist'})
+        self.assertEqual(dict(roster.context), {'title': 'My Playlist'})
 
-    def test_playlist_context(self):
-        roster = apply_flat_extraction(
-            Roster(id='p'), ['a'], epoch=1000,
-            playlist_info={'id': 'p', 'title': 'My Playlist', 'uploader': 'Me'})
-        self.assertEqual(roster.context['title'], 'My Playlist')
-        self.assertEqual(roster.context['uploader'], 'Me')
-
-    def test_updating_context_leaves_last_updated_alone(self):
+    def test_storing_context_leaves_last_updated_alone(self):
         """last_updated answers "how current is membership", not "how current is the text"."""
         roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
-        updated = update_context(roster, 'a', {'id': 'a', 'title': 'T'},
-                                 level=V_InfoLevel.EXTRACT, epoch=5000)
-        self.assertEqual(updated.last_updated, 1000)
-
-    def test_updating_an_unknown_id_is_a_no_op(self):
-        roster = _roster('a')
-        self.assertEqual(update_context(roster, 'zzz', {'title': 'T'},
-                                        level=V_InfoLevel.EXTRACT, epoch=1), roster)
+        self.assertEqual(roster.with_video_context('a', {'title': 'T'}).last_updated, 1000)
 
 
 class Manipulations(unittest.TestCase):

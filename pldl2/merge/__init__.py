@@ -19,7 +19,8 @@ saturated with every `view_count` tick -- and that is exactly what the timeline 
     ordering.py   reconcile disagreeing snapshot orders into one playlist order
     updaters.py   the field resolvers and timeline filters, and the tables that pick one
     videos.py     fold per-video infodicts into one video's merged info + timeline
-    playlists.py  fold playlist-level infodicts, and drive videos.py across the entries
+    playlists.py  fold playlist-level infodicts, drive videos.py across the entries, and
+                  resolve the roster's context -- which is a merge, so it lives here
 
 Everything here takes values and returns values. `merge_pl_infos` returns a `MergeReport`
 rather than writing anything; what to persist is the caller's decision.

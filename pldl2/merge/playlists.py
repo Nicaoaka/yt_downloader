@@ -40,6 +40,27 @@ also what the caller can hand back to `roster.apply_flat_extraction(order=...)`.
 resolver machinery as a video's. Defaulting it to "the first pl_info wins" keeps current
 behavior while making the policy visible and overridable, rather than a hardcoded index.
 
+# ---- the roster's context ----
+
+    fold_flat_extraction(roster, capture, *, resolve, epoch) -> Roster
+
+Updating the roster is a merge, so it belongs here and not in `model/roster.py`. It runs the
+same resolver over the same candidate values as any other field, then hands the answer to
+`roster.with_video_context()` / `with_playlist_context()`, which only store it.
+
+The rule this must not reinvent: **latest wins, subject to the per-field resolver.** A recent
+flat extraction should take the title over an older full download, because the uploader may
+have renamed the video and the flat extraction is the fresher fact. Preferring the richer
+source instead freezes a title that has since changed -- and it is the same mistake as ordering
+the merge's inputs by level.
+
+Cases where a fresh source is *worse* are per-field problems with per-field answers -- a
+placeholder title on a removed video, a `None` where the extractor simply did not look. That is
+`latest_not_none` and its neighbours in updaters.py, not a different ordering.
+
+`model.roster.VIDEO_CONTEXT_SOURCES` says which infodict keys can supply each context field;
+`context_from_info` reads them out. Both are data about what context *is*, so they stay in L0.
+
 # ---- shape ----
 
 The merged document carries an envelope, like a capture does, so `merge_timeline` and

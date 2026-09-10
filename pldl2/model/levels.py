@@ -21,12 +21,12 @@ __all__ = [  # noqa: RUF022
     'coerce_v_level', 'coerce_pl_level',
     'derive_v_info_level', 'derive_pl_info_level',
     'v_level_mismatch', 'pl_level_mismatch',
-    'rank', 'info_rank',
+    'Rank', 'rank', 'info_rank',
 ]
 
 from collections.abc import Mapping
 from enum import IntEnum
-from typing import Any
+from typing import Any, NamedTuple
 
 type _AnyInfo = Mapping[str, Any]
 
@@ -171,7 +171,18 @@ def pl_level_mismatch(pl_info: _AnyInfo | None) -> tuple[str, PL_InfoLevel] | No
 
 # ---- ordering ----
 
-def rank(epoch: int, info_level: V_InfoLevel | str | int | None) -> tuple[int, int]:
+class Rank(NamedTuple):
+    """Where a source sits in the record's history.
+
+    A NamedTuple, so it compares and sorts exactly like the plain tuple it replaces while
+    the two components have names at every use site.
+    """
+
+    epoch: int
+    level: int
+
+
+def rank(epoch: int, info_level: V_InfoLevel | str | int | None) -> Rank:
     """Sort key: **chronological, with the level as a tiebreak**.
 
     Orders things -- a timeline for reading, entries in a written file, the infodicts a merge
@@ -188,10 +199,10 @@ def rank(epoch: int, info_level: V_InfoLevel | str | int | None) -> tuple[int, i
     rather than a packed int, so there is no multiplier to get wrong and both components
     stay legible.
     """
-    return (epoch, coerce_v_level(info_level).value)
+    return Rank(epoch, coerce_v_level(info_level).value)
 
 
-def info_rank(v_info: _AnyInfo, epoch: int | None = None) -> tuple[int, int]:
+def info_rank(v_info: _AnyInfo, epoch: int | None = None) -> Rank:
     """`rank()` for a whole infodict, reading its declared level and its own epoch.
 
     Uses the declared level rather than deriving one, so ordering stays a field lookup.
