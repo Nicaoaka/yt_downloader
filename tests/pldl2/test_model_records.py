@@ -12,7 +12,6 @@ from pldl2.model.epoch import Epoch
 from pldl2.model.errors import UnavailableInfo
 from pldl2.model.kinds import (
     KINDS,
-    PATH_TEMPLATE_KEYS,
     InfoKind,
     KindName,
     Owner,
@@ -25,6 +24,9 @@ from pldl2.model.manipulations import Manipulation, ManipulationKind, Manipulati
 from pldl2.model.metadata import Metadata, Paths, SessionLog, VideoLog
 from pldl2.model.roster import Roster, RosterEntry, apply_flat_extraction, update_context
 from pldl2.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
+
+
+SAMPLE_PATHS = Paths(playlist_dir='Some Playlist [PL_x]')
 
 
 def _roster(*ids, epoch=1000):
@@ -447,19 +449,29 @@ class KindRegistry(unittest.TestCase):
                     self.assertTrue(kind.filename.startswith('_'))
                     self.assertFalse(kind.may_be_missing)
                 else:
-                    self.assertIn(kind.tmpl_key, PATH_TEMPLATE_KEYS)
+                    self.assertIsNotNone(kind.tmpl)
+                    self.assertIsInstance(kind.tmpl(SAMPLE_PATHS), str)
                     self.assertTrue(kind.may_be_missing)
 
-    def test_a_tmpl_key_must_name_a_real_template_field(self):
-        """Validated against Paths itself, so the two cannot drift apart."""
-        with self.assertRaises(ValueError) as ctx:
-            InfoKind(name=KindName.RAW_FLAT, owner=Owner.USER,
-                     payload=PayloadShape.SINGLE, tmpl_key='raw_flta')
-        self.assertIn('raw_flta', str(ctx.exception))
+    def test_a_template_accessor_is_a_real_reference_not_a_name(self):
+        """A bare field name is a string that merely happens to match an attribute; nothing
+        connects the two. An accessor is resolved by the type checker, followed by
+        rename-refactoring, and smoke-called at import -- so a typo cannot reach the store."""
+        with self.assertRaises(AttributeError):
+            InfoKind(name=KindName.RAW_FLAT, owner=Owner.USER, payload=PayloadShape.SINGLE,
+                     tmpl=lambda p: p.raw_flta)  # type: ignore[attr-defined]
 
-    def test_playlist_dir_is_not_a_template_key(self):
-        """It names the folder, not a file inside it."""
-        self.assertNotIn('playlist_dir', PATH_TEMPLATE_KEYS)
+    def test_every_registered_kind_resolves_at_import(self):
+        """Import already proved this; asserting it keeps the guarantee from being deleted."""
+        for kind in user_owned():
+            with self.subTest(kind=kind.name):
+                self.assertIsInstance(kind.tmpl(SAMPLE_PATHS), str)  # type: ignore[misc]
+
+    def test_playlist_dir_is_not_a_template(self):
+        """It names the folder the templates resolve inside, so it is resolved once at
+        creation and stored, not per file."""
+        self.assertNotIn('playlist_dir', Paths.template_fields())
+        self.assertIn('raw_flat', Paths.template_fields())
 
     def test_the_registry_rejects_an_inconsistent_kind(self):
         with self.assertRaises(ValueError):

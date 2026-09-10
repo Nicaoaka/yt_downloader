@@ -246,7 +246,7 @@ class UnavailableInfo:
     extractor: str
     """Which extractor said it: `youtube`, `web.archive:youtube`.
 
-    The full key, never a `yt`/`wa` shorthand, so comparisons against an extractor tag match
+    Use the full key. Never a `yt`/`wa` shorthand, so comparisons against an extractor tag match
     without a translation table in between.
     """
     msg: str | None = None

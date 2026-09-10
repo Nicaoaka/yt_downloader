@@ -21,7 +21,7 @@ __all__ = [  # noqa: RUF022
 ]
 
 from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from typing import Final
 
 from pldl2.model.epoch import Epoch
@@ -54,6 +54,16 @@ class Paths:
     raw_flat: str = 'flat\\%(epoch)s.flat.json'
     raw_v_infos: str = 'v_infos\\%(epoch)s.v_infos.json'
     merge_info: str = 'merges\\%(epoch)s.merge.json'
+
+    @classmethod
+    def template_fields(cls) -> frozenset[str]:
+        """Every field that holds a template, which is all of them but `playlist_dir`.
+
+        `playlist_dir` names the folder the others resolve inside, so it is resolved once at
+        creation and stored, while a template is resolved per file. store/layout.py validates
+        these; nothing else needs to tell them apart.
+        """
+        return frozenset(f.name for f in fields(cls) if f.name != 'playlist_dir')
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
