@@ -1,12 +1,49 @@
-"""merge_pl_infos -- fold playlist-level infodicts. Returns a MergeReport (merged info +
-omissions + warnings); the caller decides what to persist.
+"""
+Fold playlist-level infodicts, and drive `videos.py` across the entries.
 
-Genuinely pure, unlike today: merge_infos.py:299-310 writes omitted_merge_timeline_infos.json
-into the current working directory as a side effect.
+    merge_pl_infos(
+        roster: Roster,
+        captures: Sequence[Capture],
+        *,
+        resolve: FieldResolver = COMMON_UPDATER,
+        record: TimelineFilter = ...,
+        pl_resolve: FieldResolver = PL_UPDATER,
+        previous: MergeDocument | None = None,
+    ) -> MergeReport
 
-Two authority rules:
-  - **membership comes from the roster alone.** Today the previous merge's ids are unioned
-    with _merge_flat, so a hand-removed video comes back at the next merge (issue-1 #36).
-  - validate extra_v_infos ids instead of KeyError-ing on off-playlist ids
-    (merge_infos.py:235) -- that invariant currently lives two modules away.
+# ---- pure ----
+
+Returns a `MergeReport` -- the merged document, the ids it omitted, and any warnings -- and
+writes nothing. What to persist, and where, is the caller's decision. A merge that dumps a
+file into the working directory as a side effect cannot be tested and cannot be composed.
+
+# ---- membership comes from the roster, and only the roster ----
+
+The roster decides which videos are in the playlist and in what order; the captures only
+supply values. Taking the union of the previous merge's ids with the current ones instead is
+what makes a video you deliberately removed reappear at the next merge.
+
+Ids in `captures` that the roster does not know are **reported and skipped**, never indexed
+blindly. A capture can legitimately hold an id the roster has since dropped -- that is what a
+removal followed by a merge looks like -- so this is an ordinary case, not an error, and it
+belongs in `MergeReport.omitted` rather than in an exception.
+
+# ---- order ----
+
+`ordering.merge_ordered_lists` reconciles the orders every snapshot proposes, newest first, so
+the newest wins a disagreement. The result is the order the merged document presents, and it is
+also what the caller can hand back to `roster.apply_flat_extraction(order=...)`.
+
+# ---- playlist-level fields ----
+
+`pl_resolve` handles the playlist's own fields (title, uploader, description) with the same
+resolver machinery as a video's. Defaulting it to "the first pl_info wins" keeps current
+behavior while making the policy visible and overridable, rather than a hardcoded index.
+
+# ---- shape ----
+
+The merged document carries an envelope, like a capture does, so `merge_timeline` and
+`info_level` cannot collide with yt-dlp's namespace. A projection flattens it to the inline
+v1 shape for anything that wants a plain infodict -- that is a dict merge at the boundary, not
+a second code path with its own rules.
 """
