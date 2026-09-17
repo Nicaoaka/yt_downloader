@@ -17,7 +17,7 @@ stops showing any. Folding chronologically produces the opposite problem -- a ti
 saturated with every `view_count` tick -- and that is exactly what the timeline filter is for.
 
     ordering.py   reconcile disagreeing snapshot orders into one playlist order
-    updaters.py   the field resolvers and timeline filters, and the tables that pick one
+    updaters.py   the merge updaters and timeline filters, and the tables that pick one
     videos.py     fold per-video infodicts into one video's merged info + timeline
     playlists.py  fold playlist-level infodicts, drive videos.py across the entries, and
                   resolve the roster's context -- which is a merge, so it lives here

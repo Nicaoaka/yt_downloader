@@ -5,9 +5,9 @@ Fold playlist-level infodicts, and drive `videos.py` across the entries.
         roster: Roster,
         captures: Sequence[Capture],
         *,
-        resolve: FieldResolver = COMMON_UPDATER,
+        resolve: MergeUpdaterMap = COMMON_UPDATER,
         record: TimelineFilter = ...,
-        pl_resolve: FieldResolver = PL_UPDATER,
+        pl_resolve: MergeUpdaterMap = PL_UPDATER,
         previous: MergeDocument | None = None,
     ) -> MergeReport
 
@@ -36,16 +36,18 @@ also what the caller can hand back to `roster.apply_flat_extraction(order=...)`.
 
 # ---- playlist-level fields ----
 
-`pl_resolve` handles the playlist's own fields (title, uploader, description) with the same
-resolver machinery as a video's. Defaulting it to "the first pl_info wins" keeps current
-behavior while making the policy visible and overridable, rather than a hardcoded index.
+A flat extraction's `Capture.playlist` is the playlist's own payload (title, uploader,
+description, `playlist_count`, ...); a per-video batch has none. `pl_resolve` folds those
+payloads with the same updater machinery as a video's, into `MergeDocument.playlist`.
+Defaulting it to "the first pl_info wins" keeps current behavior while making the policy
+visible and overridable, rather than a hardcoded index.
 
 # ---- the roster's context ----
 
     fold_flat_extraction(roster, capture, *, resolve, epoch) -> Roster
 
 Updating the roster is a merge, so it belongs here and not in `model/roster.py`. It runs the
-same resolver over the same candidate values as any other field, then hands the answer to
+same updaters over the same candidates as any other field, then hands the answer to
 `roster.with_video_context()` / `with_playlist_context()`, which only store it.
 
 The rule this must not reinvent: **latest wins, subject to the per-field resolver.** A recent
@@ -55,16 +57,18 @@ source instead freezes a title that has since changed -- and it is the same mist
 the merge's inputs by level.
 
 Cases where a fresh source is *worse* are per-field problems with per-field answers -- a
-placeholder title on a removed video, a `None` where the extractor simply did not look. That is
-`latest_not_none` and its neighbours in updaters.py, not a different ordering.
+placeholder title on a removed video, a `None` where the extractor simply did not look, a flat
+extraction's four thumbnails against a full extraction's forty-five. That is `latest_not_none`,
+`richest` and their neighbors in updaters.py, not a different ordering.
 
-`model.roster.VIDEO_CONTEXT_SOURCES` says which infodict keys can supply each context field;
-`context_from_info` reads them out. Both are data about what context *is*, so they stay in L0.
+`model.roster.VIDEO_CONTEXT_SOURCES` and `PLAYLIST_CONTEXT_SOURCES` say which payload keys can
+supply each context field. They are data about what context *is*, so they stay in L0; reading
+a value out through them is the fold's job, here.
 
 # ---- shape ----
 
-The merged document carries an envelope, like a capture does, so `merge_timeline` and
-`info_level` cannot collide with yt-dlp's namespace. A projection flattens it to the inline
-v1 shape for anything that wants a plain infodict -- that is a dict merge at the boundary, not
-a second code path with its own rules.
+The result is a `MergeDocument`: a `Capture` after folding, plus the `PL_InfoLevel` reached
+and the per-video timeline. `merge_timeline` and `info_level` therefore never enter the
+payload. A projection flattens it to the inline v1 shape for anything that wants a plain
+infodict -- that is a dict merge at the boundary, not a second code path with its own rules.
 """
