@@ -33,13 +33,13 @@ from __future__ import annotations
 __all__ = [  # noqa: RUF022
     'VideoContext', 'PlaylistContext',
     'RosterEntry', 'Roster',
-    'apply_flat_extraction', 'context_from_info',
+    'apply_flat_extraction',
     'VIDEO_CONTEXT_SOURCES', 'PLAYLIST_CONTEXT_SOURCES',
 ]
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, NotRequired, TypedDict
+from typing import NotRequired, TypedDict
 
 from pldl2.model.epoch import EPOCH_ZERO, Epoch
 from pldl2.model.errors import UnavailableInfo
@@ -81,7 +81,7 @@ class RosterEntry:
     first_seen: Epoch = EPOCH_ZERO
     last_seen: Epoch = EPOCH_ZERO
     """The last flat extraction that still listed this video."""
-    unavailable_msgs: tuple[UnavailableInfo, ...] = ()
+    unavailable_infos: tuple[UnavailableInfo, ...] = ()
 
     context: VideoContext = field(default_factory=VideoContext)
 
@@ -192,12 +192,13 @@ VIDEO_CONTEXT_SOURCES: Mapping[str, tuple[str, ...]] = {
     'title': ('title',),
     'uploader': ('uploader', 'channel', 'creator'),
     'duration': ('duration',),
-    'webpage_url': ('webpage_url',),
+    'webpage_url': ('webpage_url', 'url'),
 }
 """Which infodict keys can supply each context field, first match winning.
 
 Several yt-dlp keys carry the same fact -- `uploader`, `channel` and `creator` all name the
-author -- and which one appears depends on the extractor and the level.
+author -- and which one appears depends on the extractor and the level. A flat entry has no
+`webpage_url` at all; its `url` is the watch page.
 """
 
 PLAYLIST_CONTEXT_SOURCES: Mapping[str, tuple[str, ...]] = {
@@ -206,22 +207,6 @@ PLAYLIST_CONTEXT_SOURCES: Mapping[str, tuple[str, ...]] = {
     'description': ('description',),
     'webpage_url': ('webpage_url',),
 }
-
-
-def context_from_info(info: Mapping[str, Any] | None, *,
-                      sources: Mapping[str, tuple[str, ...]]) -> dict[str, Any]:
-    """Pull context fields out of an infodict, skipping anything absent or None."""
-    if not info:
-        return {}
-    found: dict[str, Any] = {}
-    for target, keys in sources.items():
-        for key in keys:
-            value = info.get(key)
-            if value is not None:
-                found[target] = value
-                break
-    return found
-
 
 def apply_flat_extraction(
     roster: Roster,

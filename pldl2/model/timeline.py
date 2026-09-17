@@ -57,7 +57,7 @@ class MergeTimelineEntry:
     """The level the record had reached after this instant."""
     prev_info_level: V_InfoLevel | None = None
     """The level it had before. Only set when this instant changed it."""
-    unavailable_msgs: tuple[UnavailableInfo, ...] = ()
+    unavailable_infos: tuple[UnavailableInfo, ...] = ()
     updates: tuple[FieldUpdate, ...] = ()
 
     def __post_init__(self) -> None:
@@ -86,7 +86,7 @@ class MergeTimelineEntry:
         A refresh that teaches nothing new produces one of these, and dropping it is correct:
         the timeline records what changed, not that a session ran.
         """
-        return not (self.updates or self.unavailable_msgs or self.is_better_info)
+        return not (self.updates or self.unavailable_infos or self.is_better_info)
 
     @property
     def sort_key(self) -> tuple:
@@ -99,7 +99,7 @@ class MergeTimelineEntry:
             int(self.epoch),
             -1 if self.info_level is None else int(self.info_level),
             tuple(u.field for u in self.updates),
-            tuple(m.extractor for m in self.unavailable_msgs),
+            tuple(m.extractor for m in self.unavailable_infos),
         )
 
 

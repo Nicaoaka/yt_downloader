@@ -12,7 +12,6 @@ on its own. Reach them through the module:
 """
 from __future__ import annotations
 
-from pldl2.model.videos import Capture, VideoEntry
 from pldl2.model.epoch import (
     EPOCH_ZERO,
     Epoch,
@@ -47,21 +46,21 @@ from pldl2.model.infodicts import (
 )
 from pldl2.model.kinds import (
     KINDS,
+    PLDL_OWNED,
+    USER_OWNED,
     InfoKind,
     KindName,
     Owner,
     PayloadShape,
-    pldl_owned,
-    user_owned,
 )
 from pldl2.model.levels import (
     PL_InfoLevel,
+    Rank,
     V_InfoLevel,
     coerce_pl_level,
     coerce_v_level,
     derive_pl_info_level,
     derive_v_info_level,
-    Rank,
     info_rank,
     pl_level_mismatch,
     rank,
@@ -86,7 +85,6 @@ from pldl2.model.roster import (
     RosterEntry,
     VideoContext,
     apply_flat_extraction,
-    context_from_info,
 )
 from pldl2.model.schema import LEGACY_SCHEMA_VERSION, SCHEMA_VERSION
 from pldl2.model.timeline import (
@@ -95,6 +93,7 @@ from pldl2.model.timeline import (
     PlaylistTimeline,
     VideoTimeline,
 )
+from pldl2.model.videos import Capture, MergeDocument, VideoEntry
 
 __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked up
     # schema
@@ -128,11 +127,11 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
     'Manipulation', 'ManipulationKind', 'ManipulationLog',
 
     # envelope
-    'VideoEntry', 'Capture',
+    'VideoEntry', 'Capture', 'MergeDocument',
 
     # roster
     'Roster', 'RosterEntry', 'VideoContext', 'PlaylistContext',
-    'apply_flat_extraction', 'context_from_info',
+    'apply_flat_extraction',
     'VIDEO_CONTEXT_SOURCES', 'PLAYLIST_CONTEXT_SOURCES',
 
     # metadata
@@ -141,7 +140,7 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
 
     # kinds
     'InfoKind', 'KindName', 'Owner', 'PayloadShape',
-    'KINDS', 'user_owned', 'pldl_owned',
+    'KINDS', 'USER_OWNED', 'PLDL_OWNED',
 
     # errors
     'ErrorClass', 'Classification', 'classify', 'UnavailableInfo', 'Issue', 'Severity',

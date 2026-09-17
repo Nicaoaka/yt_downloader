@@ -11,7 +11,6 @@ update filter.
 The divergence test imports from the old `pldl` package on purpose -- both coexist until the
 step-12 cutover. **Delete it at cutover**, along with `pldl/`.
 """
-import random
 import unittest
 
 from pldl.post_processing.merge_infos import _merge_v_sort_key
@@ -22,9 +21,9 @@ from pldl2.model.levels import (
     coerce_v_level,
     derive_pl_info_level,
     derive_v_info_level,
+    info_rank,
     pl_level_mismatch,
     rank,
-    info_rank,
     v_level_mismatch,
 )
 

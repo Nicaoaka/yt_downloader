@@ -10,7 +10,7 @@ at runtime, copies and validates nothing, and keys yt-dlp adds tomorrow are igno
 v1-compat: the pldl-side addon keys (`info_level`, `unavailable_msgs`, `playlist_epoch`) are
 still declared here because stored v1 files carry them inline and the migrator has to read
 them. **New code must not write them into a payload** -- they are envelope fields; see
-envelope.py.
+videos.py.
 """
 from __future__ import annotations
 
@@ -177,7 +177,7 @@ class _v1_V_InfoDict_Addons(TypedDict, total=False):
     """DEPRECATED! Fields that v1 wrote *into* the payload.
 
     v1-compat: Declared so the migrator can read v1 files. New code puts these on the top layer
-    instead (see envelope.py).
+    instead (see videos.py).
     """
     info_level: str
     unavailable_msgs: list[dict[str, Any]]  # v1 wrote plain dicts

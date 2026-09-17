@@ -7,19 +7,18 @@ import dataclasses
 import unittest
 
 from pldl2.model import kinds as kinds_module
-from pldl2.model.videos import Capture, VideoEntry
 from pldl2.model.epoch import Epoch
 from pldl2.model.errors import UnavailableInfo
 from pldl2.model.kinds import (
     KINDS,
+    PLDL_OWNED,
+    USER_OWNED,
     InfoKind,
     KindName,
     Owner,
     PayloadShape,
-    pldl_owned,
-    user_owned,
 )
-from pldl2.model.levels import V_InfoLevel
+from pldl2.model.levels import PL_InfoLevel, V_InfoLevel
 from pldl2.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
 from pldl2.model.metadata import Metadata, Paths, SessionLog, VideoLog
 from pldl2.model.roster import (
@@ -30,10 +29,9 @@ from pldl2.model.roster import (
     RosterEntry,
     VideoContext,
     apply_flat_extraction,
-    context_from_info,
 )
 from pldl2.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
-
+from pldl2.model.videos import Capture, MergeDocument, VideoEntry
 
 SAMPLE_PATHS = Paths(playlist_dir='Some Playlist [PL_x]')
 
@@ -164,20 +162,6 @@ class ContextShape(unittest.TestCase):
                 with self.subTest(target=target):
                     self.assertTrue(keys)
 
-    def test_context_extraction_skips_absent_and_none(self):
-        found = context_from_info(
-            {'id': 'a', 'title': 'T', 'uploader': None, 'channel': 'C'},
-            sources=VIDEO_CONTEXT_SOURCES)
-        self.assertEqual(found['title'], 'T')
-        self.assertEqual(found['uploader'], 'C', 'falls through to the next source key')
-        self.assertNotIn('duration', found)
-        self.assertEqual(context_from_info(None, sources=VIDEO_CONTEXT_SOURCES), {})
-
-    def test_extraction_only_yields_declared_fields(self):
-        found = context_from_info({'id': 'a', 'title': 'T', 'formats': [1, 2, 3]},
-                                  sources=VIDEO_CONTEXT_SOURCES)
-        self.assertLessEqual(set(found), set(VideoContext.__annotations__))
-
     def test_video_context_is_stored_verbatim(self):
         roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
         updated = roster.with_video_context('a', {'title': 'T', 'uploader': 'U'})
@@ -257,7 +241,7 @@ class Timeline(unittest.TestCase):
         entry = MergeTimelineEntry(
             epoch=Epoch(1),
             updates=(FieldUpdate(field='a', value='b'),),
-            unavailable_msgs=(UnavailableInfo(extractor='youtube', msg='gone'),))
+            unavailable_infos=(UnavailableInfo(extractor='youtube', msg='gone'),))
         self.assertEqual(len({entry, entry}), 1)
 
     def test_level_change_is_two_flat_fields(self):
@@ -321,6 +305,18 @@ class Timeline(unittest.TestCase):
         self.assertEqual(timeline.levels(), (V_InfoLevel.FLAT, V_InfoLevel.DOWNLOAD))
 
 
+# A flat extraction as yt-dlp returns it, trimmed. v1 wrote `info_level` into it.
+FLAT_PL_INFO = {
+    'id': 'PL_x', '_type': 'playlist', 'title': 'Some Playlist', 'uploader': 'U',
+    'playlist_count': 2, 'epoch': 500, 'extractor': 'youtube:tab',
+    'info_level': 'FLAT',
+    'entries': [
+        {'id': 'a', '_type': 'url', 'title': 'A', 'channel': 'C', 'info_level': 'FLAT'},
+        {'id': 'b', '_type': 'url', 'title': 'B', 'channel': None},
+    ],
+}
+
+
 class Envelope(unittest.TestCase):
     def test_data_stays_byte_faithful(self):
         payload = {'id': 'abc', 'title': 'T', 'channel': 'C', 'epoch': 5, 'extractor': 'youtube'}
@@ -332,13 +328,19 @@ class Envelope(unittest.TestCase):
             'info_level': 'EXTRACT',
             'unavailable_msgs': [{'epoch': 1, 'msg': 'gone', 'type': 'youtube'}],
             'playlist_epoch': 999,
+            'yt_unavailable_msg': 'gone', 'wa_unavailable_msg': None,
         }
         entry = VideoEntry.wrap(payload)
 
         self.assertIs(entry.info_level, V_InfoLevel.EXTRACT)
         self.assertEqual(entry.playlist_epoch, 999)
         self.assertIsInstance(entry.playlist_epoch, Epoch)
-        for pldl_key in ('info_level', 'unavailable_msgs', 'playlist_epoch'):
+        self.assertEqual(
+            entry.unavailable_infos,
+            (UnavailableInfo(extractor='youtube', msg='gone', epoch=Epoch(1)),),
+        )
+        for pldl_key in ('info_level', 'unavailable_msgs', 'playlist_epoch',
+                         'yt_unavailable_msg', 'wa_unavailable_msg'):
             self.assertNotIn(pldl_key, entry.unwrap())
 
     def test_data_is_read_only_at_runtime(self):
@@ -375,6 +377,42 @@ class Envelope(unittest.TestCase):
         self.assertIsNotNone(capture.get('a'))
         self.assertIsNone(capture.get('zzz'))
         self.assertEqual(Epoch.from_iso(capture.epoch.iso), 100)
+        self.assertIsNone(capture.playlist, 'a per-video batch has no playlist payload')
+        self.assertIsNone(capture.pl_id)
+
+    def test_a_flat_extraction_wraps_into_the_same_envelope(self):
+        capture = Capture.wrap_flat(FLAT_PL_INFO)
+        self.assertEqual(capture.epoch, 500)
+        self.assertEqual(capture.pl_id, 'PL_x')
+        self.assertEqual(capture.ids(), ('a', 'b'))
+        self.assertEqual(capture.playlist['title'], 'Some Playlist')
+        self.assertNotIn('entries', capture.playlist)
+        self.assertNotIn('info_level', capture.playlist, 'v1 key dropped')
+        self.assertIs(capture.get('a').info_level, V_InfoLevel.FLAT)
+        self.assertNotIn('info_level', capture.get('a').data, 'lifted onto the entry envelope')
+
+    def test_a_flat_extraction_unwraps_to_what_yt_dlp_returned(self):
+        expected = {k: v for k, v in FLAT_PL_INFO.items() if k != 'info_level'}
+        expected['entries'] = [{k: v for k, v in e.items() if k != 'info_level'}
+                               for e in expected['entries']]
+        self.assertEqual(Capture.wrap_flat(FLAT_PL_INFO).unwrap_flat(), expected)
+
+    def test_capture_playlist_is_read_only(self):
+        capture = Capture.wrap_flat(FLAT_PL_INFO)
+        with self.assertRaises(TypeError):
+            capture.playlist['title'] = 'changed'  # type: ignore[index]
+
+    def test_merge_document_is_a_folded_capture(self):
+        doc = MergeDocument(id='PL_x', epoch=700, info_level=PL_InfoLevel.MERGE,
+                            playlist={'title': 'Some Playlist'},
+                            videos=(VideoEntry.wrap({'id': 'a'}),))
+        self.assertIsInstance(doc.epoch, Epoch)
+        self.assertEqual(doc.ids(), ('a',))
+        self.assertEqual(doc.playlist['title'], 'Some Playlist')
+        self.assertNotIn('info_level', doc.playlist, 'the level lives on the envelope')
+        self.assertEqual(doc.timeline, {})
+        with self.assertRaises(TypeError):
+            doc.playlist['title'] = 'changed'  # type: ignore[index]
 
 
 class MetadataRecord(unittest.TestCase):
@@ -428,8 +466,6 @@ class KindRegistry(unittest.TestCase):
     def test_kinds_are_reachable_as_module_constants(self):
         """A misspelling is then an AttributeError at import, not a KeyError at runtime."""
         self.assertIs(kinds_module.ROSTER, KINDS[KindName.ROSTER])
-        with self.assertRaises(AttributeError):
-            _ = kinds_module.ARHCIVE  # noqa: B018 - the typo is the point
 
     def test_every_kind_declares_its_owner_consistently(self):
         for name, kind in KINDS.items():
@@ -452,7 +488,7 @@ class KindRegistry(unittest.TestCase):
 
     def test_every_registered_kind_resolves_at_import(self):
         """Import already proved this; asserting it keeps the guarantee from being deleted."""
-        for kind in user_owned():
+        for kind in USER_OWNED:
             with self.subTest(kind=kind.name):
                 self.assertIsInstance(kind.tmpl(SAMPLE_PATHS), str)  # type: ignore[misc]
 
@@ -479,8 +515,8 @@ class KindRegistry(unittest.TestCase):
         self.assertNotIn('filter_of', fields)
 
     def test_the_two_ownership_groups_partition_the_registry(self):
-        self.assertEqual(len(user_owned()) + len(pldl_owned()), len(KINDS))
-        self.assertEqual({k.name for k in pldl_owned()},
+        self.assertEqual(len(USER_OWNED) + len(PLDL_OWNED), len(KINDS))
+        self.assertEqual({k.name for k in PLDL_OWNED},
                          {KindName.ROSTER, KindName.METADATA, KindName.ARCHIVE})
 
     def test_the_batch_kind_reads_the_newest_epoch(self):

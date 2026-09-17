@@ -27,7 +27,7 @@ from __future__ import annotations
 __all__ = [  # noqa: RUF022
     'KindName', 'Owner', 'PayloadShape', 'InfoKind',
     'ROSTER', 'METADATA', 'ARCHIVE', 'RAW_FLAT', 'RAW_V_INFOS', 'MERGE_INFO',
-    'KINDS', 'user_owned', 'pldl_owned',
+    'KINDS', 'USER_OWNED', 'PLDL_OWNED',
 ]
 
 from collections.abc import Callable, Mapping
@@ -35,9 +35,7 @@ from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, Final
 
-from pldl2.model.videos import Capture
-from pldl2.model.epoch import Epoch, get_epoch, get_latest_epoch
-from pldl2.model.infodicts import PL_InfoDict
+from pldl2.model.epoch import Epoch, get_epoch
 from pldl2.model.metadata import (
     ARCHIVE_FILENAME,
     METADATA_FILENAME,
@@ -46,6 +44,7 @@ from pldl2.model.metadata import (
     Paths,
 )
 from pldl2.model.roster import Roster
+from pldl2.model.videos import Capture, MergeDocument
 
 _SAMPLE_PATHS: Final = Paths(playlist_dir='')
 """Resolved against every kind's `tmpl` at import, so a bad accessor fails immediately."""
@@ -69,9 +68,11 @@ class Owner(StrEnum):
 
 class PayloadShape(StrEnum):
     SINGLE = auto()
-    """One document: a flat extraction, a merge, the roster."""
+    """One document of pldl's own: the roster, the metadata."""
     BATCH = auto()
-    """Many entries in one file, so it is not valid yt-dlp infojson and never claims to be."""
+    """An envelope holding many entries -- a capture or a merge -- so it is not valid yt-dlp
+    infojson and never claims to be. A flat extraction is one too: its entries are wrapped
+    one by one and the playlist's own fields sit beside them."""
     OPAQUE = auto()
     """Not JSON at all: the download archive is a text file of `key id` lines."""
 
@@ -149,10 +150,10 @@ ARCHIVE: Final[InfoKind[list[str]]] = InfoKind(
     description="yt-dlp's download archive. Moves to the library when one is set.",
 )
 
-RAW_FLAT: Final[InfoKind[PL_InfoDict]] = InfoKind(
-    name=KindName.RAW_FLAT, owner=Owner.USER, payload=PayloadShape.SINGLE,
+RAW_FLAT: Final[InfoKind[Capture]] = InfoKind(
+    name=KindName.RAW_FLAT, owner=Owner.USER, payload=PayloadShape.BATCH,
     tmpl=lambda p: p.raw_flat,
-    description='One flat extraction: ids and order only.',
+    description="One flat extraction: the playlist's own fields, plus ids and order.",
 )
 
 RAW_V_INFOS: Final[InfoKind[Capture]] = InfoKind(
@@ -161,9 +162,9 @@ RAW_V_INFOS: Final[InfoKind[Capture]] = InfoKind(
     description="A session's per-video infodicts.",
 )
 
-MERGE_INFO: Final[InfoKind[PL_InfoDict]] = InfoKind(
-    name=KindName.MERGE_INFO, owner=Owner.USER, payload=PayloadShape.SINGLE,
-    tmpl=lambda p: p.merge_info, epoch_of=get_latest_epoch,
+MERGE_INFO: Final[InfoKind[MergeDocument]] = InfoKind(
+    name=KindName.MERGE_INFO, owner=Owner.USER, payload=PayloadShape.BATCH,
+    tmpl=lambda p: p.merge_info,
     description='Full history merge, carrying the merge timeline.',
 )
 
@@ -175,11 +176,8 @@ buys nothing over `kinds.ROSTER`, and a bare string subscript reintroduces the t
 module exists to prevent."""
 
 
-def user_owned() -> tuple[InfoKind[Any], ...]:
-    """Kinds the user may prune. Everything discovered by globbing."""
-    return tuple(k for k in KINDS.values() if k.owner is Owner.USER)
+USER_OWNED = tuple(k for k in KINDS.values() if k.owner is Owner.USER)
+"""Kinds the user may prune. Everything discovered by globbing."""
 
-
-def pldl_owned() -> tuple[InfoKind[Any], ...]:
-    """Kinds pldl depends on. Fixed names, must exist."""
-    return tuple(k for k in KINDS.values() if k.owner is Owner.PLDL)
+PLDL_OWNED = tuple(k for k in KINDS.values() if k.owner is Owner.PLDL)
+"""Kinds pldl depends on. Fixed names, must exist."""
