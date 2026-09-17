@@ -7,7 +7,7 @@ import dataclasses
 import unittest
 
 from pldl2.model import kinds as kinds_module
-from pldl2.model.envelope import Capture, VideoEntry
+from pldl2.model.videos import Capture, VideoEntry
 from pldl2.model.epoch import Epoch
 from pldl2.model.errors import UnavailableInfo
 from pldl2.model.kinds import (

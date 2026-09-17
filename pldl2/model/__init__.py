@@ -12,7 +12,7 @@ on its own. Reach them through the module:
 """
 from __future__ import annotations
 
-from pldl2.model.envelope import Capture, VideoEntry
+from pldl2.model.videos import Capture, VideoEntry
 from pldl2.model.epoch import (
     EPOCH_ZERO,
     Epoch,

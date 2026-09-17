@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, Final
 
-from pldl2.model.envelope import Capture
+from pldl2.model.videos import Capture
 from pldl2.model.epoch import Epoch, get_epoch, get_latest_epoch
 from pldl2.model.infodicts import PL_InfoDict
 from pldl2.model.metadata import (
