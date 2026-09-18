@@ -10,15 +10,15 @@ from pldl2.model.epoch import (
     get_latest_epoch,
     to_file_stamp,
     to_iso,
-    v1_from_readable_epoch,
-    v1_to_readable_epoch,
+    from_v1_readable_epoch,
+    to_v1_readable_epoch,
 )
 
 
 def _find_dst_fallback(start: int = 1_700_000_000, span: int = 4 * 365 * 86400) -> int | None:
     """An epoch whose local wall clock repeats an hour later, or None in a zone without DST."""
     for e in range(start, start + span, 1800):
-        if v1_to_readable_epoch(e) == v1_to_readable_epoch(e + 3600):
+        if to_v1_readable_epoch(e) == to_v1_readable_epoch(e + 3600):
             return e
     return None
 
@@ -96,12 +96,12 @@ class DstFallback(unittest.TestCase):
             self.skipTest('local timezone has no DST fall-back; nothing to collide')
 
     def test_the_v1_format_really_does_collide(self):
-        self.assertEqual(v1_to_readable_epoch(self.epoch),
-                         v1_to_readable_epoch(self.epoch + 3600))
+        self.assertEqual(to_v1_readable_epoch(self.epoch),
+                         to_v1_readable_epoch(self.epoch + 3600))
 
     def test_the_v1_reader_loses_the_second_epoch(self):
-        key = v1_to_readable_epoch(self.epoch)
-        self.assertNotEqual(v1_from_readable_epoch(key), self.epoch + 3600)
+        key = to_v1_readable_epoch(self.epoch)
+        self.assertNotEqual(from_v1_readable_epoch(key), self.epoch + 3600)
 
     def test_iso_does_not_collide(self):
         """Not "handled better" -- the collision cannot occur, because the offset differs."""
@@ -131,20 +131,20 @@ class FileStamps(unittest.TestCase):
 
 class LegacyReader(unittest.TestCase):
     def test_round_trips_a_normal_epoch(self):
-        self.assertEqual(v1_from_readable_epoch(v1_to_readable_epoch(1_700_000_000)),
+        self.assertEqual(from_v1_readable_epoch(to_v1_readable_epoch(1_700_000_000)),
                          1_700_000_000)
 
     def test_handles_the_malformed_wrapper(self):
         for epoch in (0, 5, -5, 3600):
             with self.subTest(epoch=epoch):
-                self.assertEqual(v1_from_readable_epoch(v1_to_readable_epoch(epoch)), epoch)
+                self.assertEqual(from_v1_readable_epoch(to_v1_readable_epoch(epoch)), epoch)
 
     def test_returns_an_epoch(self):
-        self.assertIsInstance(v1_from_readable_epoch(v1_to_readable_epoch(1_700_000_000)), Epoch)
+        self.assertIsInstance(from_v1_readable_epoch(to_v1_readable_epoch(1_700_000_000)), Epoch)
 
     def test_rejects_nonsense_loudly(self):
         with self.assertRaises(ValueError):
-            v1_from_readable_epoch('not an epoch at all')
+            from_v1_readable_epoch('not an epoch at all')
 
 
 class InfoEpochs(unittest.TestCase):

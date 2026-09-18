@@ -19,7 +19,7 @@ __all__ = [  # noqa: RUF022
     'get_epoch', 'get_latest_epoch',
     'to_iso', 'from_iso', 'to_file_stamp',
     'FILE_STAMP_FMT',
-    'v1_to_readable_epoch', 'v1_from_readable_epoch',
+    'to_v1_readable_epoch', 'from_v1_readable_epoch',
     'LEGACY_KEY_FMT', 'MALFORMED_EPOCH_FMT',
 ]
 
@@ -146,7 +146,7 @@ _TMP_RE_SUB: Final = '__sub__'
 """'__sub__' is used as a temporary value and must not be in `MALFORMED_EPOCH_FMT`"""
 
 
-def v1_to_readable_epoch(epoch: int) -> str:
+def to_v1_readable_epoch(epoch: int) -> str:
     """v1's readable key. Present so the migrator can regenerate a key and match it."""
     is_negative = epoch < 0
     if abs(epoch) <= 3600 * 24:
@@ -158,7 +158,7 @@ def v1_to_readable_epoch(epoch: int) -> str:
     return formatted
 
 
-def v1_from_readable_epoch(readable: str) -> Epoch:
+def from_v1_readable_epoch(readable: str) -> Epoch:
     """Parse a v1 readable key back to an epoch.
 
     Lossy across the DST fall-back hour, because the format it parses carries no offset. The

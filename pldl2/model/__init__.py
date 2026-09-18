@@ -17,12 +17,12 @@ from pldl2.model.epoch import (
     EPOCH_ZERO,
     Epoch,
     from_iso,
+    from_v1_readable_epoch,
     get_epoch,
     get_latest_epoch,
     to_file_stamp,
     to_iso,
-    v1_from_readable_epoch,
-    v1_to_readable_epoch,
+    to_v1_readable_epoch,
 )
 from pldl2.model.errors import (
     Classification,
@@ -118,7 +118,7 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
     # time
     'Epoch', 'EPOCH_ZERO', 'get_epoch', 'get_latest_epoch',
     'to_iso', 'from_iso', 'to_file_stamp',
-    'v1_to_readable_epoch', 'v1_from_readable_epoch',
+    'to_v1_readable_epoch', 'from_v1_readable_epoch',
 
     # timeline
     'FieldUpdate', 'MergeTimelineEntry', 'VideoTimeline', 'PlaylistTimeline',
