@@ -43,8 +43,8 @@ from pldl2.model.metadata import (
     Metadata,
     Paths,
 )
+from pldl2.model.playlists import Capture, MergePlaylist
 from pldl2.model.roster import Roster
-from pldl2.model.videos import Capture, MergeDocument
 
 _SAMPLE_PATHS: Final = Paths(playlist_dir='')
 """Resolved against every kind's `tmpl` at import, so a bad accessor fails immediately."""
@@ -162,7 +162,7 @@ RAW_V_INFOS: Final[InfoKind[Capture]] = InfoKind(
     description="A session's per-video infodicts.",
 )
 
-MERGE_INFO: Final[InfoKind[MergeDocument]] = InfoKind(
+MERGE_INFO: Final[InfoKind[MergePlaylist]] = InfoKind(
     name=KindName.MERGE_INFO, owner=Owner.USER, payload=PayloadShape.BATCH,
     tmpl=lambda p: p.merge_info,
     description='Full history merge, carrying the merge timeline.',

@@ -1,5 +1,5 @@
 """
-The yt-dlp payload shape, as TypedDicts, plus the download-control vocabulary.
+The yt-dlp payload shape, as TypedDicts.
 
 TypedDict is right here and a dataclass is not: this is foreign data with ~140 of optional keys
 whose shape changes between yt-dlp releases. It types the keys we care about, costs nothing
@@ -21,15 +21,10 @@ __all__ = [  # noqa: RUF022
 
     'ExtractorKey', 'YT_DLP_DownloadArchive', 'YT_DLP_DownloadArchive_IDs',
 
-    'DL_Action', 'DL_Result',
     'NO_VALUE',
-
-    # v1-compat
-    '_v1_DownloadInfo', '_v1_Session_DownloadInfo',
 ]
 
 from collections.abc import Iterable
-from enum import StrEnum, auto
 from typing import Any, Literal, NotRequired, ReadOnly, Required, TypedDict
 
 type V_ID = str
@@ -210,56 +205,6 @@ type ANY_InfoDict = V_InfoDict | PL_InfoDict | dict
 type ExtractorKey = str
 type YT_DLP_DownloadArchive = list[tuple[ExtractorKey, V_ID]]
 type YT_DLP_DownloadArchive_IDs = list[V_ID]
-
-
-# ---- download control ----
-
-class DL_Action(StrEnum):
-    """What to do with a video.
-
-    Declaration order used to be load-bearing for override tie-breaks, documented only in a
-    comment. policy/ gives rules an explicit `priority` instead, so nothing here depends on
-    the order any more.
-    """
-    USER     = auto()
-    QUIT     = auto()
-    SKIP     = auto()
-    EXTRACT  = auto()
-    DOWNLOAD = auto()
-
-
-class DL_Result(StrEnum):
-    """What actually happened.
-
-    CANCELLED and CACHED are separate: "already in the archive" and "the user stopped it" lead
-    to different decisions on the next run, so collapsing them loses the distinction that
-    matters.
-    """
-    CANCELLED    = auto()
-    FAIL         = auto()
-    UNRECOGNIZED = auto()
-    CACHED       = auto()
-    EXTRACT      = auto()
-    DOWNLOAD     = auto()
-
-
-# ---- v1-compat ----
-
-class _v1_DownloadInfo(TypedDict):
-    """DEPRECATED! One video's outcome, as v1 wrote it into `history`.
-
-    v1-compat: `metadata.VideoLog` is the v2 shape. Kept so the migrator can read v1 history.
-    """
-
-    id: str
-    title: str | None
-    action: DL_Action
-    result: DL_Result
-    errors: NotRequired[list[str]]
-
-
-type _v1_Session_DownloadInfo = list[_v1_DownloadInfo]
-"""DEPRECATED! v1-compat: `metadata.SessionLog` is the v2 shape."""
 
 
 # ---- sentinels ----

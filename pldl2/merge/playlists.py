@@ -8,7 +8,7 @@ Fold playlist-level infodicts, and drive `videos.py` across the entries.
         resolve: MergeUpdaterMap = COMMON_UPDATER,
         record: TimelineFilter = ...,
         pl_resolve: MergeUpdaterMap = PL_UPDATER,
-        previous: MergeDocument | None = None,
+        previous: MergePlaylist | None = None,
     ) -> MergeReport
 
 # ---- pure ----
@@ -38,7 +38,7 @@ also what the caller can hand back to `roster.apply_flat_extraction(order=...)`.
 
 A flat extraction's `Capture.playlist` is the playlist's own payload (title, uploader,
 description, `playlist_count`, ...); a per-video batch has none. `pl_resolve` folds those
-payloads with the same updater machinery as a video's, into `MergeDocument.playlist`.
+payloads with the same updater machinery as a video's, into `MergePlaylist.playlist`.
 Defaulting it to "the first pl_info wins" keeps current behavior while making the policy
 visible and overridable, rather than a hardcoded index.
 
@@ -67,7 +67,7 @@ a value out through them is the fold's job, here.
 
 # ---- shape ----
 
-The result is a `MergeDocument`: a `Capture` after folding, plus the `PL_InfoLevel` reached
+The result is a `MergePlaylist`: a `Capture` after folding, plus the `PL_InfoLevel` reached
 and the per-video timeline. `merge_timeline` and `info_level` therefore never enter the
 payload. A projection flattens it to the inline v1 shape for anything that wants a plain
 infodict -- that is a dict merge at the boundary, not a second code path with its own rules.

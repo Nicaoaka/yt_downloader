@@ -21,6 +21,7 @@ from pldl2.model.kinds import (
 from pldl2.model.levels import PL_InfoLevel, V_InfoLevel
 from pldl2.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
 from pldl2.model.metadata import Metadata, Paths, SessionLog, VideoLog
+from pldl2.model.playlists import Capture, MergePlaylist
 from pldl2.model.roster import (
     PLAYLIST_CONTEXT_SOURCES,
     VIDEO_CONTEXT_SOURCES,
@@ -31,7 +32,7 @@ from pldl2.model.roster import (
     apply_flat_extraction,
 )
 from pldl2.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
-from pldl2.model.videos import Capture, MergeDocument, VideoEntry
+from pldl2.model.videos import VideoEntry
 
 SAMPLE_PATHS = Paths(playlist_dir='Some Playlist [PL_x]')
 
@@ -402,8 +403,8 @@ class Envelope(unittest.TestCase):
         with self.assertRaises(TypeError):
             capture.playlist['title'] = 'changed'  # type: ignore[index]
 
-    def test_merge_document_is_a_folded_capture(self):
-        doc = MergeDocument(id='PL_x', epoch=700, info_level=PL_InfoLevel.MERGE,
+    def test_merge_playlist_is_a_folded_capture(self):
+        doc = MergePlaylist(id='PL_x', epoch=700, info_level=PL_InfoLevel.MERGE,
                             playlist={'title': 'Some Playlist'},
                             videos=(VideoEntry.wrap({'id': 'a'}),))
         self.assertIsInstance(doc.epoch, Epoch)

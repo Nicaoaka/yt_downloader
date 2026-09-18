@@ -12,6 +12,7 @@ on its own. Reach them through the module:
 """
 from __future__ import annotations
 
+from pldl2.model.downloads import DL_Action, DL_Result
 from pldl2.model.epoch import (
     EPOCH_ZERO,
     Epoch,
@@ -36,8 +37,6 @@ from pldl2.model.infodicts import (
     PL_ID,
     V_ID,
     ANY_InfoDict,
-    DL_Action,
-    DL_Result,
     PL_InfoDict,
     V_InfoDict,
     YT_DLP_DownloadArchive,
@@ -77,6 +76,7 @@ from pldl2.model.metadata import (
     SessionLog,
     VideoLog,
 )
+from pldl2.model.playlists import Capture, MergePlaylist
 from pldl2.model.roster import (
     PLAYLIST_CONTEXT_SOURCES,
     VIDEO_CONTEXT_SOURCES,
@@ -93,7 +93,7 @@ from pldl2.model.timeline import (
     PlaylistTimeline,
     VideoTimeline,
 )
-from pldl2.model.videos import Capture, MergeDocument, VideoEntry
+from pldl2.model.videos import VideoEntry
 
 __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked up
     # schema
@@ -126,8 +126,8 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
     # manipulations
     'Manipulation', 'ManipulationKind', 'ManipulationLog',
 
-    # envelope
-    'VideoEntry', 'Capture', 'MergeDocument',
+    # envelopes
+    'VideoEntry', 'Capture', 'MergePlaylist',
 
     # roster
     'Roster', 'RosterEntry', 'VideoContext', 'PlaylistContext',
