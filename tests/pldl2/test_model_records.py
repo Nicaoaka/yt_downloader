@@ -88,6 +88,33 @@ class RosterQueries(unittest.TestCase):
         self.assertEqual(Epoch.from_iso(roster.last_updated.iso), 1000)
 
 
+class WithOrder(unittest.TestCase):
+    """Applies a sequence; deciding it is the caller's. Must never be able to delete a row."""
+
+    def test_follows_the_sequence(self):
+        self.assertEqual(_roster('a', 'b', 'c').with_order(['c', 'a', 'b']).ids(), ('c', 'a', 'b'))
+
+    def test_omitted_ids_keep_their_relative_order_after_the_named_ones(self):
+        reordered = _roster('a', 'b', 'c', 'd').with_order(['d', 'b'])
+        self.assertEqual(reordered.ids(), ('d', 'b', 'a', 'c'))
+
+    def test_unknown_ids_and_repeats_are_ignored(self):
+        reordered = _roster('a', 'b').with_order(['b', 'zzz', 'a', 'b'])
+        self.assertEqual(reordered.ids(), ('b', 'a'))
+
+    def test_entries_are_moved_not_rebuilt(self):
+        roster = _roster('a', 'b')
+        self.assertIs(roster.with_order(['b', 'a']).get('a'), roster.get('a'))
+
+    def test_composes_with_a_membership_fold(self):
+        """What merge/ will do: fold membership, then apply the reconciled order."""
+        folded = apply_flat_extraction(_roster('a', 'b', 'c'), ['c', 'a'], epoch=2000)
+        reordered = folded.with_order(['c', 'a'])
+        self.assertEqual(reordered.ids(), ('c', 'a', 'b'))
+        self.assertFalse(reordered.get('b').in_playlist)
+        self.assertEqual(reordered.last_updated, 2000)
+
+
 class ApplyFlatExtraction(unittest.TestCase):
     """The only writer of in_playlist. These are its invariants."""
 
@@ -116,17 +143,10 @@ class ApplyFlatExtraction(unittest.TestCase):
         self.assertEqual(folded.ids(), ('a', 'new'))
         self.assertEqual(folded.get('new').first_seen, 2000)
 
-    def test_supplied_order_wins(self):
-        folded = apply_flat_extraction(_roster('a', 'b', 'c'), ['a', 'b', 'c'], epoch=2000,
-                                       order=['c', 'a', 'b'])
-        self.assertEqual(folded.ids(), ('c', 'a', 'b'))
-
-    def test_an_order_that_omits_a_known_id_still_keeps_it(self):
-        """Order reconciliation must never be able to delete a row."""
-        folded = apply_flat_extraction(_roster('a', 'b', 'c'), ['a', 'c'], epoch=2000,
-                                       order=['c', 'a'])
-        self.assertEqual(set(folded.ids()), {'a', 'b', 'c'})
-        self.assertEqual(folded.ids()[:2], ('c', 'a'))
+    def test_existing_order_is_kept_and_new_ids_follow(self):
+        """Membership only: reordering is `with_order`, decided by merge/."""
+        folded = apply_flat_extraction(_roster('a', 'b', 'c'), ['c', 'x', 'a', 'y'], epoch=2000)
+        self.assertEqual(folded.ids(), ('a', 'b', 'c', 'x', 'y'))
 
     def test_last_updated_moves_forward_only(self):
         folded = apply_flat_extraction(_roster('a', epoch=5000), ['a'], epoch=1000)

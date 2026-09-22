@@ -167,6 +167,23 @@ class Roster:
         """A copy with one entry replaced in place, preserving order."""
         return self.with_entries(e if e.id != entry.id else entry for e in self.entries)
 
+    def with_order(self, sequence: Iterable[V_ID]) -> Roster:
+        """A copy whose entries follow `sequence`. **Never drops a row.**
+
+        Ids the sequence omits keep their relative order and follow the ones it names; ids it
+        names that the roster lacks are ignored, as are repeats. Deciding what the sequence
+        should be -- reconciling snapshots, honoring a manual move -- is the caller's; this
+        only applies it.
+        """
+        by_id = {e.id: e for e in self.entries}
+        placed: list[RosterEntry] = []
+        seen: set[V_ID] = set()
+        for v_id in sequence:
+            if v_id in by_id and v_id not in seen:
+                placed.append(by_id[v_id])
+                seen.add(v_id)
+        return self.with_entries((*placed, *(e for e in self.entries if e.id not in seen)))
+
     def with_timeline(self, timeline: PlaylistTimeline) -> Roster:
         return replace(self, timeline=dict(timeline))
 
@@ -212,23 +229,18 @@ def apply_flat_extraction(
     roster: Roster,
     present_ids: Sequence[V_ID],
     epoch: int,
-    *,
-    order: Sequence[V_ID] | None = None,
 ) -> Roster:
-    """Fold one flat extraction into the roster. **The only writer of `in_playlist`.**
+    """Fold one flat extraction's *membership* into the roster. **The only writer of `in_playlist`.**
 
     - ids in `present_ids` get `in_playlist=True` and `last_seen=epoch`
     - ids absent from it get `in_playlist=False` and **keep their row and their last_seen**
-    - ids not yet known are added, with `first_seen=last_seen=epoch`
+    - ids not yet known are appended, in `present_ids` order, with `first_seen=last_seen=epoch`
 
-    Context is deliberately not touched here. Which value wins a field follows the merge's
-    policy, so merge/ resolves it and hands the answer to `with_video_context()`.
-
-    `order` is the reconciled playlist order, computed by merge/ordering across every snapshot
-    seen so far. It is passed in rather than computed here because reconciling disagreeing
-    orders is an L1 concern. When omitted, existing order is preserved and genuinely new ids
-    are appended in `present_ids` order -- correct for a first run and for an append-only
-    playlist, and the caller is expected to supply `order` otherwise.
+    Membership and nothing else. Existing entries keep their order; which order the playlist
+    *should* have is a reconciliation across snapshots and belongs to merge/, which computes
+    it and applies it with `Roster.with_order()`. Context likewise: which value wins a field
+    follows the merge's policy, so merge/ resolves it and stores it with
+    `with_video_context()`.
 
     Removing a video is *not* expressible here: an id vanishing from `present_ids` flips the
     flag and never drops the row. Dropping a row is edit/'s job, on an explicit request only.
@@ -254,20 +266,7 @@ def apply_flat_extraction(
             folded[v_id] = RosterEntry(
                 id=v_id, in_playlist=True, first_seen=epoch, last_seen=epoch)
 
-    if order is None:
-        sequence = [e.id for e in roster.entries] + [i for i in present_ids if i not in by_id]
-    else:
-        # Anything the reconciled order omits is still ours to keep -- never drop a row.
-        sequence = list(order) + [v_id for v_id in folded if v_id not in set(order)]
-
-    seen: set[V_ID] = set()
-    entries: list[RosterEntry] = []
-    for v_id in sequence:
-        if v_id in folded and v_id not in seen:
-            entries.append(folded[v_id])
-            seen.add(v_id)
-
-    updated = roster.with_entries(entries, last_updated=max(roster.last_updated, epoch))
+    updated = roster.with_entries(folded.values(), last_updated=max(roster.last_updated, epoch))
     if not updated.first_seen:
         updated = replace(updated, first_seen=epoch)
     return updated
