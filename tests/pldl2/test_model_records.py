@@ -29,7 +29,6 @@ from pldl2.model.roster import (
     Roster,
     RosterEntry,
     VideoContext,
-    apply_flat_extraction,
 )
 from pldl2.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
 from pldl2.model.videos import VideoEntry
@@ -108,7 +107,7 @@ class WithOrder(unittest.TestCase):
 
     def test_composes_with_a_membership_fold(self):
         """What merge/ will do: fold membership, then apply the reconciled order."""
-        folded = apply_flat_extraction(_roster('a', 'b', 'c'), ['c', 'a'], epoch=2000)
+        folded = _roster('a', 'b', 'c').with_flat_extraction(['c', 'a'], epoch=2000)
         reordered = folded.with_order(['c', 'a'])
         self.assertEqual(reordered.ids(), ('c', 'a', 'b'))
         self.assertFalse(reordered.get('b').in_playlist)
@@ -119,48 +118,48 @@ class ApplyFlatExtraction(unittest.TestCase):
     """The only writer of in_playlist. These are its invariants."""
 
     def test_a_video_gone_from_youtube_keeps_its_row(self):
-        folded = apply_flat_extraction(_roster('a', 'b', 'c', epoch=1000), ['a', 'c'], epoch=2000)
+        folded = _roster('a', 'b', 'c', epoch=1000).with_flat_extraction(['a', 'c'], epoch=2000)
         self.assertEqual(folded.ids(), ('a', 'b', 'c'), 'b must still be present')
         self.assertFalse(folded.get('b').in_playlist)
         self.assertTrue(folded.get('a').in_playlist)
 
     def test_a_disappeared_video_keeps_its_last_seen(self):
-        folded = apply_flat_extraction(_roster('a', 'b', epoch=1000), ['a'], epoch=2000)
+        folded = _roster('a', 'b', epoch=1000).with_flat_extraction(['a'], epoch=2000)
         self.assertEqual(folded.get('b').last_seen, 1000, 'last_seen is when it was last there')
         self.assertEqual(folded.get('a').last_seen, 2000)
 
     def test_a_video_can_come_back(self):
-        roster = apply_flat_extraction(_roster('a', 'b', epoch=1000), ['a'], epoch=2000)
+        roster = _roster('a', 'b', epoch=1000).with_flat_extraction(['a'], epoch=2000)
         self.assertFalse(roster.get('b').in_playlist)
 
-        returned = apply_flat_extraction(roster, ['a', 'b'], epoch=3000)
+        returned = roster.with_flat_extraction(['a', 'b'], epoch=3000)
         self.assertTrue(returned.get('b').in_playlist)
         self.assertEqual(returned.get('b').last_seen, 3000)
         self.assertEqual(returned.get('b').first_seen, 1000, 'first_seen never moves')
 
     def test_new_ids_are_added(self):
-        folded = apply_flat_extraction(_roster('a', epoch=1000), ['a', 'new'], epoch=2000)
+        folded = _roster('a', epoch=1000).with_flat_extraction(['a', 'new'], epoch=2000)
         self.assertEqual(folded.ids(), ('a', 'new'))
         self.assertEqual(folded.get('new').first_seen, 2000)
 
     def test_existing_order_is_kept_and_new_ids_follow(self):
         """Membership only: reordering is `with_order`, decided by merge/."""
-        folded = apply_flat_extraction(_roster('a', 'b', 'c'), ['c', 'x', 'a', 'y'], epoch=2000)
+        folded = _roster('a', 'b', 'c').with_flat_extraction(['c', 'x', 'a', 'y'], epoch=2000)
         self.assertEqual(folded.ids(), ('a', 'b', 'c', 'x', 'y'))
 
     def test_last_updated_moves_forward_only(self):
-        folded = apply_flat_extraction(_roster('a', epoch=5000), ['a'], epoch=1000)
+        folded = _roster('a', epoch=5000).with_flat_extraction(['a'], epoch=1000)
         self.assertEqual(folded.last_updated, 5000)
 
     def test_folding_an_empty_extraction_marks_everything_gone(self):
-        folded = apply_flat_extraction(_roster('a', 'b'), [], epoch=2000)
+        folded = _roster('a', 'b').with_flat_extraction([], epoch=2000)
         self.assertEqual(folded.ids(), ('a', 'b'))
         self.assertEqual(folded.ids(in_playlist=True), ())
 
     def test_first_seen_is_set_once(self):
-        first = apply_flat_extraction(Roster(id='p'), ['a'], epoch=2000)
+        first = Roster(id='p').with_flat_extraction(['a'], epoch=2000)
         self.assertEqual(first.first_seen, 2000)
-        later = apply_flat_extraction(first, ['a'], epoch=9000)
+        later = first.with_flat_extraction(['a'], epoch=9000)
         self.assertEqual(later.first_seen, 2000, 'when the playlist was first recorded')
         self.assertEqual(later.last_updated, 9000)
 
@@ -184,20 +183,20 @@ class ContextShape(unittest.TestCase):
                     self.assertTrue(keys)
 
     def test_video_context_is_stored_verbatim(self):
-        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
+        roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
         updated = roster.with_video_context('a', {'title': 'T', 'uploader': 'U'})
         self.assertEqual(dict(updated.get('a').context), {'title': 'T', 'uploader': 'U'})
 
     def test_storing_context_replaces_rather_than_merges(self):
         """Merging is policy. A setter that quietly merged would be a third place where
         "which value wins" is decided."""
-        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
+        roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
         roster = roster.with_video_context('a', {'title': 'First', 'duration': 10})
         roster = roster.with_video_context('a', {'title': 'Second'})
         self.assertEqual(dict(roster.get('a').context), {'title': 'Second'})
 
     def test_storing_context_for_an_unknown_id_is_a_no_op(self):
-        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
+        roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
         self.assertEqual(roster.with_video_context('zzz', {'title': 'T'}), roster)
 
     def test_playlist_context_is_stored_verbatim(self):
@@ -206,7 +205,7 @@ class ContextShape(unittest.TestCase):
 
     def test_storing_context_leaves_last_updated_alone(self):
         """last_updated answers "how current is membership", not "how current is the text"."""
-        roster = apply_flat_extraction(Roster(id='p'), ['a'], epoch=1000)
+        roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
         self.assertEqual(roster.with_video_context('a', {'title': 'T'}).last_updated, 1000)
 
 

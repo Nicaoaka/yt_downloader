@@ -14,8 +14,8 @@ Two invariants live here and nowhere else:
     is honored and permanent. The removal is recorded in `manipulations` and the raw captures
     stay on disk, so the record is rebuildable.
 
-`in_playlist` is written by exactly one operation, `apply_flat_extraction()`, and derived
-nowhere else.
+`in_playlist` is written by exactly one operation, `Roster.with_flat_extraction()`, and
+derived nowhere else.
 
 Beyond membership, the roster and its entries carry **context**: last-known title, uploader and
 the like, so a playlist can be listed with nothing else on disk. Context is best-effort, may be
@@ -33,7 +33,6 @@ from __future__ import annotations
 __all__ = [  # noqa: RUF022
     'VideoContext', 'PlaylistContext',
     'RosterEntry', 'Roster',
-    'apply_flat_extraction',
     'VIDEO_CONTEXT_SOURCES', 'PLAYLIST_CONTEXT_SOURCES',
 ]
 
@@ -167,8 +166,8 @@ class Roster:
         """A copy with one entry replaced in place, preserving order."""
         return self.with_entries(e if e.id != entry.id else entry for e in self.entries)
 
-    def with_order(self, sequence: Iterable[V_ID]) -> Roster:
-        """A copy whose entries follow `sequence`. **Never drops a row.**
+    def with_order(self, order: Sequence[V_ID]) -> Roster:
+        """A copy whose entries follow `order`. **Does not remove videos.**
 
         Ids the sequence omits keep their relative order and follow the ones it names; ids it
         names that the roster lacks are ignored, as are repeats. Deciding what the sequence
@@ -178,7 +177,7 @@ class Roster:
         by_id = {e.id: e for e in self.entries}
         placed: list[RosterEntry] = []
         seen: set[V_ID] = set()
-        for v_id in sequence:
+        for v_id in order:
             if v_id in by_id and v_id not in seen:
                 placed.append(by_id[v_id])
                 seen.add(v_id)
@@ -186,6 +185,51 @@ class Roster:
 
     def with_timeline(self, timeline: PlaylistTimeline) -> Roster:
         return replace(self, timeline=dict(timeline))
+
+    def with_flat_extraction(self, present_ids: Sequence[V_ID], epoch: int) -> Roster:
+        """A copy with one flat extraction's *membership* folded in.
+
+        **The only writer of `in_playlist`.**
+
+        - ids in `present_ids` get `in_playlist=True` and `last_seen=epoch`
+        - ids absent from it get `in_playlist=False` and **keep their row and their last_seen**
+        - ids not yet known are appended, in `present_ids` order, with `first_seen=last_seen=epoch`
+
+        Membership and nothing else. Existing entries keep their order; which order the
+        playlist *should* have is a reconciliation across snapshots and belongs to merge/,
+        which computes it and applies it with `with_order()`. Context likewise: which value
+        wins a field follows the merge's policy, so merge/ resolves it and stores it with
+        `with_video_context()`.
+
+        Removing a video is *not* expressible here: an id vanishing from `present_ids` flips
+        the flag and never drops the row. Dropping a row is edit/'s job, on an explicit
+        request only.
+        """
+        epoch = Epoch(epoch)
+        present = set(present_ids)
+        by_id = {e.id: e for e in self.entries}
+
+        folded: dict[V_ID, RosterEntry] = {}
+        for v_id, entry in by_id.items():
+            if v_id in present:
+                folded[v_id] = replace(
+                    entry,
+                    in_playlist=True,
+                    last_seen=Epoch(max(entry.last_seen, epoch)),
+                    first_seen=entry.first_seen or epoch, # TODO: should use min?
+                )
+            else:
+                folded[v_id] = replace(entry, in_playlist=False)
+
+        for v_id in present_ids:
+            if v_id not in folded:
+                folded[v_id] = RosterEntry(
+                    id=v_id, in_playlist=True, first_seen=epoch, last_seen=epoch)
+
+        updated = self.with_entries(folded.values(), last_updated=max(self.last_updated, epoch))
+        if not updated.first_seen:
+            updated = replace(updated, first_seen=epoch)
+        return updated
 
     def with_video_context(self, v_id: V_ID, context: VideoContext) -> Roster:
         """Store already-resolved context for one video. Replaces rather than merges.
@@ -224,49 +268,3 @@ PLAYLIST_CONTEXT_SOURCES: Mapping[str, tuple[str, ...]] = {
     'description': ('description',),
     'webpage_url': ('webpage_url',),
 }
-
-def apply_flat_extraction(
-    roster: Roster,
-    present_ids: Sequence[V_ID],
-    epoch: int,
-) -> Roster:
-    """Fold one flat extraction's *membership* into the roster. **The only writer of `in_playlist`.**
-
-    - ids in `present_ids` get `in_playlist=True` and `last_seen=epoch`
-    - ids absent from it get `in_playlist=False` and **keep their row and their last_seen**
-    - ids not yet known are appended, in `present_ids` order, with `first_seen=last_seen=epoch`
-
-    Membership and nothing else. Existing entries keep their order; which order the playlist
-    *should* have is a reconciliation across snapshots and belongs to merge/, which computes
-    it and applies it with `Roster.with_order()`. Context likewise: which value wins a field
-    follows the merge's policy, so merge/ resolves it and stores it with
-    `with_video_context()`.
-
-    Removing a video is *not* expressible here: an id vanishing from `present_ids` flips the
-    flag and never drops the row. Dropping a row is edit/'s job, on an explicit request only.
-    """
-    epoch = Epoch(epoch)
-    present = set(present_ids)
-    by_id = {e.id: e for e in roster.entries}
-
-    folded: dict[V_ID, RosterEntry] = {}
-    for v_id, entry in by_id.items():
-        if v_id in present:
-            folded[v_id] = replace(
-                entry,
-                in_playlist=True,
-                last_seen=Epoch(max(entry.last_seen, epoch)),
-                first_seen=entry.first_seen or epoch,
-            )
-        else:
-            folded[v_id] = replace(entry, in_playlist=False)
-
-    for v_id in present_ids:
-        if v_id not in folded:
-            folded[v_id] = RosterEntry(
-                id=v_id, in_playlist=True, first_seen=epoch, last_seen=epoch)
-
-    updated = roster.with_entries(folded.values(), last_updated=max(roster.last_updated, epoch))
-    if not updated.first_seen:
-        updated = replace(updated, first_seen=epoch)
-    return updated

@@ -84,7 +84,6 @@ from pldl2.model.roster import (
     Roster,
     RosterEntry,
     VideoContext,
-    apply_flat_extraction,
 )
 from pldl2.model.schema import LEGACY_SCHEMA_VERSION, SCHEMA_VERSION
 from pldl2.model.timeline import (
@@ -131,7 +130,6 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
 
     # roster
     'Roster', 'RosterEntry', 'VideoContext', 'PlaylistContext',
-    'apply_flat_extraction',
     'VIDEO_CONTEXT_SOURCES', 'PLAYLIST_CONTEXT_SOURCES',
 
     # metadata
