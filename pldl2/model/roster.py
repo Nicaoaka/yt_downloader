@@ -70,6 +70,16 @@ class PlaylistContext(TypedDict, total=False):
     webpage_url: NotRequired[str]
 
 
+def _earliest(known: Epoch, epoch: Epoch) -> Epoch:
+    """The earlier of the two, treating `EPOCH_ZERO` as "not known yet" rather than as 1970.
+
+    `min` rather than "keep what is there" so that first_seen does not depend on the order
+    captures were folded in: re-importing an older flat extraction, or a migrator walking the
+    archive backwards, must be able to move it earlier.
+    """
+    return min(known, epoch) if known else epoch
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RosterEntry:
     """One video's membership record. Order is positional, given by `Roster.entries`."""
@@ -195,6 +205,9 @@ class Roster:
         - ids absent from it get `in_playlist=False` and **keep their row and their last_seen**
         - ids not yet known are appended, in `present_ids` order, with `first_seen=last_seen=epoch`
 
+        `first_seen` only ever moves earlier and `last_seen`/`last_updated` only later, so
+        folding an older capture after a newer one is safe.
+
         Membership and nothing else. Existing entries keep their order; which order the
         playlist *should* have is a reconciliation across snapshots and belongs to merge/,
         which computes it and applies it with `with_order()`. Context likewise: which value
@@ -216,7 +229,7 @@ class Roster:
                     entry,
                     in_playlist=True,
                     last_seen=Epoch(max(entry.last_seen, epoch)),
-                    first_seen=entry.first_seen or epoch, # TODO: should use min?
+                    first_seen=_earliest(entry.first_seen, epoch),
                 )
             else:
                 folded[v_id] = replace(entry, in_playlist=False)
@@ -227,9 +240,7 @@ class Roster:
                     id=v_id, in_playlist=True, first_seen=epoch, last_seen=epoch)
 
         updated = self.with_entries(folded.values(), last_updated=max(self.last_updated, epoch))
-        if not updated.first_seen:
-            updated = replace(updated, first_seen=epoch)
-        return updated
+        return replace(updated, first_seen=_earliest(self.first_seen, epoch))
 
     def with_video_context(self, v_id: V_ID, context: VideoContext) -> Roster:
         """Store already-resolved context for one video. Replaces rather than merges.

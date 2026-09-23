@@ -156,6 +156,26 @@ class ApplyFlatExtraction(unittest.TestCase):
         self.assertEqual(folded.ids(), ('a', 'b'))
         self.assertEqual(folded.ids(in_playlist=True), ())
 
+    def test_first_seen_only_moves_earlier(self):
+        """Folding an older capture after a newer one -- re-importing an old flat file, or a
+        migrator walking the archive backwards -- must correct first_seen, not keep whichever
+        was folded first."""
+        roster = Roster(id='p').with_flat_extraction(['a'], epoch=5000)
+        self.assertEqual(roster.first_seen, 5000)
+        self.assertEqual(roster.get('a').first_seen, 5000)
+
+        earlier = roster.with_flat_extraction(['a'], epoch=1000)
+        self.assertEqual(earlier.first_seen, 1000, 'the playlist was recorded earlier than we knew')
+        self.assertEqual(earlier.get('a').first_seen, 1000)
+        self.assertEqual(earlier.get('a').last_seen, 5000, 'last_seen only moves later')
+        self.assertEqual(earlier.last_updated, 5000)
+
+    def test_first_seen_does_not_depend_on_fold_order(self):
+        forwards = Roster(id='p').with_flat_extraction(['a'], 1000).with_flat_extraction(['a'], 5000)
+        backwards = Roster(id='p').with_flat_extraction(['a'], 5000).with_flat_extraction(['a'], 1000)
+        self.assertEqual(forwards.get('a').first_seen, backwards.get('a').first_seen)
+        self.assertEqual(forwards.first_seen, backwards.first_seen)
+
     def test_first_seen_is_set_once(self):
         first = Roster(id='p').with_flat_extraction(['a'], epoch=2000)
         self.assertEqual(first.first_seen, 2000)
