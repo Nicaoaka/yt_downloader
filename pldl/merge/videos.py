@@ -69,6 +69,7 @@ from typing import Any, Final
 from pldl.merge.updaters import (
     COMMON_TIMELINE_KEYS,
     COMMON_UPDATER,
+    NO_VALUE,
     Candidate,
     MergeUpdaterMap,
     TimelineUpdateFilter,
@@ -76,17 +77,9 @@ from pldl.merge.updaters import (
     unwrap_candidates,
     wrap_candidates,
 )
-from pldl.model import (
-    NO_VALUE,
-    Epoch,
-    FieldUpdate,
-    MergeTimelineEntry,
-    Rank,
-    UnavailableInfo,
-    V_InfoLevel,
-    VideoEntry,
-    VideoTimeline,
-)
+from pldl.downloader import Rank, UnavailableInfo, V_InfoLevel, VideoEntry
+from pldl.model import Epoch
+from pldl.roster import FieldUpdate, MergeTimelineEntry, VideoTimeline
 
 REMOVED: Final = '<removed>'
 """How a `FieldUpdate` renders a key the winning source lacked. `str(None)` is taken."""

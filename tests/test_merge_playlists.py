@@ -1,16 +1,10 @@
 """The playlist fold: the roster decides who and in what order, captures supply values."""
 import unittest
 
-from pldl.merge.playlists import merge_pl_infos, update_roster
-from pldl.model import (
-    Capture,
-    Epoch,
-    MergePlaylist,
-    PL_InfoLevel,
-    Roster,
-    V_InfoLevel,
-    VideoEntry,
-)
+from pldl.downloader import Capture, V_InfoLevel, VideoEntry
+from pldl.merge.playlists import MergePlaylist, PL_InfoLevel, merge_pl_infos, update_roster
+from pldl.model import Epoch
+from pldl.roster import Roster
 
 NONE, FLAT, EXTRACT, DOWNLOAD = V_InfoLevel
 

@@ -97,7 +97,7 @@ the test first and pick whichever reads correctly.
 from __future__ import annotations
 
 __all__ = [  # noqa: RUF022
-    'Candidate', 'ZERO_CANDIDATE',
+    'NO_VALUE', 'Candidate', 'ZERO_CANDIDATE',
     'MergeUpdater', 'TimelineUpdateFilter',
     'keep', 'latest', 'latest_not_none', 'fill_absent', 'maximum',
     'richest_latest', 'richest_latest_not_none',
@@ -109,12 +109,31 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from itertools import chain
 from types import MappingProxyType
-from typing import Any, Final, NamedTuple
+from typing import Any, Final, Literal, NamedTuple
 
-from pldl.model.infodicts import NO_VALUE
-from pldl.model.levels import Rank
-from pldl.model.roster import PLAYLIST_CONTEXT_SOURCES, VIDEO_CONTEXT_SOURCES
+from pldl.downloader import Rank
+from pldl.roster import PLAYLIST_CONTEXT_SOURCES, VIDEO_CONTEXT_SOURCES
 
+
+# ---- sentinels ----
+
+class _FalsySentinelMeta(type):
+    def __repr__(cls) -> str:
+        return f'<{cls.__name__}>'
+
+    def __bool__(cls) -> Literal[False]:
+        return False
+
+
+class NO_VALUE(metaclass=_FalsySentinelMeta):
+    """Differentiate absent from `None`/default value.
+
+    Falsy and never instantiated -- it is used as the class itself, so `is NO_VALUE` is the
+    identity check and `if value:` treats it like any other empty value.
+    """
+
+
+# ---- candidates ----
 
 class Candidate(NamedTuple):
     """A value and the rank of the source that supplied it."""

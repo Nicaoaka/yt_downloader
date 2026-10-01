@@ -18,8 +18,6 @@ __all__ = [  # noqa: RUF022
     'V_ID', 'PL_ID',
 
     'YT_DLP_InfoDict', 'V_InfoDict', 'PL_InfoDict', 'ANY_InfoDict',
-
-    'NO_VALUE',
 ]
 
 from collections.abc import Iterable
@@ -196,21 +194,3 @@ class PL_InfoDict[ENTRY=V_InfoDict](YT_DLP_InfoDict[ENTRY], _v1_PL_InfoDict_Addo
 
 
 type ANY_InfoDict = V_InfoDict | PL_InfoDict | dict
-
-
-# ---- sentinels ----
-
-class _FalsySentinelMeta(type):
-    def __repr__(cls) -> str:
-        return f'<{cls.__name__}>'
-
-    def __bool__(cls) -> Literal[False]:
-        return False
-
-
-class NO_VALUE(metaclass=_FalsySentinelMeta):
-    """Differentiate absent from `None`/default value.
-
-    Falsy and never instantiated -- it is used as the class itself, so `is NO_VALUE` is the
-    identity check and `if value:` treats it like any other empty value.
-    """

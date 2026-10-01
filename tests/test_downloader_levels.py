@@ -9,7 +9,7 @@ update filter.
 """
 import unittest
 
-from pldl.model.levels import (
+from pldl.downloader.levels import (
     V_InfoLevel,
     coerce_v_level,
     derive_v_info_level,

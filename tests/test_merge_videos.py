@@ -8,10 +8,8 @@ from itertools import permutations
 
 from pldl.merge.updaters import MergeUpdaterMap, latest
 from pldl.merge.videos import REMOVED, merge_v_infos
-from pldl.model.epoch import Epoch
-from pldl.model.errors import UnavailableInfo
-from pldl.model.levels import V_InfoLevel
-from pldl.model.videos import VideoEntry
+from pldl.downloader import UnavailableInfo, V_InfoLevel, VideoEntry
+from pldl.model import Epoch
 
 NONE, FLAT, EXTRACT, DOWNLOAD = V_InfoLevel
 

@@ -74,18 +74,21 @@ infodict -- that is a dict merge at the boundary, not a second code path with it
 """
 from __future__ import annotations
 
-__all__ = ['MergeReport', 'merge_pl_infos', 'update_roster']
+__all__ = ['PL_InfoLevel', 'MergePlaylist', 'MergeReport', 'merge_pl_infos', 'update_roster']
 
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import IntEnum
 from itertools import chain
+from types import MappingProxyType
 from typing import Any
 
 from pldl.merge.ordering import merge_ordered_lists
 from pldl.merge.updaters import (
     COMMON_TIMELINE_KEYS,
     COMMON_UPDATER,
+    NO_VALUE,
     PL_UPDATER,
     ROSTER_UPDATER,
     Candidate,
@@ -95,23 +98,64 @@ from pldl.merge.updaters import (
     unwrap_candidates,
 )
 from pldl.merge.videos import merge_v_infos
-from pldl.model import (
-    NO_VALUE,
+from pldl.downloader import PL_ID, V_ID, Capture, Rank, V_InfoLevel, VideoEntry
+from pldl.model import SCHEMA_VERSION, Epoch
+from pldl.roster import (
     PLAYLIST_CONTEXT_SOURCES,
-    V_ID,
     VIDEO_CONTEXT_SOURCES,
-    Capture,
-    Epoch,
-    MergePlaylist,
-    PL_InfoLevel,
     PlaylistTimeline,
-    Rank,
     Roster,
-    V_InfoLevel,
-    VideoEntry,
 )
 
 type _Payloads = Iterable[tuple[Mapping[str, Any], Rank]]
+
+
+# ---- the merged playlist ----
+
+class PL_InfoLevel(IntEnum):
+    """How much is known about a playlist document."""
+    NONE = 0
+    FLAT = 1
+    MERGE_FLAT = 2
+    NORMAL = 3
+    MERGE = 4
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MergePlaylist:
+    """The merged playlist: what `merge_pl_infos` returns.
+
+    A `Capture` after folding. `playlist` and each entry's `data` are merged payloads, so
+    they are pldl's synthesis rather than any one extractor's output, and no `unwrap` is
+    offered -- there is no original to get back to. `videos` are in roster order.
+    """
+
+    id: PL_ID
+    epoch: Epoch
+    """The newest source folded in."""
+    info_level: PL_InfoLevel
+    playlist: Mapping[str, Any] = field(default_factory=dict)
+    videos: tuple[VideoEntry, ...] = ()
+    timeline: PlaylistTimeline = field(default_factory=dict)
+    schema_version: int = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.epoch, Epoch):
+            object.__setattr__(self, 'epoch', Epoch(self.epoch))
+        if not isinstance(self.playlist, MappingProxyType):
+            object.__setattr__(self, 'playlist', MappingProxyType(dict(self.playlist)))
+
+    def __len__(self) -> int:
+        return len(self.videos)
+
+    def get(self, v_id: V_ID) -> VideoEntry | None:
+        for entry in self.videos:
+            if entry.id == v_id:
+                return entry
+        return None
+
+    def ids(self) -> tuple[V_ID, ...]:
+        return tuple(entry.id for entry in self.videos)
 
 
 @dataclass(slots=True, kw_only=True)

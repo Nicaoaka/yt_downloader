@@ -1,17 +1,17 @@
-"""L5 facade. Re-exports the public surface so `from pldl import *` works, exactly as
-`pldl/__init__.py` does today (the run configs in scripts/ rely on that).
+"""pldl keeps a durable, historical record of a YouTube playlist.
 
-Layering, dependencies point downward only:
+It is organized as stages, in the order data flows through them:
 
-    L5  __init__.py       facade + re-exports
-    L4  record.py         PlaylistRecord -- opens/queries/commits the durable record
-        session.py        DownloadSession -- drives yt-dlp, applies policy, feeds the store
-    L3  report/           pure renderers: data -> str. Never print.
-    L2  store/            the on-disk record          library/  the global video pool
-        ytdlp/            the yt-dlp adapter          policy/   download decisions (pure)
-    L1  merge/            fold N infodicts -> 1       edit/     playlist edits (pure)
-    L0  model/            types, levels, epochs, ranking, timeline. No deps.
+    model/       generic building blocks: Epoch, the schema version
+    downloader/  what yt-dlp hands back, wrapped: VideoEntry, Capture, levels, errors
+    roster/      the authoritative record: membership, order, context, timeline
+    merge/       folds many captures into one merged playlist and updates the roster
 
-The reference for "done right" is pldl/utils/merge_ordered_lists.py: no pldl imports, no
-I/O, no printing, fully tested. Every module here is held to that standard.
+**A stage imports only from stages before it.** A type lives with the stage that produces it,
+and is imported from that stage: `from pldl.downloader import VideoEntry`. Inside a stage,
+modules import each other by submodule path.
+
+No module in model/, downloader/, roster/ or merge/ imports yt_dlp.
+
+Nothing is re-exported here yet.
 """

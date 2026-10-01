@@ -22,16 +22,16 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
-from pldl.model.epoch import Epoch, get_epoch
-from pldl.model.errors import UnavailableInfo
-from pldl.model.infodicts import V_ID, V_InfoDict, YT_DLP_InfoDict
-from pldl.model.levels import (
+from pldl.downloader.errors import UnavailableInfo
+from pldl.downloader.infodicts import V_ID, V_InfoDict, YT_DLP_InfoDict
+from pldl.downloader.levels import (
     Rank,
     V_InfoLevel,
     coerce_v_level,
     derive_v_info_level,
     rank,
 )
+from pldl.model import Epoch, get_epoch
 
 _PLDL_PAYLOAD_KEYS = ('info_level', 'unavailable_msgs', 'playlist_epoch',
                       'yt_unavailable_msg', 'wa_unavailable_msg')

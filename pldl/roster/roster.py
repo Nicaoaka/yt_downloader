@@ -39,11 +39,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import NotRequired, TypedDict
 
-from pldl.model.epoch import EPOCH_ZERO, Epoch
-from pldl.model.errors import UnavailableInfo
-from pldl.model.infodicts import PL_ID, V_ID
-from pldl.model.schema import SCHEMA_VERSION
-from pldl.model.timeline import PlaylistTimeline
+from pldl.downloader import PL_ID, V_ID, UnavailableInfo
+from pldl.model import EPOCH_ZERO, SCHEMA_VERSION, Epoch
+from pldl.roster.timeline import PlaylistTimeline
 
 
 class VideoContext(TypedDict, total=False):

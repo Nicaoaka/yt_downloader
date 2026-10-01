@@ -1,8 +1,8 @@
 """
 How much is known about a video, and how sources are ordered.
 
-`V_InfoLevel` and `PL_InfoLevel` say how complete an infodict is. Both are declared on the
-infodict and re-derivable from its content, so a file can be trusted or checked.
+`V_InfoLevel` says how complete a video infodict is. It is declared on the infodict and
+re-derivable from its content, so a file can be trusted or checked.
 
 **`rank(epoch, level)` is an ordering key, not a resolution rule.** It sorts chronologically
 and uses the level only to separate two sources from the same second. Which value wins a field
@@ -13,7 +13,7 @@ last two into a global ordering rule is what makes a timeline stop recording cha
 from __future__ import annotations
 
 __all__ = [  # noqa: RUF022
-    'V_InfoLevel', 'PL_InfoLevel',
+    'V_InfoLevel',
     'coerce_v_level', 'derive_v_info_level',
     'Rank', 'rank',
 ]
@@ -31,15 +31,6 @@ class V_InfoLevel(IntEnum):
     FLAT = 1
     EXTRACT = 2
     DOWNLOAD = 3
-
-
-class PL_InfoLevel(IntEnum):
-    """How much is known about a playlist document."""
-    NONE = 0
-    FLAT = 1
-    MERGE_FLAT = 2
-    NORMAL = 3
-    MERGE = 4
 
 
 def coerce_v_level(value: V_InfoLevel | str | int | None) -> V_InfoLevel:

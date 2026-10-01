@@ -9,6 +9,7 @@ from pldl.merge.updaters import (
     ROSTER_UPDATER,
     ZERO_CANDIDATE,
     Candidate,
+    NO_VALUE,
     MergeUpdaterMap,
     apply_updater,
     fill_absent,
@@ -20,9 +21,8 @@ from pldl.merge.updaters import (
     richest_latest_not_none,
     unwrap_candidates,
 )
-from pldl.model.infodicts import NO_VALUE
-from pldl.model.levels import Rank, V_InfoLevel
-from pldl.model.roster import PLAYLIST_CONTEXT_SOURCES, VIDEO_CONTEXT_SOURCES
+from pldl.downloader import Rank, V_InfoLevel
+from pldl.roster import PLAYLIST_CONTEXT_SOURCES, VIDEO_CONTEXT_SOURCES
 
 VALUES = (NO_VALUE, None, 0, 5, 10, 'x')
 FLAT, EXTRACT, DOWNLOAD = V_InfoLevel.FLAT, V_InfoLevel.EXTRACT, V_InfoLevel.DOWNLOAD

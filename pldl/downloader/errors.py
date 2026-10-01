@@ -15,7 +15,7 @@ __all__ = ['ErrorClass', 'UnavailableInfo']
 from dataclasses import dataclass
 from enum import StrEnum, auto
 
-from pldl.model.epoch import Epoch
+from pldl.model import Epoch
 
 
 class ErrorClass(StrEnum):

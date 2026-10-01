@@ -1,18 +1,9 @@
-"""The roster, timeline and envelope.
-
-These carry the invariants the record depends on, so the tests are written as statements of
-those invariants rather than as coverage of the methods.
-"""
+"""The roster: membership, order, and the rule that a video is never lost."""
 import dataclasses
 import unittest
 
-from pldl.model.epoch import Epoch
-from pldl.model.errors import UnavailableInfo
-from pldl.model.levels import V_InfoLevel
-from pldl.model.playlists import Capture
-from pldl.model.roster import Roster, RosterEntry
-from pldl.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
-from pldl.model.videos import VideoEntry
+from pldl.roster import Roster, RosterEntry
+
 
 def _roster(*ids, epoch=1000):
     return Roster(
@@ -162,136 +153,6 @@ class ContextShape(unittest.TestCase):
         """last_updated answers "how current is membership", not "how current is the text"."""
         roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
         self.assertEqual(roster.with_video_context('a', {'title': 'T'}).last_updated, 1000)
-
-
-class Timeline(unittest.TestCase):
-    def test_entries_at_the_same_epoch_all_survive(self):
-        """Two distinct things can happen in one second; neither replaces the other."""
-        timeline = (VideoTimeline()
-                    .add(MergeTimelineEntry(epoch=Epoch(100),
-                                            updates=(FieldUpdate(field='title', value='T'),)))
-                    .add(MergeTimelineEntry(epoch=Epoch(100),
-                                            updates=(FieldUpdate(field='duration', value='9'),))))
-        self.assertEqual(len(timeline), 2)
-        self.assertEqual(len(timeline.at_epoch(100)), 2)
-
-    def test_identical_entries_collapse(self):
-        entry = MergeTimelineEntry(epoch=Epoch(100),
-                                   updates=(FieldUpdate(field='title', value='T'),))
-        self.assertEqual(len(VideoTimeline().add(entry).add(entry)), 1)
-
-    def test_order_is_chronological_with_level_as_tiebreak(self):
-        timeline = VideoTimeline((
-            MergeTimelineEntry(epoch=Epoch(300), info_level=V_InfoLevel.FLAT,
-                               updates=(FieldUpdate(field='c', value='3'),)),
-            MergeTimelineEntry(epoch=Epoch(100), info_level=V_InfoLevel.DOWNLOAD,
-                               updates=(FieldUpdate(field='a', value='1'),)),
-            MergeTimelineEntry(epoch=Epoch(100), info_level=V_InfoLevel.FLAT,
-                               updates=(FieldUpdate(field='b', value='2'),)),
-        ))
-        self.assertEqual([int(e.epoch) for e in timeline], [100, 100, 300])
-        self.assertEqual([e.info_level for e in timeline][:2],
-                         [V_InfoLevel.FLAT, V_InfoLevel.DOWNLOAD],
-                         'within one epoch, lower level first')
-
-    def test_a_newer_poorer_entry_does_not_jump_ahead_of_an_older_richer_one(self):
-        """Ordering by merge priority would put the 2026 flat before the 2024 download, and
-        the recorded progression would read backwards."""
-        timeline = VideoTimeline((
-            MergeTimelineEntry(epoch=Epoch(1_788_000_000), info_level=V_InfoLevel.FLAT,
-                               updates=(FieldUpdate(field='x', value='1'),)),
-            MergeTimelineEntry(epoch=Epoch(1_704_067_200), info_level=V_InfoLevel.DOWNLOAD,
-                               updates=(FieldUpdate(field='y', value='2'),)),
-        ))
-        self.assertEqual([int(e.epoch) for e in timeline], [1_704_067_200, 1_788_000_000])
-
-    def test_levels_reads_out_the_recorded_progression(self):
-        timeline = VideoTimeline((
-            MergeTimelineEntry(epoch=Epoch(100), info_level=V_InfoLevel.FLAT,
-                               updates=(FieldUpdate(field='a', value='1'),)),
-            MergeTimelineEntry(epoch=Epoch(200), info_level=V_InfoLevel.DOWNLOAD,
-                               updates=(FieldUpdate(field='b', value='2'),)),
-            MergeTimelineEntry(epoch=Epoch(300),
-                               updates=(FieldUpdate(field='c', value='3'),)),
-        ))
-        self.assertEqual(timeline.levels(), (V_InfoLevel.FLAT, V_InfoLevel.DOWNLOAD))
-
-
-# A flat extraction as yt-dlp returns it, trimmed. v1 wrote `info_level` into it.
-FLAT_PL_INFO = {
-    'id': 'PL_x', '_type': 'playlist', 'title': 'Some Playlist', 'uploader': 'U',
-    'playlist_count': 2, 'epoch': 500, 'extractor': 'youtube:tab',
-    'info_level': 'FLAT',
-    'entries': [
-        {'id': 'a', '_type': 'url', 'title': 'A', 'channel': 'C', 'info_level': 'FLAT'},
-        {'id': 'b', '_type': 'url', 'title': 'B', 'channel': None},
-    ],
-}
-
-
-class Envelope(unittest.TestCase):
-    def test_data_stays_byte_faithful(self):
-        payload = {'id': 'abc', 'title': 'T', 'channel': 'C', 'epoch': 5, 'extractor': 'youtube'}
-        self.assertEqual(VideoEntry.wrap(payload).unwrap(), payload)
-
-    def test_pldl_keys_are_lifted_out_of_the_payload(self):
-        payload = {
-            'id': 'abc', 'channel': 'C', 'extractor': 'youtube',
-            'info_level': 'EXTRACT',
-            'unavailable_msgs': [{'epoch': 1, 'msg': 'gone', 'type': 'youtube'}],
-            'playlist_epoch': 999,
-            'yt_unavailable_msg': 'gone', 'wa_unavailable_msg': None,
-        }
-        entry = VideoEntry.wrap(payload)
-
-        self.assertIs(entry.info_level, V_InfoLevel.EXTRACT)
-        self.assertEqual(entry.playlist_epoch, 999)
-        self.assertIsInstance(entry.playlist_epoch, Epoch)
-        self.assertEqual(
-            entry.unavailable_infos,
-            (UnavailableInfo(extractor='youtube', msg='gone', epoch=Epoch(1)),),
-        )
-        for pldl_key in ('info_level', 'unavailable_msgs', 'playlist_epoch',
-                         'yt_unavailable_msg', 'wa_unavailable_msg'):
-            self.assertNotIn(pldl_key, entry.unwrap())
-
-    def test_an_int_info_level_survives(self):
-        self.assertIs(VideoEntry.wrap({'id': 'a', 'info_level': 0}).info_level, V_InfoLevel.NONE)
-
-    def test_level_is_derived_only_when_nothing_is_declared(self):
-        self.assertIs(VideoEntry.wrap({'id': 'a', 'channel': 'c'}).info_level, V_InfoLevel.FLAT)
-        self.assertIs(VideoEntry.wrap({'id': 'a'}).info_level, V_InfoLevel.NONE)
-        self.assertIs(
-            VideoEntry.wrap({'id': 'a'}, info_level=V_InfoLevel.DOWNLOAD).info_level,
-            V_InfoLevel.DOWNLOAD, 'an explicit level wins over derivation')
-
-    def test_capture_is_a_batch(self):
-        capture = Capture(epoch=Epoch(100), videos=(
-            VideoEntry.wrap({'id': 'a'}), VideoEntry.wrap({'id': 'b'})))
-        self.assertEqual(len(capture), 2)
-        self.assertEqual(capture.ids(), ('a', 'b'))
-        self.assertIsNotNone(capture.get('a'))
-        self.assertIsNone(capture.get('zzz'))
-        self.assertEqual(Epoch.from_iso(capture.epoch.iso), 100)
-        self.assertIsNone(capture.playlist, 'a per-video batch has no playlist payload')
-        self.assertIsNone(capture.pl_id)
-
-    def test_a_flat_extraction_wraps_into_the_same_envelope(self):
-        capture = Capture.wrap_flat(FLAT_PL_INFO)
-        self.assertEqual(capture.epoch, 500)
-        self.assertEqual(capture.pl_id, 'PL_x')
-        self.assertEqual(capture.ids(), ('a', 'b'))
-        self.assertEqual(capture.playlist['title'], 'Some Playlist')
-        self.assertNotIn('entries', capture.playlist)
-        self.assertNotIn('info_level', capture.playlist, 'v1 key dropped')
-        self.assertIs(capture.get('a').info_level, V_InfoLevel.FLAT)
-        self.assertNotIn('info_level', capture.get('a').data, 'lifted onto the entry envelope')
-
-    def test_a_flat_extraction_unwraps_to_what_yt_dlp_returned(self):
-        expected = {k: v for k, v in FLAT_PL_INFO.items() if k != 'info_level'}
-        expected['entries'] = [{k: v for k, v in e.items() if k != 'info_level'}
-                               for e in expected['entries']]
-        self.assertEqual(Capture.wrap_flat(FLAT_PL_INFO).unwrap_flat(), expected)
 
 
 if __name__ == '__main__':
