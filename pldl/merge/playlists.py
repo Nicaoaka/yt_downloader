@@ -82,8 +82,8 @@ from dataclasses import dataclass, field
 from itertools import chain
 from typing import Any
 
-from pldl2.merge.ordering import merge_ordered_lists
-from pldl2.merge.updaters import (
+from pldl.merge.ordering import merge_ordered_lists
+from pldl.merge.updaters import (
     COMMON_TIMELINE_KEYS,
     COMMON_UPDATER,
     PL_UPDATER,
@@ -94,8 +94,8 @@ from pldl2.merge.updaters import (
     apply_updater,
     unwrap_candidates,
 )
-from pldl2.merge.videos import merge_v_infos
-from pldl2.model import (
+from pldl.merge.videos import merge_v_infos
+from pldl.model import (
     NO_VALUE,
     PLAYLIST_CONTEXT_SOURCES,
     V_ID,

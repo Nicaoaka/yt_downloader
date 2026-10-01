@@ -22,10 +22,10 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
-from pldl2.model.epoch import Epoch, get_epoch
-from pldl2.model.errors import UnavailableInfo
-from pldl2.model.infodicts import V_ID, V_InfoDict, YT_DLP_InfoDict
-from pldl2.model.levels import (
+from pldl.model.epoch import Epoch, get_epoch
+from pldl.model.errors import UnavailableInfo
+from pldl.model.infodicts import V_ID, V_InfoDict, YT_DLP_InfoDict
+from pldl.model.levels import (
     Rank,
     V_InfoLevel,
     coerce_v_level,

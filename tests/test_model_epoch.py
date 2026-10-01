@@ -3,7 +3,7 @@ import datetime
 import json
 import unittest
 
-from pldl2.model.epoch import (
+from pldl.model.epoch import (
     Epoch,
     from_iso,
     get_epoch,

@@ -17,8 +17,8 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum, auto
 
-from pldl2.model.epoch import Epoch
-from pldl2.model.infodicts import V_ID
+from pldl.model.epoch import Epoch
+from pldl.model.infodicts import V_ID
 
 
 class ManipulationKind(StrEnum):

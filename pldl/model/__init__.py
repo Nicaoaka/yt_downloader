@@ -1,19 +1,19 @@
 """
 L0. The vocabulary: types, levels, epochs, ranking, timeline, kinds, errors.
 
-**Imports nothing from pldl2 outside this package.** No I/O, printing, or network responsibilities
+**Imports nothing from pldl outside this package.** No I/O, printing, or network responsibilities
 prevents cycles with other subpackages.
 
 The `InfoKind` constants are deliberately not re-exported here, because `ROSTER` means nothing
 on its own. Reach them through the module:
 
-    from pldl2.model import kinds
+    from pldl.model import kinds
     kinds.ROSTER, kinds.RAW_FLAT
 """
 from __future__ import annotations
 
-from pldl2.model.downloads import DL_Action, DL_Result
-from pldl2.model.epoch import (
+from pldl.model.downloads import DL_Action, DL_Result
+from pldl.model.epoch import (
     EPOCH_ZERO,
     Epoch,
     from_iso,
@@ -24,7 +24,7 @@ from pldl2.model.epoch import (
     to_iso,
     to_v1_readable_epoch,
 )
-from pldl2.model.errors import (
+from pldl.model.errors import (
     Classification,
     ErrorClass,
     Issue,
@@ -32,7 +32,7 @@ from pldl2.model.errors import (
     UnavailableInfo,
     classify,
 )
-from pldl2.model.infodicts import (
+from pldl.model.infodicts import (
     NO_VALUE,
     PL_ID,
     V_ID,
@@ -43,7 +43,7 @@ from pldl2.model.infodicts import (
     YT_DLP_DownloadArchive_IDs,
     YT_DLP_InfoDict,
 )
-from pldl2.model.kinds import (
+from pldl.model.kinds import (
     KINDS,
     PLDL_OWNED,
     USER_OWNED,
@@ -52,7 +52,7 @@ from pldl2.model.kinds import (
     Owner,
     PayloadShape,
 )
-from pldl2.model.levels import (
+from pldl.model.levels import (
     PL_InfoLevel,
     Rank,
     V_InfoLevel,
@@ -65,8 +65,8 @@ from pldl2.model.levels import (
     rank,
     v_level_mismatch,
 )
-from pldl2.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
-from pldl2.model.metadata import (
+from pldl.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
+from pldl.model.metadata import (
     ARCHIVE_FILENAME,
     METADATA_FILENAME,
     PLAYLISTS_INDEX_FILENAME,
@@ -76,8 +76,8 @@ from pldl2.model.metadata import (
     SessionLog,
     VideoLog,
 )
-from pldl2.model.playlists import Capture, MergePlaylist
-from pldl2.model.roster import (
+from pldl.model.playlists import Capture, MergePlaylist
+from pldl.model.roster import (
     PLAYLIST_CONTEXT_SOURCES,
     VIDEO_CONTEXT_SOURCES,
     PlaylistContext,
@@ -85,14 +85,14 @@ from pldl2.model.roster import (
     RosterEntry,
     VideoContext,
 )
-from pldl2.model.schema import LEGACY_SCHEMA_VERSION, SCHEMA_VERSION
-from pldl2.model.timeline import (
+from pldl.model.schema import LEGACY_SCHEMA_VERSION, SCHEMA_VERSION
+from pldl.model.timeline import (
     FieldUpdate,
     MergeTimelineEntry,
     PlaylistTimeline,
     VideoTimeline,
 )
-from pldl2.model.videos import VideoEntry
+from pldl.model.videos import VideoEntry
 
 __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked up
     # schema

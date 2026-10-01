@@ -66,7 +66,7 @@ __all__ = ['merge_v_infos', 'chronological', 'REMOVED']  # noqa: RUF022
 from collections.abc import Callable, Sequence
 from typing import Any, Final
 
-from pldl2.merge.updaters import (
+from pldl.merge.updaters import (
     COMMON_TIMELINE_KEYS,
     COMMON_UPDATER,
     Candidate,
@@ -76,7 +76,7 @@ from pldl2.merge.updaters import (
     unwrap_candidates,
     wrap_candidates,
 )
-from pldl2.model import (
+from pldl.model import (
     NO_VALUE,
     Epoch,
     FieldUpdate,

@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from typing import Any, Final
 
-from pldl2.model.epoch import Epoch
+from pldl.model.epoch import Epoch
 
 
 class ErrorClass(StrEnum):

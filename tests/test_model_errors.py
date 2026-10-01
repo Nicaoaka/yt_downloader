@@ -10,7 +10,7 @@ confirmed failure and frozen for the full 7-day backoff (issue-1 #18).
 """
 import unittest
 
-from pldl2.model.errors import (
+from pldl.model.errors import (
     Classification,
     ErrorClass,
     Issue,

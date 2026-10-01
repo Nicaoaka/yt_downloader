@@ -27,10 +27,10 @@ __all__ = [  # noqa: RUF022
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 
-from pldl2.model.epoch import Epoch
-from pldl2.model.errors import UnavailableInfo
-from pldl2.model.infodicts import V_ID
-from pldl2.model.levels import V_InfoLevel
+from pldl.model.epoch import Epoch
+from pldl.model.errors import UnavailableInfo
+from pldl.model.infodicts import V_ID
+from pldl.model.levels import V_InfoLevel
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

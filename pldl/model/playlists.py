@@ -20,12 +20,12 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
-from pldl2.model.epoch import Epoch, get_epoch
-from pldl2.model.infodicts import PL_ID, V_ID, PL_InfoDict
-from pldl2.model.levels import PL_InfoLevel
-from pldl2.model.schema import SCHEMA_VERSION
-from pldl2.model.timeline import PlaylistTimeline
-from pldl2.model.videos import VideoEntry
+from pldl.model.epoch import Epoch, get_epoch
+from pldl.model.infodicts import PL_ID, V_ID, PL_InfoDict
+from pldl.model.levels import PL_InfoLevel
+from pldl.model.schema import SCHEMA_VERSION
+from pldl.model.timeline import PlaylistTimeline
+from pldl.model.videos import VideoEntry
 
 _PLDL_PLAYLIST_KEYS = ('info_level', 'merge_timeline')
 """v1-compat: keys v1 wrote into a playlist payload. Dropped when wrapping a flat extraction;

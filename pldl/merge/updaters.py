@@ -111,9 +111,9 @@ from itertools import chain
 from types import MappingProxyType
 from typing import Any, Final, NamedTuple
 
-from pldl2.model.infodicts import NO_VALUE
-from pldl2.model.levels import Rank
-from pldl2.model.roster import PLAYLIST_CONTEXT_SOURCES, VIDEO_CONTEXT_SOURCES
+from pldl.model.infodicts import NO_VALUE
+from pldl.model.levels import Rank
+from pldl.model.roster import PLAYLIST_CONTEXT_SOURCES, VIDEO_CONTEXT_SOURCES
 
 
 class Candidate(NamedTuple):

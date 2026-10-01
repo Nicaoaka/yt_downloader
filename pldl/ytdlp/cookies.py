@@ -1,6 +1,6 @@
 """The Cookies handle -- validation, scope and emptying, owned by whoever opened the file.
 
-    with pldl2.cookies('secrets/cookie_file.txt') as ck:
+    with pldl.cookies('secrets/cookie_file.txt') as ck:
         pl.refresh(cookies=ck)     # was cookies_for_pl=True
         pl.download(policy)        # was cookies_for_vids=False -- just do not pass them
 

@@ -35,16 +35,16 @@ from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, Final
 
-from pldl2.model.epoch import Epoch, get_epoch
-from pldl2.model.metadata import (
+from pldl.model.epoch import Epoch, get_epoch
+from pldl.model.metadata import (
     ARCHIVE_FILENAME,
     METADATA_FILENAME,
     ROSTER_FILENAME,
     Metadata,
     Paths,
 )
-from pldl2.model.playlists import Capture, MergePlaylist
-from pldl2.model.roster import Roster
+from pldl.model.playlists import Capture, MergePlaylist
+from pldl.model.roster import Roster
 
 _SAMPLE_PATHS: Final = Paths(playlist_dir='')
 """Resolved against every kind's `tmpl` at import, so a bad accessor fails immediately."""

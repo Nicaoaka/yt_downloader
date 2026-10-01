@@ -24,10 +24,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass, fields, replace
 from typing import Final
 
-from pldl2.model.downloads import DL_Action, DL_Result
-from pldl2.model.epoch import Epoch
-from pldl2.model.infodicts import PL_ID, V_ID
-from pldl2.model.schema import SCHEMA_VERSION
+from pldl.model.downloads import DL_Action, DL_Result
+from pldl.model.epoch import Epoch
+from pldl.model.infodicts import PL_ID, V_ID
+from pldl.model.schema import SCHEMA_VERSION
 
 # Fixed names, not templates. These are the pldl-owned files, and the `_` means
 # "pldl depends on this; edit it and you break the record".

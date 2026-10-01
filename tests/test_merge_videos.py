@@ -6,13 +6,13 @@ case here says the merge is *right*.
 import unittest
 from itertools import permutations
 
-from pldl2.merge.updaters import MergeUpdaterMap, latest
-from pldl2.merge.videos import REMOVED, merge_v_infos
-from pldl2.model.epoch import Epoch
-from pldl2.model.errors import UnavailableInfo
-from pldl2.model.levels import V_InfoLevel
-from pldl2.model.timeline import FieldUpdate, VideoTimeline
-from pldl2.model.videos import VideoEntry
+from pldl.merge.updaters import MergeUpdaterMap, latest
+from pldl.merge.videos import REMOVED, merge_v_infos
+from pldl.model.epoch import Epoch
+from pldl.model.errors import UnavailableInfo
+from pldl.model.levels import V_InfoLevel
+from pldl.model.timeline import FieldUpdate, VideoTimeline
+from pldl.model.videos import VideoEntry
 
 NONE, FLAT, EXTRACT, DOWNLOAD = V_InfoLevel
 

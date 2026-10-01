@@ -1,7 +1,7 @@
 """v1 -> v2 migration. **The only module that knows about v1**; the v1 reader is retained solely
 for it.
 
-    pldl2.migrate(playlist_dir, *, dry_run=True, backup=True)
+    pldl.migrate(playlist_dir, *, dry_run=True, backup=True)
 
 Idempotent, dry-run by default (prints a diff via difflib.unified_diff), and copies the
 _metadata.json / _merge_flat pair aside before touching anything.

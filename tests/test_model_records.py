@@ -6,10 +6,10 @@ those invariants rather than as coverage of the methods.
 import dataclasses
 import unittest
 
-from pldl2.model import kinds as kinds_module
-from pldl2.model.epoch import Epoch
-from pldl2.model.errors import UnavailableInfo
-from pldl2.model.kinds import (
+from pldl.model import kinds as kinds_module
+from pldl.model.epoch import Epoch
+from pldl.model.errors import UnavailableInfo
+from pldl.model.kinds import (
     KINDS,
     PLDL_OWNED,
     USER_OWNED,
@@ -18,11 +18,11 @@ from pldl2.model.kinds import (
     Owner,
     PayloadShape,
 )
-from pldl2.model.levels import PL_InfoLevel, V_InfoLevel
-from pldl2.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
-from pldl2.model.metadata import Metadata, Paths, SessionLog, VideoLog
-from pldl2.model.playlists import Capture, MergePlaylist
-from pldl2.model.roster import (
+from pldl.model.levels import PL_InfoLevel, V_InfoLevel
+from pldl.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
+from pldl.model.metadata import Metadata, Paths, SessionLog, VideoLog
+from pldl.model.playlists import Capture, MergePlaylist
+from pldl.model.roster import (
     PLAYLIST_CONTEXT_SOURCES,
     VIDEO_CONTEXT_SOURCES,
     PlaylistContext,
@@ -30,8 +30,8 @@ from pldl2.model.roster import (
     RosterEntry,
     VideoContext,
 )
-from pldl2.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
-from pldl2.model.videos import VideoEntry
+from pldl.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
+from pldl.model.videos import VideoEntry
 
 SAMPLE_PATHS = Paths(playlist_dir='Some Playlist [PL_x]')
 

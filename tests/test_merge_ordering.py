@@ -9,7 +9,7 @@ The `'AB BC'`-style cases read as: each space-separated group is one list, highe
 first, and the expected result is the reconciled order.
 """
 import unittest
-from pldl2.merge.ordering import merge_ordered_lists
+from pldl.merge.ordering import merge_ordered_lists
 
 
 class TestMergeUtil(unittest.TestCase):

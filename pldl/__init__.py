@@ -1,4 +1,4 @@
-"""L5 facade. Re-exports the public surface so `from pldl2 import *` works, exactly as
+"""L5 facade. Re-exports the public surface so `from pldl import *` works, exactly as
 `pldl/__init__.py` does today (the run configs in scripts/ rely on that).
 
 Layering, dependencies point downward only:
