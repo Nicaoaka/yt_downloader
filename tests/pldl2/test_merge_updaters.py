@@ -1,15 +1,7 @@
-"""The merge updaters: a binary operator over candidates per field, and the table that picks one.
-
-`FaithfulToV1` imports the old package on purpose -- both coexist until the step-12 cutover.
-**Delete it at cutover**, along with `pldl/`. It pins the claim the design rests on: v1's
-`is_latest` flag is `incoming.rank >= current.rank`, so v1's four-argument updaters and these
-agree on every cell of the grid for both values of the flag.
-"""
+"""The merge updaters: a binary operator over candidates per field, and the table that picks one."""
 import unittest
 from itertools import chain, permutations
 
-from pldl.pldl_types import NO_VALUE as V1_NO_VALUE
-from pldl.post_processing import merge_updaters as v1
 from pldl2.merge.updaters import (
     COMMON_TIMELINE_KEYS,
     COMMON_UPDATER,
@@ -278,64 +270,6 @@ class TheTables(unittest.TestCase):
             self.assertIn(recorded, COMMON_TIMELINE_KEYS)
         for churn in ('view_count', 'like_count', 'formats', 'epoch', 'duration_string'):
             self.assertNotIn(churn, COMMON_TIMELINE_KEYS)
-
-
-class FaithfulToV1(unittest.TestCase):
-    """v1's updaters and these agree on every cell, for both values of `is_latest`.
-
-    `is_latest=True` is an incoming rank above the current; `False` is one below. That is the
-    whole argument for the flag's disappearance: it was a per-key running max that the fold
-    computed for the updater, and the candidate's rank is the same number stored where it is
-    used.
-
-    One cell is excluded and pinned separately: an absent current with `is_latest=False`.
-    v1 could be in that state -- a newer source was *seen* but left the key empty -- and
-    refused the older value. Here a rejected candidate does not move the rank, so that state
-    does not exist and the older value is taken. `Provenance` is the case that shows why.
-
-    `maximizer` is deliberately absent. v1 read a `None` current as `0` (`v > (info.get(k) or
-    0)`), so `None -> 'x'` was refused there and is accepted here; a known value replacing an
-    unknown one is the behavior `maximum` documents.
-    """
-
-    PAIRS = (
-        (v1.no_update, keep),
-        (v1.latest_exact, latest),
-        (v1.latest_not_none, latest_not_none),
-        (v1.fill_absent, fill_absent),
-    )
-
-    @staticmethod
-    def _v1_outcome(updater, current, incoming, is_latest):
-        info = {} if current is NO_VALUE else {'k': current}
-        changed = updater(info, 'k', V1_NO_VALUE if incoming is NO_VALUE else incoming,
-                          is_latest)
-        return info.get('k', NO_VALUE), changed
-
-    @staticmethod
-    def _v2_outcome(updater, current, incoming, is_latest):
-        merged = {} if current is NO_VALUE else {'k': C(current, 5)}
-        changed = apply_updater(merged, 'k', C(incoming, 9 if is_latest else 1), updater)
-        return unwrap_candidates(merged).get('k', NO_VALUE), changed
-
-    def test_same_value_and_same_changed_flag_on_every_cell(self):
-        for old, new in self.PAIRS:
-            for current in VALUES:
-                for incoming in VALUES:
-                    for is_latest in (True, False):
-                        if current is NO_VALUE and not is_latest:
-                            continue
-                        with self.subTest(updater=new.__name__, current=current,
-                                          incoming=incoming, is_latest=is_latest):
-                            self.assertEqual(self._v2_outcome(new, current, incoming, is_latest),
-                                             self._v1_outcome(old, current, incoming, is_latest))
-
-    def test_the_one_deliberate_divergence(self):
-        """A newer source that left the key empty does not block an older value here."""
-        for old, new in ((v1.latest_exact, latest), (v1.latest_not_none, latest_not_none)):
-            with self.subTest(updater=new.__name__):
-                self.assertEqual(self._v1_outcome(old, NO_VALUE, 'B', False), (NO_VALUE, False))
-                self.assertEqual(self._v2_outcome(new, NO_VALUE, 'B', False), ('B', True))
 
 
 if __name__ == '__main__':

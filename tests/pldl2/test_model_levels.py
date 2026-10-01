@@ -1,19 +1,14 @@
 """Levels, derivation, and the ordering key.
 
 `rank()` orders sources chronologically, with the level only separating two from the same
-second. It deliberately differs from v1's `_merge_v_sort_key`, which was level-dominant, and
-the divergence test below pins that difference and its reason.
+second.
 
 Which value wins a field is not this module's business: that is per-field and belongs to the
 merge's field updater, and which of those changes is written to the timeline belongs to its
 update filter.
-
-The divergence test imports from the old `pldl` package on purpose -- both coexist until the
-step-12 cutover. **Delete it at cutover**, along with `pldl/`.
 """
 import unittest
 
-from pldl.post_processing.merge_infos import _merge_v_sort_key
 from pldl2.model.levels import (
     PL_InfoLevel,
     V_InfoLevel,
@@ -53,52 +48,6 @@ class Ordering(unittest.TestCase):
 
     def test_info_rank_tolerates_a_missing_epoch(self):
         self.assertEqual(info_rank({'id': 'a', 'info_level': 'FLAT'}), rank(0, V_InfoLevel.FLAT))
-
-
-class DivergenceFromV1(unittest.TestCase):
-    """v1's key was level-dominant. This one is chronological, on purpose.
-
-    v1 leaned on ordering to keep good data: sorting the merge's inputs so richer extractions
-    were folded last. But field resolution never used the level at all -- it compared epochs
-    per key (`is_latest = curr_epoch >= latest_epochs[k]`) and left the decision to a field
-    updater. Ordering by level bought nothing there, and cost the timeline its chronology.
-    """
-
-    OLD_DOWNLOAD = (V_InfoLevel.DOWNLOAD, 1_704_067_200)
-    NEW_FLAT = (V_InfoLevel.FLAT, 1_788_000_000)
-
-    @staticmethod
-    def _by_v1(source: tuple) -> int:
-        level, epoch = source
-        return _merge_v_sort_key(level, epoch)
-
-    @staticmethod
-    def _by_rank(source: tuple) -> tuple[int, int]:
-        level, epoch = source
-        return rank(epoch, level)
-
-    def test_v1_sorts_the_newer_poorer_source_first(self):
-        by_v1 = sorted([self.OLD_DOWNLOAD, self.NEW_FLAT], key=self._by_v1)
-        self.assertEqual(by_v1[0], self.NEW_FLAT, 'level dominates, so 2026 precedes 2024')
-
-    def test_rank_sorts_them_in_the_order_they_happened(self):
-        by_rank = sorted([self.OLD_DOWNLOAD, self.NEW_FLAT], key=self._by_rank)
-        self.assertEqual(by_rank[0], self.OLD_DOWNLOAD)
-
-    def test_the_two_keys_disagree(self):
-        """Pinned so the divergence stays deliberate rather than drifting back."""
-        pair = [self.OLD_DOWNLOAD, self.NEW_FLAT]
-        self.assertNotEqual(sorted(pair, key=self._by_v1), sorted(pair, key=self._by_rank))
-
-    def test_both_keys_coerce_a_stray_level_the_same_way(self):
-        """The coercion behaviour is kept: a v1 file can carry `"info_level": 0`."""
-        for level in (None, 'NOT_A_LEVEL', ''):
-            with self.subTest(level=level):
-                self.assertEqual(rank(5, level), rank(5, V_InfoLevel.NONE))
-        self.assertEqual(rank(5, 0), rank(5, V_InfoLevel.NONE))
-        self.assertEqual(rank(5, 3), rank(5, V_InfoLevel.DOWNLOAD))
-        with self.assertRaises(AttributeError):
-            _merge_v_sort_key(0, 5)  # type: ignore[arg-type]
 
 
 class Coercion(unittest.TestCase):
