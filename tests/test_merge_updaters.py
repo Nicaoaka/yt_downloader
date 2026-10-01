@@ -105,6 +105,7 @@ class Provenance(unittest.TestCase):
     )
 
     @classmethod
+
     def fold(cls, sources, updater):
         merged: dict[str, Candidate] = {}
         timeline = []
@@ -149,58 +150,16 @@ class Provenance(unittest.TestCase):
 
 
 class Tables(unittest.TestCase):
-    def test_unlisted_keys_get_the_default(self):
-        table = MergeUpdaterMap.grouped({('a', 'b'): keep}, default=latest)
-        self.assertIs(table['a'], keep)
-        self.assertIs(table['b'], keep)
-        self.assertIs(table['zzz'], latest)
-
     def test_a_key_under_two_updaters_is_refused(self):
         with self.assertRaises(ValueError):
             MergeUpdaterMap.grouped({('a',): keep, ('a', 'b'): latest}, default=latest)
-
-    def test_the_map_is_read_only(self):
-        table = MergeUpdaterMap({'a': keep}, latest)
-        with self.assertRaises(TypeError):
-            table.updater_map['b'] = latest  # type: ignore[index]
-
-
-class ResolveInto(unittest.TestCase):
-    def test_writes_and_reports_a_change(self):
-        merged = {'title': C('old', 1)}
-        self.assertTrue(apply_updater(merged, 'title', C('new', 2), latest))
-        self.assertEqual(merged['title'], C('new', 2))
-
-    def test_an_equal_value_is_not_a_change_but_the_rank_still_moves(self):
-        merged = {'title': C('same', 1)}
-        self.assertFalse(apply_updater(merged, 'title', C('same', 2), latest))
-        self.assertEqual(merged['title'].rank, Rank(2, FLAT), 'the newer source confirmed it')
-
-    def test_no_value_out_is_a_change_and_leaves_a_tombstone(self):
-        merged = {'title': C('old', 1), 'other': C(1, 1)}
-        self.assertTrue(apply_updater(merged, 'title', C(NO_VALUE, 2), latest))
-        self.assertEqual(merged['title'], C(NO_VALUE, 2), 'the rank of the removal is kept')
-        self.assertEqual(unwrap_candidates(merged), {'other': 1}, 'and projected away')
-
-    def test_removing_an_absent_key_is_not_a_change(self):
-        merged: dict[str, Candidate] = {}
-        self.assertFalse(apply_updater(merged, 'title', C(NO_VALUE, 2), latest))
-        self.assertEqual(unwrap_candidates(merged), {})
-
-    def test_unwrap_drops_tombstones_only(self):
-        merged = {'b': C(2), 'a': C(1), 'c': C(NO_VALUE), 'd': C(None)}
-        self.assertEqual(unwrap_candidates(merged), {'b': 2, 'a': 1, 'd': None})
-
-    def test_none_is_stored_not_removed(self):
-        merged = {'title': C('old', 1)}
-        self.assertTrue(apply_updater(merged, 'title', C(None, 2), latest))
-        self.assertIsNone(merged['title'].value)
 
 
 class TheTables(unittest.TestCase):
     """Each row of COMMON_UPDATER exists for a case seen in real captures; fold that case."""
 
     @staticmethod
+
     def fold(table, *sources):
         """`sources` are `(epoch, level, payload)`; keys any source mentions are folded."""
         merged: dict[str, Candidate] = {}

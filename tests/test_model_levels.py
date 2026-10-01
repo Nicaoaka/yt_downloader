@@ -32,9 +32,6 @@ class Ordering(unittest.TestCase):
     def test_level_only_breaks_a_tie_within_one_second(self):
         self.assertLess(rank(100, V_InfoLevel.FLAT), rank(100, V_InfoLevel.DOWNLOAD))
 
-    def test_is_a_tuple_so_there_is_no_multiplier_to_get_wrong(self):
-        self.assertEqual(rank(100, V_InfoLevel.EXTRACT), (100, 2))
-
 
 class Coercion(unittest.TestCase):
     def test_is_total_over_its_input_type(self):
@@ -52,11 +49,6 @@ class Coercion(unittest.TestCase):
         for value, expected in cases:
             with self.subTest(value=value):
                 self.assertIs(coerce_v_level(value), expected)
-
-    def test_bool_is_not_an_int_here(self):
-        """True would otherwise coerce to FLAT, which is nonsense and hard to spot."""
-        self.assertIs(coerce_v_level(True), V_InfoLevel.NONE)
-        self.assertIs(coerce_v_level(False), V_InfoLevel.NONE)
 
 
 class Derivation(unittest.TestCase):

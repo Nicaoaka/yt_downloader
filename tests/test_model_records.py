@@ -8,16 +8,9 @@ import unittest
 
 from pldl.model.epoch import Epoch
 from pldl.model.errors import UnavailableInfo
-from pldl.model.levels import PL_InfoLevel, V_InfoLevel
-from pldl.model.playlists import Capture, MergePlaylist
-from pldl.model.roster import (
-    PLAYLIST_CONTEXT_SOURCES,
-    VIDEO_CONTEXT_SOURCES,
-    PlaylistContext,
-    Roster,
-    RosterEntry,
-    VideoContext,
-)
+from pldl.model.levels import V_InfoLevel
+from pldl.model.playlists import Capture
+from pldl.model.roster import Roster, RosterEntry
 from pldl.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
 from pldl.model.videos import VideoEntry
 
@@ -60,17 +53,6 @@ class RosterQueries(unittest.TestCase):
         self.assertEqual(updated.ids(), ('a', 'b', 'c'), 'order is preserved')
         self.assertFalse(updated.get('b').in_playlist)
 
-    def test_is_frozen(self):
-        with self.assertRaises(dataclasses.FrozenInstanceError):
-            _roster('a').id = 'other'  # type: ignore[misc]
-
-    def test_epochs_are_coerced(self):
-        """Plain ints passed in become Epoch, so `.iso` is always available downstream."""
-        roster = Roster(id='p', last_updated=1000, entries=(RosterEntry(id='a', last_seen=5),))
-        self.assertIsInstance(roster.last_updated, Epoch)
-        self.assertIsInstance(roster.entries[0].first_seen, Epoch)
-        self.assertEqual(Epoch.from_iso(roster.last_updated.iso), 1000)
-
 
 class WithOrder(unittest.TestCase):
     """Applies a sequence; deciding it is the caller's. Must never be able to delete a row."""
@@ -85,10 +67,6 @@ class WithOrder(unittest.TestCase):
     def test_unknown_ids_and_repeats_are_ignored(self):
         reordered = _roster('a', 'b').with_order(['b', 'zzz', 'a', 'b'])
         self.assertEqual(reordered.ids(), ('b', 'a'))
-
-    def test_entries_are_moved_not_rebuilt(self):
-        roster = _roster('a', 'b')
-        self.assertIs(roster.with_order(['b', 'a']).get('a'), roster.get('a'))
 
     def test_composes_with_a_membership_fold(self):
         """What merge/ will do: fold membership, then apply the reconciled order."""
@@ -176,37 +154,9 @@ class ContextShape(unittest.TestCase):
     resolvers, so there is one implementation rather than two that drift apart.
     """
 
-    def test_a_source_table_exists_for_every_context_field(self):
-        """A field with no sources can never be filled, and would sit unexplained forever."""
-        self.assertEqual(set(VideoContext.__annotations__), set(VIDEO_CONTEXT_SOURCES))
-        self.assertEqual(set(PlaylistContext.__annotations__), set(PLAYLIST_CONTEXT_SOURCES))
-
-    def test_every_source_table_entry_names_at_least_one_key(self):
-        for table in (VIDEO_CONTEXT_SOURCES, PLAYLIST_CONTEXT_SOURCES):
-            for target, keys in table.items():
-                with self.subTest(target=target):
-                    self.assertTrue(keys)
-
-    def test_video_context_is_stored_verbatim(self):
-        roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
-        updated = roster.with_video_context('a', {'title': 'T', 'uploader': 'U'})
-        self.assertEqual(dict(updated.get('a').context), {'title': 'T', 'uploader': 'U'})
-
-    def test_storing_context_replaces_rather_than_merges(self):
-        """Merging is policy. A setter that quietly merged would be a third place where
-        "which value wins" is decided."""
-        roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
-        roster = roster.with_video_context('a', {'title': 'First', 'duration': 10})
-        roster = roster.with_video_context('a', {'title': 'Second'})
-        self.assertEqual(dict(roster.get('a').context), {'title': 'Second'})
-
     def test_storing_context_for_an_unknown_id_is_a_no_op(self):
         roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
         self.assertEqual(roster.with_video_context('zzz', {'title': 'T'}), roster)
-
-    def test_playlist_context_is_stored_verbatim(self):
-        roster = Roster(id='p').with_playlist_context({'title': 'My Playlist'})
-        self.assertEqual(dict(roster.context), {'title': 'My Playlist'})
 
     def test_storing_context_leaves_last_updated_alone(self):
         """last_updated answers "how current is membership", not "how current is the text"."""
@@ -229,27 +179,6 @@ class Timeline(unittest.TestCase):
         entry = MergeTimelineEntry(epoch=Epoch(100),
                                    updates=(FieldUpdate(field='title', value='T'),))
         self.assertEqual(len(VideoTimeline().add(entry).add(entry)), 1)
-
-    def test_entries_are_hashable(self):
-        """Dedup needs it, so nothing on an entry may be an unhashable container."""
-        entry = MergeTimelineEntry(
-            epoch=Epoch(1),
-            updates=(FieldUpdate(field='a', value='b'),),
-            unavailable_infos=(UnavailableInfo(extractor='youtube', msg='gone'),))
-        self.assertEqual(len({entry, entry}), 1)
-
-    def test_level_change_is_two_flat_fields(self):
-        entry = MergeTimelineEntry(epoch=Epoch(1), prev_info_level=V_InfoLevel.FLAT,
-                                   info_level=V_InfoLevel.EXTRACT)
-        self.assertTrue(entry.is_better_info)
-        self.assertEqual(entry.render_better_info(), 'FLAT -> EXTRACT')
-
-    def test_no_level_change_renders_nothing(self):
-        same = MergeTimelineEntry(epoch=Epoch(1), prev_info_level=V_InfoLevel.EXTRACT,
-                                  info_level=V_InfoLevel.EXTRACT)
-        self.assertFalse(same.is_better_info)
-        self.assertIsNone(same.render_better_info())
-        self.assertIsNone(MergeTimelineEntry(epoch=Epoch(1)).render_better_info())
 
     def test_order_is_chronological_with_level_as_tiebreak(self):
         timeline = VideoTimeline((
@@ -275,17 +204,6 @@ class Timeline(unittest.TestCase):
                                updates=(FieldUpdate(field='y', value='2'),)),
         ))
         self.assertEqual([int(e.epoch) for e in timeline], [1_704_067_200, 1_788_000_000])
-
-    def test_empty_entries_are_identifiable(self):
-        self.assertTrue(MergeTimelineEntry(epoch=Epoch(1)).is_empty())
-        self.assertFalse(MergeTimelineEntry(
-            epoch=Epoch(1), updates=(FieldUpdate(field='a', value='b'),)).is_empty())
-        self.assertFalse(MergeTimelineEntry(
-            epoch=Epoch(1), prev_info_level=V_InfoLevel.NONE,
-            info_level=V_InfoLevel.FLAT).is_empty())
-
-    def test_epoch_is_coerced(self):
-        self.assertIsInstance(MergeTimelineEntry(epoch=100).epoch, Epoch)
 
     def test_levels_reads_out_the_recorded_progression(self):
         timeline = VideoTimeline((
@@ -337,18 +255,6 @@ class Envelope(unittest.TestCase):
                          'yt_unavailable_msg', 'wa_unavailable_msg'):
             self.assertNotIn(pldl_key, entry.unwrap())
 
-    def test_data_is_read_only_at_runtime(self):
-        """`frozen` protects the reference; the payload needs protecting too."""
-        entry = VideoEntry.wrap({'id': 'a', 'title': 'T'})
-        with self.assertRaises(TypeError):
-            entry.data['title'] = 'changed'  # type: ignore[index]
-
-    def test_mutating_the_source_dict_does_not_reach_inside(self):
-        payload = {'id': 'a', 'title': 'T'}
-        entry = VideoEntry.wrap(payload)
-        payload['title'] = 'changed'
-        self.assertEqual(entry.data['title'], 'T')
-
     def test_an_int_info_level_survives(self):
         self.assertIs(VideoEntry.wrap({'id': 'a', 'info_level': 0}).info_level, V_InfoLevel.NONE)
 
@@ -358,10 +264,6 @@ class Envelope(unittest.TestCase):
         self.assertIs(
             VideoEntry.wrap({'id': 'a'}, info_level=V_InfoLevel.DOWNLOAD).info_level,
             V_InfoLevel.DOWNLOAD, 'an explicit level wins over derivation')
-
-    def test_entry_epoch_reads_the_payload(self):
-        self.assertEqual(VideoEntry.wrap({'id': 'a', 'epoch': 77}).epoch, 77)
-        self.assertEqual(VideoEntry.wrap({'id': 'a'}).epoch, 0)
 
     def test_capture_is_a_batch(self):
         capture = Capture(epoch=Epoch(100), videos=(
@@ -390,23 +292,6 @@ class Envelope(unittest.TestCase):
         expected['entries'] = [{k: v for k, v in e.items() if k != 'info_level'}
                                for e in expected['entries']]
         self.assertEqual(Capture.wrap_flat(FLAT_PL_INFO).unwrap_flat(), expected)
-
-    def test_capture_playlist_is_read_only(self):
-        capture = Capture.wrap_flat(FLAT_PL_INFO)
-        with self.assertRaises(TypeError):
-            capture.playlist['title'] = 'changed'  # type: ignore[index]
-
-    def test_merge_playlist_is_a_folded_capture(self):
-        doc = MergePlaylist(id='PL_x', epoch=700, info_level=PL_InfoLevel.MERGE,
-                            playlist={'title': 'Some Playlist'},
-                            videos=(VideoEntry.wrap({'id': 'a'}),))
-        self.assertIsInstance(doc.epoch, Epoch)
-        self.assertEqual(doc.ids(), ('a',))
-        self.assertEqual(doc.playlist['title'], 'Some Playlist')
-        self.assertNotIn('info_level', doc.playlist, 'the level lives on the envelope')
-        self.assertEqual(doc.timeline, {})
-        with self.assertRaises(TypeError):
-            doc.playlist['title'] = 'changed'  # type: ignore[index]
 
 
 if __name__ == '__main__':

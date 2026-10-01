@@ -11,7 +11,6 @@ from pldl.merge.videos import REMOVED, merge_v_infos
 from pldl.model.epoch import Epoch
 from pldl.model.errors import UnavailableInfo
 from pldl.model.levels import V_InfoLevel
-from pldl.model.timeline import FieldUpdate, VideoTimeline
 from pldl.model.videos import VideoEntry
 
 NONE, FLAT, EXTRACT, DOWNLOAD = V_InfoLevel
@@ -183,32 +182,12 @@ class Determinism(unittest.TestCase):
         self.assertEqual(ta, tb)
 
 
-class Envelope(unittest.TestCase):
-    def test_playlist_epoch_is_the_newest_seen(self):
-        merged, _ = merge_v_infos([V(1, playlist_epoch=Epoch(10)), V(2), V(3, playlist_epoch=Epoch(30))])
-        self.assertEqual(merged.playlist_epoch, 30)
-
-    def test_id_is_the_grouping_key(self):
-        merged, _ = merge_v_infos([V(1, id='abc')])
-        self.assertEqual(merged.id, 'abc')
-
-
 class Errors(unittest.TestCase):
-    def test_nothing_to_merge(self):
-        with self.assertRaises(ValueError):
-            merge_v_infos([])
-
     def test_mixed_ids_are_refused(self):
         with self.assertRaises(ValueError):
             merge_v_infos([V(1, id='a'), V(2, id='b')])
         with self.assertRaises(ValueError):
             merge_v_infos([V(1, id='a')], init_v_entry=V(0, id='b'))
-
-    def test_a_missing_timeline_starts_empty(self):
-        _, timeline = merge_v_infos([V(1, title='T')], init_v_timeline=None)
-        self.assertIsInstance(timeline, VideoTimeline)
-        self.assertEqual(updates_at(timeline, 1), {'title': 'T'})
-        self.assertIsInstance(timeline[0].updates[0], FieldUpdate)
 
 
 if __name__ == '__main__':

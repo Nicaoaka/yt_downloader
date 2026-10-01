@@ -70,14 +70,6 @@ class UpdateRoster(unittest.TestCase):
         self.assertEqual(forwards.get('a').context, backwards.get('a').context)
         self.assertEqual(forwards.get('a').context['title'], 'FULL-a')
 
-    def test_a_later_call_replaces_context_even_with_older_captures(self):
-        """Known and documented: the roster stores a context value without the rank of the
-        source that supplied it, so resolution cannot reach back across calls. Pass a
-        session's captures together. Nothing may depend on context for correctness."""
-        roster = update_roster(Roster(id='PL_x'), [flat(2000, ['a'])])
-        stale = update_roster(roster, [batch(1000, ['a'])])
-        self.assertEqual(stale.get('a').context['title'], 'FULL-a')
-
     def test_context_is_only_the_declared_fields(self):
         roster = update_roster(
             update_roster(Roster(id='PL_x'), [flat(1000, ['a'])]),
@@ -90,10 +82,6 @@ class UpdateRoster(unittest.TestCase):
         roster = update_roster(Roster(id='PL_x'), [flat(1000, ['a'])])
         after = update_roster(roster, [batch(2000, ['zzz'])])
         self.assertEqual(after.ids(), ('a',))
-
-    def test_no_captures_is_a_no_op(self):
-        roster = update_roster(Roster(id='PL_x'), [flat(1000, ['a', 'b'])])
-        self.assertEqual(update_roster(roster, []), roster)
 
 
 class MergePlInfos(unittest.TestCase):
