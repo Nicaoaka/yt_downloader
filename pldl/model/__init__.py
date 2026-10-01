@@ -1,18 +1,11 @@
 """
-L0. The vocabulary: types, levels, epochs, ranking, timeline, kinds, errors.
+The vocabulary: types, levels, epochs, ranking, timeline, errors.
 
 **Imports nothing from pldl outside this package.** No I/O, printing, or network responsibilities
 prevents cycles with other subpackages.
-
-The `InfoKind` constants are deliberately not re-exported here, because `ROSTER` means nothing
-on its own. Reach them through the module:
-
-    from pldl.model import kinds
-    kinds.ROSTER, kinds.RAW_FLAT
 """
 from __future__ import annotations
 
-from pldl.model.downloads import DL_Action, DL_Result
 from pldl.model.epoch import (
     EPOCH_ZERO,
     Epoch,
@@ -24,14 +17,7 @@ from pldl.model.epoch import (
     to_iso,
     to_v1_readable_epoch,
 )
-from pldl.model.errors import (
-    Classification,
-    ErrorClass,
-    Issue,
-    Severity,
-    UnavailableInfo,
-    classify,
-)
+from pldl.model.errors import ErrorClass, UnavailableInfo
 from pldl.model.infodicts import (
     NO_VALUE,
     PL_ID,
@@ -39,42 +25,15 @@ from pldl.model.infodicts import (
     ANY_InfoDict,
     PL_InfoDict,
     V_InfoDict,
-    YT_DLP_DownloadArchive,
-    YT_DLP_DownloadArchive_IDs,
     YT_DLP_InfoDict,
-)
-from pldl.model.kinds import (
-    KINDS,
-    PLDL_OWNED,
-    USER_OWNED,
-    InfoKind,
-    KindName,
-    Owner,
-    PayloadShape,
 )
 from pldl.model.levels import (
     PL_InfoLevel,
     Rank,
     V_InfoLevel,
-    coerce_pl_level,
     coerce_v_level,
-    derive_pl_info_level,
     derive_v_info_level,
-    info_rank,
-    pl_level_mismatch,
     rank,
-    v_level_mismatch,
-)
-from pldl.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
-from pldl.model.metadata import (
-    ARCHIVE_FILENAME,
-    METADATA_FILENAME,
-    PLAYLISTS_INDEX_FILENAME,
-    ROSTER_FILENAME,
-    Metadata,
-    Paths,
-    SessionLog,
-    VideoLog,
 )
 from pldl.model.playlists import Capture, MergePlaylist
 from pldl.model.roster import (
@@ -101,18 +60,12 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
     # infodicts + aliases
     'V_ID', 'PL_ID',
     'YT_DLP_InfoDict', 'V_InfoDict', 'PL_InfoDict', 'ANY_InfoDict',
-    'YT_DLP_DownloadArchive', 'YT_DLP_DownloadArchive_IDs',
     'NO_VALUE',
-
-    # download control
-    'DL_Action', 'DL_Result',
 
     # levels + ranking
     'V_InfoLevel', 'PL_InfoLevel',
-    'coerce_v_level', 'coerce_pl_level',
-    'derive_v_info_level', 'derive_pl_info_level',
-    'v_level_mismatch', 'pl_level_mismatch',
-    'Rank', 'rank', 'info_rank',
+    'coerce_v_level', 'derive_v_info_level',
+    'Rank', 'rank',
 
     # time
     'Epoch', 'EPOCH_ZERO', 'get_epoch', 'get_latest_epoch',
@@ -122,9 +75,6 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
     # timeline
     'FieldUpdate', 'MergeTimelineEntry', 'VideoTimeline', 'PlaylistTimeline',
 
-    # manipulations
-    'Manipulation', 'ManipulationKind', 'ManipulationLog',
-
     # envelopes
     'VideoEntry', 'Capture', 'MergePlaylist',
 
@@ -132,14 +82,6 @@ __all__ = [  # noqa: RUF022 - grouped by concept, which is how these are looked 
     'Roster', 'RosterEntry', 'VideoContext', 'PlaylistContext',
     'VIDEO_CONTEXT_SOURCES', 'PLAYLIST_CONTEXT_SOURCES',
 
-    # metadata
-    'Metadata', 'Paths', 'SessionLog', 'VideoLog',
-    'ROSTER_FILENAME', 'METADATA_FILENAME', 'ARCHIVE_FILENAME', 'PLAYLISTS_INDEX_FILENAME',
-
-    # kinds
-    'InfoKind', 'KindName', 'Owner', 'PayloadShape',
-    'KINDS', 'USER_OWNED', 'PLDL_OWNED',
-
     # errors
-    'ErrorClass', 'Classification', 'classify', 'UnavailableInfo', 'Issue', 'Severity',
+    'ErrorClass', 'UnavailableInfo',
 ]

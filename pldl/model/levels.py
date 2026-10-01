@@ -9,19 +9,13 @@ and uses the level only to separate two sources from the same second. Which valu
 is per-field and belongs to the merge's field updater; which of those changes gets written to
 the timeline belongs to its update filter. Three questions, three mechanisms -- collapsing the
 last two into a global ordering rule is what makes a timeline stop recording change.
-
-Derivation is pure and never reports. `v_level_mismatch()` returns a disagreement between the
-declared and derived level as a value, leaving it to the caller to decide whether that is
-worth surfacing.
 """
 from __future__ import annotations
 
 __all__ = [  # noqa: RUF022
     'V_InfoLevel', 'PL_InfoLevel',
-    'coerce_v_level', 'coerce_pl_level',
-    'derive_v_info_level', 'derive_pl_info_level',
-    'v_level_mismatch', 'pl_level_mismatch',
-    'Rank', 'rank', 'info_rank',
+    'coerce_v_level', 'derive_v_info_level',
+    'Rank', 'rank',
 ]
 
 from collections.abc import Mapping
@@ -67,25 +61,6 @@ def coerce_v_level(value: V_InfoLevel | str | int | None) -> V_InfoLevel:
     return V_InfoLevel.NONE
 
 
-def coerce_pl_level(value: PL_InfoLevel | str | int | None) -> PL_InfoLevel:
-    """Best-effort conversion to a PL_InfoLevel. Anything unrecognized becomes NONE.
-    
-    v1-compat: recognizes int-serialized versions.
-    """
-    if isinstance(value, PL_InfoLevel):
-        return value
-    if value is None:
-        return PL_InfoLevel.NONE
-    if isinstance(value, str):
-        return PL_InfoLevel.__members__.get(value, PL_InfoLevel.NONE)
-    if isinstance(value, int) and not isinstance(value, bool):
-        try:
-            return PL_InfoLevel(value)
-        except ValueError:
-            return PL_InfoLevel.NONE
-    return PL_InfoLevel.NONE
-
-
 # ---- derivation ----
 
 def _maybe_available_on_yt(info: _AnyInfo) -> bool:
@@ -123,52 +98,6 @@ def derive_v_info_level(v_info: _AnyInfo | None) -> V_InfoLevel:
     return V_InfoLevel.NONE
 
 
-def derive_pl_info_level(pl_info: _AnyInfo | None) -> PL_InfoLevel:
-    """The level implied by the *content* of a playlist infodict. Pure."""
-    if not pl_info:
-        return PL_InfoLevel.NONE
-    has_extracts = any(derive_v_info_level(entry) >= V_InfoLevel.EXTRACT
-                       for entry in pl_info.get('entries', []))
-    has_merge_timeline = 'merge_timeline' in pl_info
-    match has_extracts, has_merge_timeline:
-        case False, False: return PL_InfoLevel.FLAT
-        case False, True:  return PL_InfoLevel.MERGE_FLAT
-        case True, False:  return PL_InfoLevel.NORMAL
-        case _:            return PL_InfoLevel.MERGE
-
-
-def v_level_mismatch(v_info: _AnyInfo | None) -> tuple[str, V_InfoLevel] | None:
-    """returns (declared, derived) when a video infodict's stated level disagrees with its content.
-
-    None when they agree, when v_info is None, or 'info_level' is None.
-    """
-    if not v_info:
-        return None
-    declared = v_info.get('info_level')
-    if declared is None:
-        return None
-    derived = derive_v_info_level(v_info)
-    if str(declared) == derived.name:
-        return None
-    return str(declared), derived
-
-
-def pl_level_mismatch(pl_info: _AnyInfo | None) -> tuple[str, PL_InfoLevel] | None:
-    """returns (declared, derived) when a playlist infodict's stated level disagrees with content.
-    
-    None when they agree, when pl_info is None, or 'info_level' is None.
-    """
-    if not pl_info:
-        return None
-    declared = pl_info.get('info_level')
-    if declared is None:
-        return None
-    derived = derive_pl_info_level(pl_info)
-    if str(declared) == derived.name:
-        return None
-    return str(declared), derived
-
-
 # ---- ordering ----
 
 class Rank(NamedTuple):
@@ -200,13 +129,3 @@ def rank(epoch: int, info_level: V_InfoLevel | str | int | None) -> Rank:
     stay legible.
     """
     return Rank(epoch, coerce_v_level(info_level).value)
-
-
-def info_rank(v_info: _AnyInfo, epoch: int | None = None) -> Rank:
-    """`rank()` for a whole infodict, reading its declared level and its own epoch.
-
-    Uses the declared level rather than deriving one, so ordering stays a field lookup.
-    """
-    if epoch is None:
-        epoch = int(v_info.get('epoch', 0) or 0)
-    return rank(epoch, v_info.get('info_level'))

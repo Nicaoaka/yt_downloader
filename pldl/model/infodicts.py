@@ -19,8 +19,6 @@ __all__ = [  # noqa: RUF022
 
     'YT_DLP_InfoDict', 'V_InfoDict', 'PL_InfoDict', 'ANY_InfoDict',
 
-    'ExtractorKey', 'YT_DLP_DownloadArchive', 'YT_DLP_DownloadArchive_IDs',
-
     'NO_VALUE',
 ]
 
@@ -198,13 +196,6 @@ class PL_InfoDict[ENTRY=V_InfoDict](YT_DLP_InfoDict[ENTRY], _v1_PL_InfoDict_Addo
 
 
 type ANY_InfoDict = V_InfoDict | PL_InfoDict | dict
-
-
-# ---- archive ----
-
-type ExtractorKey = str
-type YT_DLP_DownloadArchive = list[tuple[ExtractorKey, V_ID]]
-type YT_DLP_DownloadArchive_IDs = list[V_ID]
 
 
 # ---- sentinels ----

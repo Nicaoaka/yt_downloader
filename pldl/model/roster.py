@@ -11,8 +11,7 @@ Two invariants live here and nowhere else:
   - **A video that vanishes from YouTube keeps its row forever** and flips `in_playlist` to
     False. Automatic, and the reason nothing is ever lost.
   - **A video removed through the API loses its row.** That is a deliberate manual act, so it
-    is honored and permanent. The removal is recorded in `manipulations` and the raw captures
-    stay on disk, so the record is rebuildable.
+    is honored and permanent. The raw captures stay on disk, so the record is rebuildable.
 
 `in_playlist` is written by exactly one operation, `Roster.with_flat_extraction()`, and
 derived nowhere else.
@@ -43,7 +42,6 @@ from typing import NotRequired, TypedDict
 from pldl.model.epoch import EPOCH_ZERO, Epoch
 from pldl.model.errors import UnavailableInfo
 from pldl.model.infodicts import PL_ID, V_ID
-from pldl.model.manipulations import ManipulationLog
 from pldl.model.schema import SCHEMA_VERSION
 from pldl.model.timeline import PlaylistTimeline
 
@@ -103,7 +101,7 @@ class RosterEntry:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Roster:
-    """Membership, order, context, timeline and edit log for one playlist.
+    """Membership, order, context and timeline for one playlist.
 
     Frozen: every mutation returns a new Roster, which is what lets a commit be atomic -- the
     version on disk is either the old one or the new one, never half applied.
@@ -119,7 +117,6 @@ class Roster:
 
     context: PlaylistContext = field(default_factory=PlaylistContext)
     timeline: PlaylistTimeline = field(default_factory=dict)
-    manipulations: ManipulationLog = field(default_factory=ManipulationLog)
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:

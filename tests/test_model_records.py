@@ -1,4 +1,4 @@
-"""The roster, timeline, manipulations, envelope, metadata and kind registry.
+"""The roster, timeline and envelope.
 
 These carry the invariants the record depends on, so the tests are written as statements of
 those invariants rather than as coverage of the methods.
@@ -6,21 +6,9 @@ those invariants rather than as coverage of the methods.
 import dataclasses
 import unittest
 
-from pldl.model import kinds as kinds_module
 from pldl.model.epoch import Epoch
 from pldl.model.errors import UnavailableInfo
-from pldl.model.kinds import (
-    KINDS,
-    PLDL_OWNED,
-    USER_OWNED,
-    InfoKind,
-    KindName,
-    Owner,
-    PayloadShape,
-)
 from pldl.model.levels import PL_InfoLevel, V_InfoLevel
-from pldl.model.manipulations import Manipulation, ManipulationKind, ManipulationLog
-from pldl.model.metadata import Metadata, Paths, SessionLog, VideoLog
 from pldl.model.playlists import Capture, MergePlaylist
 from pldl.model.roster import (
     PLAYLIST_CONTEXT_SOURCES,
@@ -32,9 +20,6 @@ from pldl.model.roster import (
 )
 from pldl.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
 from pldl.model.videos import VideoEntry
-
-SAMPLE_PATHS = Paths(playlist_dir='Some Playlist [PL_x]')
-
 
 def _roster(*ids, epoch=1000):
     return Roster(
@@ -227,37 +212,6 @@ class ContextShape(unittest.TestCase):
         """last_updated answers "how current is membership", not "how current is the text"."""
         roster = Roster(id='p').with_flat_extraction(['a'], epoch=1000)
         self.assertEqual(roster.with_video_context('a', {'title': 'T'}).last_updated, 1000)
-
-
-class Manipulations(unittest.TestCase):
-    """A separate log, because merging and editing answer different questions."""
-
-    def test_records_edits_chronologically(self):
-        log = (ManipulationLog()
-               .add(Manipulation(epoch=Epoch(300), kind=ManipulationKind.MOVE, v_id='b'))
-               .add(Manipulation(epoch=Epoch(100), kind=ManipulationKind.REMOVE, v_id='a')))
-        self.assertEqual([int(m.epoch) for m in log], [100, 300])
-
-    def test_identical_entries_collapse(self):
-        m = Manipulation(epoch=Epoch(1), kind=ManipulationKind.REMOVE, v_id='a')
-        self.assertEqual(len(ManipulationLog().add(m).add(m)), 1)
-
-    def test_survives_the_removal_of_its_video(self):
-        """A removed video loses its row, so the log is the only record it was ever here."""
-        roster = dataclasses.replace(
-            _roster('a', 'b'),
-            manipulations=ManipulationLog((
-                Manipulation(epoch=Epoch(500), kind=ManipulationKind.REMOVE, v_id='a'),)))
-        without_a = roster.with_entries(e for e in roster.entries if e.id != 'a')
-
-        self.assertNotIn('a', without_a)
-        self.assertEqual(len(without_a.manipulations.for_video('a')), 1)
-
-    def test_renders_readably(self):
-        self.assertEqual(
-            Manipulation(epoch=Epoch(1), kind=ManipulationKind.REPLACE,
-                         v_id='b', detail='from=b to=c').render(),
-            '<REPLACE b from=b to=c>')
 
 
 class Timeline(unittest.TestCase):
@@ -453,116 +407,6 @@ class Envelope(unittest.TestCase):
         self.assertEqual(doc.timeline, {})
         with self.assertRaises(TypeError):
             doc.playlist['title'] = 'changed'  # type: ignore[index]
-
-
-class MetadataRecord(unittest.TestCase):
-    def _meta(self):
-        return Metadata(id='PL_x', paths=Paths(playlist_dir='Some Playlist [PL_x]'))
-
-    def test_history_stays_ordered_however_it_is_added(self):
-        meta = (self._meta()
-                .record(SessionLog(started=Epoch(300)))
-                .record(SessionLog(started=Epoch(100))))
-        self.assertEqual([int(s.started) for s in meta.history], [100, 300])
-        self.assertEqual(meta.latest().started, 300)
-
-    def test_a_session_spans_a_range(self):
-        session = SessionLog(started=Epoch(1000), ended=Epoch(1900))
-        self.assertEqual(session.duration, 900)
-        self.assertIsNone(SessionLog(started=Epoch(1000)).duration,
-                          'an unfinished session has no duration')
-
-    def test_epochs_for_uses_each_videos_own_epoch(self):
-        """A session runs for many minutes, so backoff must use when the video was tried."""
-        meta = self._meta().with_history([
-            SessionLog(started=Epoch(1000), ended=Epoch(1900), videos=(
-                VideoLog(id='a', epoch=Epoch(1100)),
-                VideoLog(id='b', epoch=Epoch(1800)),
-            )),
-            SessionLog(started=Epoch(5000), videos=(VideoLog(id='a', epoch=Epoch(5050)),)),
-        ])
-        self.assertEqual(meta.epochs_for('a'), (1100, 5050))
-        self.assertEqual(meta.epochs_for('b'), (1800,))
-        self.assertEqual(meta.epochs_for('never'), ())
-
-    def test_errors_is_always_present(self):
-        """Empty rather than absent, so readers never need a default."""
-        self.assertEqual(VideoLog(id='a', epoch=Epoch(1)).errors, ())
-
-    def test_session_lookup(self):
-        session = SessionLog(started=Epoch(1), videos=(VideoLog(id='a', epoch=Epoch(2)),))
-        self.assertIsNotNone(session.get('a'))
-        self.assertIsNone(session.get('zzz'))
-
-    def test_there_are_no_pointers(self):
-        self.assertNotIn('pointers', {f.name for f in dataclasses.fields(Metadata)})
-
-    def test_path_templates_may_use_yt_dlp_expressions(self):
-        """Templates are resolved by yt-dlp, so arithmetic and format specs are legal."""
-        self.assertIn('%(playlist_index + 1)d', Paths(playlist_dir='x').link_file)
-
-
-class KindRegistry(unittest.TestCase):
-    def test_kinds_are_reachable_as_module_constants(self):
-        """A misspelling is then an AttributeError at import, not a KeyError at runtime."""
-        self.assertIs(kinds_module.ROSTER, KINDS[KindName.ROSTER])
-
-    def test_every_kind_declares_its_owner_consistently(self):
-        for name, kind in KINDS.items():
-            with self.subTest(kind=name):
-                if kind.owner is Owner.PLDL:
-                    self.assertTrue(kind.filename.startswith('_'))
-                    self.assertFalse(kind.may_be_missing)
-                else:
-                    self.assertIsNotNone(kind.tmpl)
-                    self.assertIsInstance(kind.tmpl(SAMPLE_PATHS), str)
-                    self.assertTrue(kind.may_be_missing)
-
-    def test_a_template_accessor_is_a_real_reference_not_a_name(self):
-        """A bare field name is a string that merely happens to match an attribute; nothing
-        connects the two. An accessor is resolved by the type checker, followed by
-        rename-refactoring, and smoke-called at import -- so a typo cannot reach the store."""
-        with self.assertRaises(AttributeError):
-            InfoKind(name=KindName.RAW_FLAT, owner=Owner.USER, payload=PayloadShape.SINGLE,
-                     tmpl=lambda p: p.raw_flta)  # type: ignore[attr-defined]
-
-    def test_every_registered_kind_resolves_at_import(self):
-        """Import already proved this; asserting it keeps the guarantee from being deleted."""
-        for kind in USER_OWNED:
-            with self.subTest(kind=kind.name):
-                self.assertIsInstance(kind.tmpl(SAMPLE_PATHS), str)  # type: ignore[misc]
-
-    def test_playlist_dir_is_not_a_template(self):
-        """It names the folder the templates resolve inside, so it is resolved once at
-        creation and stored, not per file."""
-        self.assertNotIn('playlist_dir', Paths.template_fields())
-        self.assertIn('raw_flat', Paths.template_fields())
-
-    def test_the_registry_rejects_an_inconsistent_kind(self):
-        with self.assertRaises(ValueError):
-            InfoKind(name=KindName.ROSTER, owner=Owner.PLDL, payload=PayloadShape.SINGLE)
-        with self.assertRaises(ValueError):
-            InfoKind(name=KindName.RAW_FLAT, owner=Owner.USER, payload=PayloadShape.SINGLE)
-        with self.assertRaises(ValueError):
-            InfoKind(name=KindName.ROSTER, owner=Owner.PLDL,
-                     payload=PayloadShape.SINGLE, filename='roster.json')
-
-    def test_kinds_carry_no_config_derived_behavior(self):
-        """Templates come from Paths and filters from config; store/ combines them at write
-        time. Keeping that off the kind is what lets these be module constants."""
-        fields = {f.name for f in dataclasses.fields(InfoKind)}
-        self.assertNotIn('reorder', fields)
-        self.assertNotIn('filter_of', fields)
-
-    def test_the_two_ownership_groups_partition_the_registry(self):
-        self.assertEqual(len(USER_OWNED) + len(PLDL_OWNED), len(KINDS))
-        self.assertEqual({k.name for k in PLDL_OWNED},
-                         {KindName.ROSTER, KindName.METADATA, KindName.ARCHIVE})
-
-    def test_the_batch_kind_reads_the_newest_epoch(self):
-        self.assertEqual(
-            kinds_module.RAW_V_INFOS.epoch_of({'videos': [{'epoch': 10}, {'epoch': 30}]}), 30)
-        self.assertEqual(kinds_module.RAW_V_INFOS.epoch_of({'videos': []}), 0)
 
 
 if __name__ == '__main__':
