@@ -1,0 +1,10 @@
+__pycache__
+.vscode
+/.venv
+/.claude
+
+# personal run configs and downloaded playlist data - see CLAUDE.md
+/scripts
+/data
+
+/secrets/*
