@@ -76,12 +76,17 @@ from pldl2.merge.updaters import (
     unwrap_candidates,
     wrap_candidates,
 )
-from pldl2.model.epoch import Epoch
-from pldl2.model.errors import UnavailableInfo
-from pldl2.model.infodicts import NO_VALUE
-from pldl2.model.levels import Rank, V_InfoLevel
-from pldl2.model.timeline import FieldUpdate, MergeTimelineEntry, VideoTimeline
-from pldl2.model.videos import VideoEntry
+from pldl2.model import (
+    NO_VALUE,
+    Epoch,
+    FieldUpdate,
+    MergeTimelineEntry,
+    Rank,
+    UnavailableInfo,
+    V_InfoLevel,
+    VideoEntry,
+    VideoTimeline,
+)
 
 REMOVED: Final = '<removed>'
 """How a `FieldUpdate` renders a key the winning source lacked. `str(None)` is taken."""
