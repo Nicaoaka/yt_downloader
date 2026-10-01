@@ -32,7 +32,7 @@ belongs in `MergeReport.omitted` rather than in an exception.
 
 `ordering.merge_ordered_lists` reconciles the orders every snapshot proposes, newest first, so
 the newest wins a disagreement. The result is the order the merged document presents, and it is
-also what the caller can hand back to `roster.apply_flat_extraction(order=...)`.
+also what the caller applies with `Roster.with_order()`.
 
 # ---- playlist-level fields ----
 
@@ -44,7 +44,7 @@ visible and overridable, rather than a hardcoded index.
 
 # ---- the roster's context ----
 
-    fold_flat_extraction(roster, capture, *, resolve, epoch) -> Roster
+    update_roster(roster, captures, *, updater_map=ROSTER_UPDATER) -> Roster
 
 Updating the roster is a merge, so it belongs here and not in `model/roster.py`. It runs the
 same updaters over the same candidates as any other field, then hands the answer to
@@ -72,3 +72,228 @@ and the per-video timeline. `merge_timeline` and `info_level` therefore never en
 payload. A projection flattens it to the inline v1 shape for anything that wants a plain
 infodict -- that is a dict merge at the boundary, not a second code path with its own rules.
 """
+from __future__ import annotations
+
+__all__ = ['MergeReport', 'merge_pl_infos', 'update_roster']
+
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from itertools import chain
+from typing import Any
+
+from pldl2.merge.ordering import merge_ordered_lists
+from pldl2.merge.updaters import (
+    COMMON_TIMELINE_KEYS,
+    COMMON_UPDATER,
+    PL_UPDATER,
+    ROSTER_UPDATER,
+    Candidate,
+    MergeUpdaterMap,
+    TimelineUpdateFilter,
+    apply_updater,
+    unwrap_candidates,
+)
+from pldl2.merge.videos import merge_v_infos
+from pldl2.model import (
+    NO_VALUE,
+    PLAYLIST_CONTEXT_SOURCES,
+    V_ID,
+    VIDEO_CONTEXT_SOURCES,
+    Capture,
+    Epoch,
+    MergePlaylist,
+    PL_InfoLevel,
+    PlaylistTimeline,
+    Rank,
+    Roster,
+    V_InfoLevel,
+    VideoEntry,
+)
+
+type _Payloads = Iterable[tuple[Mapping[str, Any], Rank]]
+
+
+@dataclass(slots=True, kw_only=True)
+class MergeReport:
+    """A merge's product, plus what it could not place. Nothing is written here."""
+
+    merged: MergePlaylist
+    omitted: Mapping[V_ID, int] = field(default_factory=dict)
+    """Ids present in the captures that the roster does not know, and how many entries each
+    contributed. An ordinary case -- a removal followed by a merge looks exactly like this --
+    so it is reported rather than raised."""
+    warnings: tuple[str, ...] = ()
+
+
+# ---- folding payloads ----
+
+def _fold(payloads: _Payloads, updater_map: MergeUpdaterMap,
+          keys: Sequence[str] | None = None) -> dict[str, Any]:
+    """Fold payloads into one, by the table. `keys` restricts it to a whitelist.
+
+    Same machinery as the per-video fold, minus the timeline: a `Candidate` per key carrying
+    the rank of the source that supplied it, so the result does not depend on fold order.
+    """
+    merged: dict[str, Candidate] = {}
+    for payload, rank in payloads:
+        for key in keys if keys is not None else sorted(merged.keys() | payload.keys()):
+            apply_updater(merged, key, Candidate(payload.get(key, NO_VALUE), rank),
+                          updater_map[key])
+    return unwrap_candidates(merged)
+
+
+def _context(values: Mapping[str, Any], sources: Mapping[str, tuple[str, ...]]) -> dict[str, Any]:
+    """Read the context fields out of a merged payload, first source key that has a value."""
+    found: dict[str, Any] = {}
+    for target, keys in sources.items():
+        for key in keys:
+            value = values.get(key)
+            if value is not None:
+                found[target] = value
+                break
+    return found
+
+
+def _source_keys(sources: Mapping[str, tuple[str, ...]]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(chain.from_iterable(sources.values())))
+
+
+# ---- the roster ----
+
+def update_roster(roster: Roster, captures: Sequence[Capture], *,
+                  updater_map: MergeUpdaterMap = ROSTER_UPDATER) -> Roster:
+    """Fold a session's captures into the roster: membership, then order, then context.
+
+    **Only a flat extraction may decide membership.** A per-video batch holds whatever this
+    session happened to extract, so treating it as a listing would flip every video it does
+    not mention to `in_playlist=False`. `Capture.playlist` is the discriminator: `wrap_flat`
+    fills it, a per-video batch leaves it `None`.
+
+    Context comes from every capture, flat or not -- a full extraction knows a title a flat
+    one cannot see for a dead video -- and follows the merge's policy, which is why it is
+    resolved here and only stored by the roster.
+
+    **Context is resolved across the captures given, then replaces what was stored.** Within
+    one call the result does not depend on the order, but a later call wins over an earlier
+    one even if its captures are older, because the roster stores a context value without the
+    rank of the source that supplied it. Pass a session's captures together. Nothing may
+    depend on context for correctness -- that is why it is allowed to be best-effort here
+    rather than carrying per-field provenance on disk.
+    """
+    flats = sorted((c for c in captures if c.playlist is not None), key=lambda c: c.epoch)
+
+    for capture in flats:
+        roster = roster.with_flat_extraction(capture.ids(), capture.epoch)
+
+    if flats:
+        # Newest snapshot first: it wins a disagreement. The roster's current order is the
+        # accumulated result of every earlier snapshot, so it goes last and breaks ties.
+        roster = roster.with_order(merge_ordered_lists(
+            [*(c.ids() for c in reversed(flats)), roster.ids()]))
+
+    known = set(roster.ids())
+    v_payloads: dict[V_ID, list[tuple[Mapping[str, Any], Rank]]] = {}
+    pl_payloads: list[tuple[Mapping[str, Any], Rank]] = []
+    for capture in captures:
+        if capture.playlist is not None:
+            pl_payloads.append((capture.playlist, Rank(capture.epoch, V_InfoLevel.FLAT)))
+        for entry in capture.videos:
+            if entry.id in known:
+                v_payloads.setdefault(entry.id, []).append((entry.data, entry.rank))
+
+    v_keys = _source_keys(VIDEO_CONTEXT_SOURCES)
+    for v_id, payloads in v_payloads.items():
+        context = _context(_fold(payloads, updater_map, v_keys), VIDEO_CONTEXT_SOURCES)
+        if context:
+            roster = roster.with_video_context(v_id, context)  # type: ignore[arg-type]
+
+    if pl_payloads:
+        context = _context(_fold(pl_payloads, updater_map, _source_keys(PLAYLIST_CONTEXT_SOURCES)),
+                           PLAYLIST_CONTEXT_SOURCES)
+        if context:
+            roster = roster.with_playlist_context(context)  # type: ignore[arg-type]
+
+    return roster
+
+
+# ---- the merge ----
+
+def merge_pl_infos(
+    roster: Roster,
+    captures: Sequence[Capture],
+    *,
+    timeline_filter: TimelineUpdateFilter = COMMON_TIMELINE_KEYS.__contains__,
+    v_updater_map: MergeUpdaterMap = COMMON_UPDATER,
+    pl_updater_map: MergeUpdaterMap = PL_UPDATER,
+    previous: MergePlaylist | None = None,
+) -> MergeReport:
+    """Fold every capture into one merged playlist, in the roster's order.
+
+    Membership and order come from the roster alone; the captures only supply values. Ids the
+    roster does not know are reported in `MergeReport.omitted`, never indexed blindly.
+
+    `previous` continues an earlier merge, so pruned captures do not cost their values.
+    Timelines are seeded from `roster.timeline`, not from `previous`: the roster is the
+    durable document and the merges are regenerable, so history must not live only in a file
+    the user is invited to delete. The returned timeline is what the caller stores back with
+    `roster.with_timeline()`.
+    """
+    order = roster.ids()
+    by_id: dict[V_ID, list[VideoEntry]] = {v_id: [] for v_id in order}
+    omitted: Counter[V_ID] = Counter()
+    for capture in captures:
+        for entry in capture.videos:
+            if entry.id in by_id:
+                by_id[entry.id].append(entry)
+            else:
+                omitted[entry.id] += 1
+
+    videos: list[VideoEntry] = []
+    timeline: dict[V_ID, Any] = {}
+    for v_id in order:
+        sources, seed = by_id[v_id], previous.get(v_id) if previous else None
+        if not sources and seed is None:
+            # The roster knows this video but nothing has ever described it. Keep the row so
+            # `videos` stays aligned with the roster's order and membership.
+            videos.append(VideoEntry(id=v_id, info_level=V_InfoLevel.NONE, data={'id': v_id}))
+            continue
+        entry, v_timeline = merge_v_infos(
+            sources,
+            merge_updater_map=v_updater_map,
+            tl_update_filter=timeline_filter,
+            init_v_entry=seed,
+            init_v_timeline=roster.timeline.get(v_id),
+        )
+        videos.append(entry)
+        if len(v_timeline):
+            timeline[v_id] = v_timeline
+
+    # The previous merge is one more payload at its own rank, not a second pass.
+    pl_payloads = [(c.playlist, Rank(c.epoch, V_InfoLevel.FLAT))
+                   for c in captures if c.playlist is not None]
+    if previous is not None:
+        pl_payloads.append((previous.playlist, Rank(previous.epoch, V_InfoLevel.FLAT)))
+
+    epochs = [c.epoch for c in captures] + ([previous.epoch] if previous else [])
+
+    merged = MergePlaylist(
+        id=roster.id,
+        epoch=Epoch(max(epochs, default=roster.last_updated)),
+        info_level=_pl_level(videos, timeline),
+        playlist=_fold(pl_payloads, pl_updater_map),
+        videos=tuple(videos),
+        timeline=timeline,
+    )
+    return MergeReport(merged=merged, omitted=dict(omitted))
+
+
+def _pl_level(videos: Sequence[VideoEntry], timeline: PlaylistTimeline) -> PL_InfoLevel:
+    """Mirrors `derive_pl_info_level`, but reads the declared levels rather than sniffing
+    content -- a merged entry carries its level on the envelope."""
+    has_extracts = any(v.info_level >= V_InfoLevel.EXTRACT for v in videos)
+    match has_extracts, bool(timeline):
+        case False, False: return PL_InfoLevel.FLAT
+        case False, True:  return PL_InfoLevel.MERGE_FLAT
+        case True, False:  return PL_InfoLevel.NORMAL
+        case _:            return PL_InfoLevel.MERGE
