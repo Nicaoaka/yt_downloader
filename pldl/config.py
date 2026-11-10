@@ -77,6 +77,14 @@ def default_opts() -> YT_DLP_Params:
 
         'remote_components': {'ejs:npm'},
 
+        'extractor_args': {
+            'youtubepot-bgutilscript': {
+                'server_home': [
+                    '~/bgutil-ytdlp-pot-provider/server' # ~/ -> user/<User>/
+                ]
+            }
+        },
+
         # Prefer non-HLS (DASH) streams to avoid PTS/merge issues with itag 232 etc.
         'format': 'ba+bv[protocol!*=m3u8]/b[protocol!*=m3u8]/ba+bv/b',
         'format_sort': ['abr', 'res:1080', 'vbr', '+size'],

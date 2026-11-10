@@ -3,7 +3,7 @@ This project heavily relies on [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 # Setup
 
 ```ps
-pip install -U "yt-dlp[default]
+pip install -U "yt-dlp[default]"
 ```
 `yt-dlp` should be updated every so often to keep downloading working.
 
